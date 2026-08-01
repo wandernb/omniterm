@@ -1,0 +1,1533 @@
+#!/usr/bin/python3
+"""OmniTerm's human-friendly agent scheduler client."""
+
+import argparse
+import curses
+import datetime as dt
+import json
+import os
+import re
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+try:
+    import readline
+except ImportError:
+    readline = None
+
+SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+PEACH = "\033[38;2;247;177;133m"
+GREEN = "\033[38;2;105;219;124m"
+BLUE = "\033[38;2;125;170;255m"
+MUTED = "\033[38;2;145;145;145m"
+
+
+def styled(text, *styles):
+    return "".join(styles) + str(text) + RESET
+
+
+def terminal_width():
+    try:
+        return max(60, min(112, os.get_terminal_size().columns - 4))
+    except OSError:
+        return 88
+
+
+def print_rule(width, title=None, color=PEACH):
+    label = f" {title} " if title else ""
+    fill = max(0, width - 3 - len(label))
+    print("  " + color + "╭─" + label + "─" * fill + "╮" + RESET)
+
+
+def print_panel(lines, width, title=None, color=PEACH, padded=True):
+    print_rule(width, title, color)
+    panel_lines = ([" "] if padded else []) + list(lines) + ([" "] if padded else [])
+    for line in panel_lines:
+        plain, rendered = line if isinstance(line, tuple) else (str(line), str(line))
+        available = width - 6
+        if len(plain) > available:
+            plain = plain[:max(0, available - 1)] + "…"
+            rendered = styled(plain, MUTED)
+        print("  " + color + "│" + RESET + "  " + rendered + " " * max(0, width - 4 - len(plain)) + color + "│" + RESET)
+    print("  " + color + "╰" + "─" * (width - 2) + "╯" + RESET)
+
+
+def system_timezone():
+    path = Path("/etc/localtime")
+    try:
+        target = path.resolve()
+        marker = "/zoneinfo/"
+        if marker in str(target):
+            return str(target).split(marker, 1)[1]
+    except OSError:
+        pass
+    return "UTC"
+
+
+def discover_project(path):
+    candidate = Path(path).expanduser().resolve()
+    if candidate.is_file():
+        candidate = candidate.parent
+    if not candidate.is_dir():
+        raise SystemExit(f"Workspace does not exist: {candidate}")
+    for folder in (candidate, *candidate.parents):
+        if (folder / "AGENTS.md").is_file() or (folder / "CLAUDE.md").is_file():
+            return folder
+    return candidate
+
+
+def generated_agent_name(workspace, startup_prompt):
+    folder = Path(workspace).name or "Agent"
+    command = (startup_prompt or "").strip().splitlines()[0] if (startup_prompt or "").strip() else ""
+    command = re.sub(r"^[/:]+", "", command)
+    command = re.sub(r"[^A-Za-z0-9._:-]+", " ", command).strip()
+    return f"{folder} · {command}" if command else folder
+
+
+def codex_model_choices():
+    path = Path.home() / ".codex/models_cache.json"
+    try:
+        models = json.loads(path.read_text()).get("models", [])
+        return [item["slug"] for item in models
+                if item.get("slug") and item.get("visibility", "list") == "list"]
+    except (OSError, ValueError, TypeError):
+        return ["gpt-5.6-sol", "gpt-5.6-terra"]
+
+
+def claude_model_choices():
+    aliases = ["opus", "sonnet", "haiku", "fable"]
+    found = []
+    pattern = re.compile(r"^(?:claude-(?:opus|sonnet|haiku|fable)-[A-Za-z0-9.\-]+(?:\[1m\])?|opus|sonnet|haiku|fable)$")
+
+    def visit(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if isinstance(key, str) and pattern.match(key):
+                    found.append(key)
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, str) and pattern.match(value):
+            found.append(value)
+
+    for path in (Path.home() / ".claude/settings.json", Path.home() / ".claude.json"):
+        try:
+            visit(json.loads(path.read_text()))
+        except (OSError, ValueError):
+            pass
+    return list(dict.fromkeys(aliases + sorted(set(found) - set(aliases))))
+
+
+def model_choices(provider):
+    values = codex_model_choices() if provider == "codex" else claude_model_choices()
+    return ["provider default", *values, "Custom model…"]
+
+
+def path_completion_matches(text):
+    original = text or ""
+    expanded = os.path.expanduser(original or ".")
+    if expanded.endswith(os.sep):
+        base, prefix = Path(expanded), ""
+    else:
+        base, prefix = Path(expanded).parent, Path(expanded).name
+    try:
+        directories = sorted((item for item in base.iterdir()
+                              if item.is_dir() and item.name.startswith(prefix)),
+                             key=lambda item: item.name.lower())
+    except OSError:
+        return []
+    matches = []
+    for item in directories:
+        if original.startswith("~"):
+            value = "~" + str(item)[len(str(Path.home())):]
+        elif os.path.isabs(original):
+            value = str(item)
+        else:
+            parent = os.path.dirname(original)
+            value = os.path.join(parent, item.name) if parent else item.name
+        matches.append(value + "/")
+    return matches
+
+
+def request(payload):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.connect(str(SOCKET))
+    except OSError as exc:
+        raise SystemExit(f"OmniTerm scheduler is unavailable: {exc}")
+    client.sendall(json.dumps(payload).encode() + b"\n")
+    client.shutdown(socket.SHUT_WR)
+    chunks = []
+    while True:
+        chunk = client.recv(65536)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    response = json.loads(b"".join(chunks))
+    if not response.get("ok"):
+        raise SystemExit(response.get("error", "Scheduler request failed"))
+    return response
+
+
+def parse_duration(value):
+    text = value.strip().lower()
+    if text in {"off", "none", "disabled", "0"}:
+        return None
+    units = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600, "hour": 3600, "d": 86400, "day": 86400}
+    for suffix, factor in sorted(units.items(), key=lambda item: -len(item[0])):
+        if text.endswith(suffix):
+            return int(float(text[:-len(suffix)].strip()) * factor)
+    raise ValueError("Use a duration such as 30m, 2h, 1d, or off")
+
+
+def parse_time(value):
+    value = value.strip().lower()
+    for pattern in ("%H:%M", "%I%p", "%I:%M%p"):
+        try:
+            parsed = dt.datetime.strptime(value, pattern)
+            return parsed.hour, parsed.minute
+        except ValueError:
+            pass
+    raise ValueError("Use a time such as 09:00 or 9am")
+
+
+def parse_schedule(phrase, timezone=None, now=None):
+    phrase = " ".join(phrase.lower().split())
+    zone = ZoneInfo(timezone or system_timezone())
+    current = now or dt.datetime.now(zone)
+    if phrase.startswith("every "):
+        words = phrase.split()
+        amount = int(words[1])
+        unit = words[2].rstrip("s")
+        factor = {"minute": 60, "hour": 3600}.get(unit)
+        if not factor or amount < 1:
+            raise ValueError("Intervals support positive minutes or hours")
+        interval = amount * factor
+        return {"kind": "interval", "phrase": phrase, "interval_seconds": interval}, current.timestamp() + interval
+    if phrase.startswith("daily at ") or phrase.startswith("weekdays at "):
+        weekdays = phrase.startswith("weekdays")
+        hour, minute = parse_time(phrase.split(" at ", 1)[1])
+        candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= current:
+            candidate += dt.timedelta(days=1)
+        while weekdays and candidate.weekday() > 4:
+            candidate += dt.timedelta(days=1)
+        return {"kind": "weekdays" if weekdays else "daily", "phrase": phrase, "hour": hour, "minute": minute}, candidate.timestamp()
+    if phrase.startswith("weekly on "):
+        rest = phrase[len("weekly on "):]
+        day, value = rest.split(" at ", 1)
+        days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        if day not in days:
+            raise ValueError("Unknown weekday")
+        hour, minute = parse_time(value)
+        delta = (days.index(day) - current.weekday()) % 7
+        candidate = (current + dt.timedelta(days=delta)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= current:
+            candidate += dt.timedelta(days=7)
+        return {"kind": "weekly", "phrase": phrase, "weekday": days.index(day), "hour": hour, "minute": minute}, candidate.timestamp()
+    if phrase.startswith("once at "):
+        value = phrase[len("once at "):]
+        candidate = dt.datetime.fromisoformat(value).replace(tzinfo=zone)
+        if candidate <= current:
+            raise ValueError("One-time schedule must be in the future")
+        return {"kind": "once", "phrase": phrase, "at": candidate.timestamp()}, candidate.timestamp()
+    raise ValueError("Try ‘every 30 minutes’, ‘daily at 09:00’, ‘weekdays at 9am’, ‘weekly on monday at 10:00’, or ‘once at 2026-08-01 14:00’")
+
+
+def next_calendar(schedule, timezone, after):
+    zone = ZoneInfo(timezone)
+    current = dt.datetime.fromtimestamp(after, zone)
+    kind = schedule["kind"]
+    if kind == "once":
+        return None
+    if kind == "interval":
+        return after + schedule["interval_seconds"]
+    if kind in {"daily", "weekdays"}:
+        candidate = current.replace(hour=schedule["hour"], minute=schedule["minute"], second=0, microsecond=0) + dt.timedelta(days=1)
+        while kind == "weekdays" and candidate.weekday() > 4:
+            candidate += dt.timedelta(days=1)
+        return candidate.timestamp()
+    delta = (schedule["weekday"] - current.weekday()) % 7 or 7
+    return (current + dt.timedelta(days=delta)).replace(hour=schedule["hour"], minute=schedule["minute"], second=0, microsecond=0).timestamp()
+
+
+def ask(label, default=None, multiline=False, choices=None, path_completion=False):
+    suffix = f" [{default}]" if default not in (None, "") else ""
+    if multiline:
+        return interactive_text_editor(label, default or "")
+    old_completer = readline.get_completer() if readline else None
+    old_delims = readline.get_completer_delims() if readline else None
+    if readline:
+        def complete(text, state):
+            if path_completion:
+                matches = path_completion_matches(text)
+            else:
+                matches = [item for item in (choices or []) if item.lower().startswith(text.lower())]
+            return matches[state] if state < len(matches) else None
+        readline.set_completer(complete)
+        readline.set_completer_delims(" \t\n" if path_completion else "\t\n")
+        if "libedit" in (readline.__doc__ or "").lower():
+            readline.parse_and_bind("bind ^I rl_complete")
+        else:
+            readline.parse_and_bind("tab: complete")
+    value = input(styled(f"  {label}", PEACH, BOLD) + styled(suffix, MUTED) + styled("  › ", PEACH)).strip()
+    if readline:
+        readline.set_completer(old_completer)
+        readline.set_completer_delims(old_delims)
+    return value or default or ""
+
+
+def wizard_header(index, fields, values):
+    os.system("clear")
+    width = terminal_width()
+    logo = [
+        "  ___   __  __  _   _  ___ ",
+        " / _ \\ |  \\/  || \\ | ||_ _|",
+        "| | | || |\\/| ||  \\| | | | ",
+        "| |_| || |  | || |\\  | | | ",
+        " \\___/ |_|  |_||_| \\_||___|",
+    ]
+    for line in logo:
+        print("  " + styled(line, PEACH, BOLD))
+    print("  " + styled("Agent configuration wizard · Codex + Claude", BOLD))
+    print("  " + styled("Create predictable, resumable scheduled sessions", MUTED))
+
+    key, label, options = fields[index]
+    completed = "●" * index
+    remaining = "○" * (len(fields) - index - 1)
+    progress_plain = f"Step {index + 1:02} / {len(fields):02}  {completed}◆{remaining}"
+    progress_rendered = (styled(f"Step {index + 1:02} / {len(fields):02}", BOLD) + "  " +
+                         styled(completed, GREEN) + styled("◆", PEACH, BOLD) + styled(remaining, MUTED))
+    descriptions = {
+        "name": "Optional. Blank generates a name from the workspace and startup command.",
+        "provider": "Choose the interactive coding agent that opens in the run tab.",
+        "workspace": "The folder the agent starts in. Tab completes filesystem paths.",
+        "system_prompt": "Persistent role instructions. Enter saves; Command-Enter adds a line.",
+        "startup_prompt": "First user command. Enter saves; Command-Enter adds a line.",
+        "model": "Provider model name. Leave blank to follow the provider default.",
+        "schedule_phrase": "Human-friendly cadence; raw cron syntax is unnecessary.",
+        "overlap": "Replace the previous run, or allow runs to execute in parallel.",
+        "timeout": "Retention window for older run tabs; the newest ten stay protected.",
+        "permission_mode": "Provider permission policy. Blank uses its normal default.",
+        "advanced_args": "Optional provider flags not already managed by OmniTerm.",
+    }
+    print()
+    print_panel([(progress_plain, progress_rendered)], width, "PROGRESS", BLUE)
+    print()
+    field_lines = [
+        (label.upper(), styled(label.upper(), PEACH, BOLD)),
+        (descriptions[key], styled(descriptions[key], MUTED)),
+    ]
+    if options.get("choices"):
+        choices = "Suggestions  " + "  ·  ".join(item or "provider default" for item in options["choices"][:6])
+        field_lines.append((choices, styled("Suggestions  ", BLUE) + styled("  ·  ".join(item or "provider default" for item in options["choices"][:6]), MUTED)))
+    print_panel(field_lines, width, "CURRENT FIELD", PEACH)
+    print()
+    summary = []
+    for summary_key in ("name", "provider", "workspace", "model", "schedule_phrase", "overlap", "timeout"):
+        value = values.get(summary_key)
+        if value not in (None, ""):
+            value = str(value).splitlines()[0]
+            plain = f"{summary_key.replace('_', ' ').title():17}  {value}"
+            rendered = styled(f"{summary_key.replace('_', ' ').title():17}", MUTED) + "  " + styled(value, BOLD)
+            summary.append((plain, rendered))
+    print_panel(summary or [("No values entered yet", styled("No values entered yet", MUTED))], width, "AGENT PREVIEW", BLUE)
+    print()
+    print(styled("    Tab", PEACH, BOLD) + styled(" autocomplete   ", MUTED) +
+          styled(":back", PEACH, BOLD) + styled(" previous   ", MUTED) +
+          styled(":cancel", PEACH, BOLD) + styled(" abort   ", MUTED) +
+          styled("Return", PEACH, BOLD) + styled(" accept default", MUTED))
+    print()
+
+
+def edit_agent(existing=None, seed_path=None):
+    old = existing or {}
+    global_settings = request({"op": "get_settings"})["settings"]
+    default_timeout = int(global_settings.get("default_timeout_seconds", 7200))
+    global_timezone = global_settings.get("timezone") or system_timezone()
+    project = discover_project(seed_path) if seed_path and not old else None
+    values = {
+        "name": old.get("name", ""), "provider": old.get("provider", "codex"),
+        "workspace": old.get("workspace", str(project or Path.cwd())), "system_prompt": old.get("system_prompt", ""),
+        "startup_prompt": old.get("startup_prompt", ""), "model": old.get("model", ""),
+        "schedule_phrase": old.get("schedule", {}).get("phrase", "daily at 09:00"),
+        "overlap": old.get("overlap", "replace"),
+        "timeout": "off" if "timeout_seconds" in old and old.get("timeout_seconds") is None else f"{old.get('timeout_seconds', default_timeout)}s",
+        "permission_mode": old.get("permission_mode", ""),
+        "advanced_args": shlex.join(old.get("advanced_args", [])),
+    }
+    fields = [
+        ("name", "Name", {}),
+        ("provider", "Provider", {"choices": ["codex", "claude"], "picker": True}),
+        ("workspace", "Workspace", {"path_picker": True}),
+        ("system_prompt", "System prompt", {"multiline": True}),
+        ("startup_prompt", "Startup prompt", {"multiline": True}),
+        ("model", "Model", {"picker": True}),
+        ("schedule_phrase", "Schedule", {"choices": ["every 30 minutes", "every 1 hour", "daily at 09:00", "weekdays at 9am", "weekly on monday at 10:00", "once at "]}),
+        ("overlap", "Overlap", {"choices": ["replace", "parallel"]}),
+        ("timeout", "Timeout", {"choices": ["30m", "1h", "2h", "4h", "8h", "off"]}),
+        ("permission_mode", "Permission mode", {"choices": ["", "default", "acceptEdits", "bypassPermissions", "untrusted", "on-request", "never"]}),
+        ("advanced_args", "Advanced arguments", {}),
+    ]
+    index = 0
+    while index < len(fields):
+        key, label, options = fields[index]
+        options = dict(options)
+        if key == "model":
+            options["choices"] = model_choices(values["provider"])
+        wizard_header(index, fields, values)
+        try:
+            if options.pop("picker", False):
+                current = values.get(key) or ("provider default" if key == "model" else None)
+                value = interactive_picker(label, options.pop("choices"), current)
+                if value == "Custom model…":
+                    value = ask("Custom model", values.get(key))
+                elif key == "model" and value == "provider default":
+                    value = ""
+            elif options.pop("path_picker", False):
+                value = interactive_path_picker(label, values.get(key) or str(Path.cwd()))
+            else:
+                value = ask(label, values.get(key), **options)
+        except (EOFError, KeyboardInterrupt):
+            raise SystemExit("Cancelled")
+        if value == ":cancel":
+            raise SystemExit("Cancelled")
+        if value == ":back":
+            index = max(0, index - 1)
+            continue
+        values[key] = value
+        index += 1
+    name = values["name"] or generated_agent_name(values["workspace"], values["startup_prompt"])
+    if old.get("name") and name != old["name"]:
+        raise SystemExit("Agent names are immutable; create a new agent to use another name")
+    provider = values["provider"].lower()
+    if provider not in {"codex", "claude"}:
+        raise SystemExit("Provider must be codex or claude")
+    workspace = str(Path(values["workspace"]).expanduser().resolve())
+    if not Path(workspace).is_dir():
+        raise SystemExit(f"Workspace does not exist: {workspace}")
+    system_prompt = values["system_prompt"]
+    startup_prompt = values["startup_prompt"]
+    model = values["model"]
+    phrase = values["schedule_phrase"]
+    schedule, next_run = parse_schedule(phrase, global_timezone)
+    overlap = values["overlap"]
+    if overlap not in {"replace", "parallel"}:
+        raise SystemExit("Overlap must be replace or parallel")
+    timeout = parse_duration(values["timeout"])
+    permissions = values["permission_mode"]
+    advanced = shlex.split(values["advanced_args"])
+    reserved = {"-C", "--cd", "--cwd", "--system-prompt", "--model", "-m", "--permission-mode", "--ask-for-approval", "-a", "--sandbox"}
+    if any(value.split("=", 1)[0] in reserved for value in advanced):
+        raise SystemExit("Advanced arguments contain an OmniTerm-owned flag")
+    agent = {"name": name, "provider": provider, "workspace": workspace,
+             "system_prompt": system_prompt, "startup_prompt": startup_prompt,
+             "model": model, "schedule": schedule,
+             "next_run": next_run, "overlap": overlap, "timeout_seconds": timeout,
+             "permission_mode": "" if permissions == "default" else permissions, "advanced_args": advanced,
+             "enabled": old.get("enabled", True)}
+    os.system("clear")
+    width = terminal_width()
+    print(styled("OMNITERM", PEACH, BOLD) + styled("  ·  AGENT REVIEW", BOLD))
+    print(styled("Confirm the normalized configuration before saving", MUTED))
+    print()
+    review = []
+    for label, value in (
+        ("Name", name), ("Provider", provider), ("Workspace", workspace),
+        ("Model", model or "provider default"), ("Schedule", schedule["phrase"]),
+        ("Timezone", f"{global_timezone} (global)"), ("Overlap", overlap),
+        ("Retention", "off" if timeout is None else values["timeout"]),
+    ):
+        plain = f"{label:15}  {value}"
+        review.append((plain, styled(f"{label:15}", MUTED) + "  " + styled(value, BOLD)))
+    print_panel(review, width, "CONFIGURATION", PEACH)
+    print()
+    next_lines = []
+    cursor = next_run
+    for _ in range(3):
+        value = dt.datetime.fromtimestamp(cursor, ZoneInfo(global_timezone)).strftime("%a %d %b %Y · %H:%M %Z")
+        next_lines.append((f"◷  {value}", styled("◷  ", GREEN) + styled(value, BOLD)))
+        cursor = next_calendar(schedule, global_timezone, cursor)
+        if cursor is None:
+            break
+    print_panel(next_lines, width, "NEXT RUNS", BLUE)
+    print()
+    if ask("Save agent? (y/n)", "y").lower() != "y":
+        raise SystemExit("Cancelled")
+    request({"op": "save_agent", "agent": agent})
+    print(styled(f"  ● Saved {name}", GREEN, BOLD))
+
+
+def fmt_time(value, timezone=None):
+    if not isinstance(value, (int, float)):
+        return "—"
+    zone = ZoneInfo(timezone) if timezone else None
+    return dt.datetime.fromtimestamp(value, zone).strftime("%Y-%m-%d %H:%M")
+
+
+def tui_text(window, y, x, text, style=0, width=None):
+    try:
+        height, columns = window.getmaxyx()
+        if y < 0 or y >= height or x < 0 or x >= columns:
+            return
+        limit = max(0, min(width if width is not None else columns - x, columns - x - 1))
+        window.addnstr(y, x, str(text), limit, style)
+    except curses.error:
+        pass
+
+
+def tui_cursor(visibility):
+    """Change cursor visibility when supported by the active terminal."""
+    try:
+        curses.curs_set(visibility)
+    except curses.error:
+        pass
+
+
+def wrapped_preview(value, width, max_lines):
+    value = (value or "").strip()
+    if not value:
+        return ["—"]
+    lines = []
+    for paragraph in value.splitlines() or [value]:
+        lines.extend(textwrap.wrap(paragraph, width=max(8, width),
+                                   replace_whitespace=True,
+                                   drop_whitespace=True) or [""])
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][:max(1, width - 1)].rstrip() + "…"
+    return lines
+
+
+def wrapped_content(value, width):
+    """Wrap complete prompt content while preserving intentional blank lines."""
+    value = value or ""
+    if not value.strip():
+        return ["— No prompt configured —"]
+    lines = []
+    for paragraph in value.splitlines():
+        if paragraph:
+            lines.extend(textwrap.wrap(paragraph, width=max(8, width),
+                                       replace_whitespace=False,
+                                       drop_whitespace=True) or [""])
+        else:
+            lines.append("")
+    if value.endswith("\n"):
+        lines.append("")
+    return lines
+
+
+def tui_box(window, y, x, height, width, style=0, title=None):
+    if height < 2 or width < 2:
+        return
+    tui_text(window, y, x, "╭" + "─" * (width - 2) + "╮", style, width)
+    for row in range(y + 1, y + height - 1):
+        tui_text(window, row, x, "│", style)
+        tui_text(window, row, x + width - 1, "│", style)
+    tui_text(window, y + height - 1, x, "╰" + "─" * (width - 2) + "╯", style, width)
+    if title:
+        tui_text(window, y, x + 2, f" {title} ", style | curses.A_BOLD, width - 4)
+
+
+def tui_palette():
+    curses.start_color()
+    if not curses.has_colors() or curses.COLORS <= 0:
+        return {name: 0 for name in ("peach", "green", "blue", "muted", "red")}
+    background = -1
+    try:
+        curses.use_default_colors()
+    except curses.error:
+        background = curses.COLOR_BLACK
+    colors = {
+        "peach": 209 if curses.COLORS >= 256 else curses.COLOR_YELLOW,
+        "green": 78 if curses.COLORS >= 256 else curses.COLOR_GREEN,
+        "blue": 111 if curses.COLORS >= 256 else curses.COLOR_CYAN,
+        "muted": 245 if curses.COLORS >= 256 else curses.COLOR_WHITE,
+        "red": 203 if curses.COLORS >= 256 else curses.COLOR_RED,
+    }
+    for index, name in enumerate(colors, 1):
+        curses.init_pair(index, colors[name], background)
+    return {name: curses.color_pair(index) for index, name in enumerate(colors, 1)}
+
+
+def interactive_picker(label, choices, default=None):
+    choices = list(dict.fromkeys(([default] if default and default not in choices else []) + list(choices)))
+
+    def screen(window):
+        palette = tui_palette()
+        tui_cursor(0)
+        window.keypad(True)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        except curses.error:
+            pass
+        selected = choices.index(default) if default in choices else 0
+        first = 0
+        while True:
+            window.erase()
+            height, width = window.getmaxyx()
+            box_width = max(36, min(88, width - 4))
+            box_height = max(8, min(height - 4, len(choices) + 6))
+            x, y = max(2, (width - box_width) // 2), max(1, (height - box_height) // 2)
+            tui_box(window, y, x, box_height, box_width, palette["peach"], label.upper())
+            tui_text(window, y + 1, x + 3, "Choose with ↑↓ or mouse · Enter confirms", palette["muted"], box_width - 6)
+            visible = max(1, box_height - 4)
+            first = max(0, min(first, max(0, len(choices) - visible)))
+            if selected < first:
+                first = selected
+            elif selected >= first + visible:
+                first = selected - visible + 1
+            for offset, value in enumerate(choices[first:first + visible]):
+                index = first + offset
+                marker = "▶" if index == selected else " "
+                style = (palette["peach"] | curses.A_BOLD | curses.A_REVERSE) if index == selected else 0
+                tui_text(window, y + 2 + offset, x + 3, f"{marker} {value}", style, box_width - 6)
+            tui_text(window, y + box_height - 2, x + 3, "Esc goes back", palette["muted"], box_width - 6)
+            window.refresh()
+            key = window.getch()
+            if key in (10, 13, curses.KEY_ENTER):
+                return choices[selected]
+            if key == 27:
+                return ":back"
+            if key in (curses.KEY_UP, ord("k")):
+                selected = (selected - 1) % len(choices)
+            elif key in (curses.KEY_DOWN, ord("j")):
+                selected = (selected + 1) % len(choices)
+            elif key == curses.KEY_HOME:
+                selected = 0
+            elif key == curses.KEY_END:
+                selected = len(choices) - 1
+            elif key == curses.KEY_PPAGE:
+                selected = max(0, selected - visible)
+            elif key == curses.KEY_NPAGE:
+                selected = min(len(choices) - 1, selected + visible)
+            elif key == curses.KEY_MOUSE:
+                try:
+                    _, mouse_x, mouse_y, _, state = curses.getmouse()
+                    offset = mouse_y - (y + 2)
+                    if x + 1 <= mouse_x < x + box_width - 1 and 0 <= offset < visible:
+                        index = first + offset
+                        if index < len(choices) and state & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED | curses.BUTTON1_RELEASED):
+                            return choices[index]
+                except curses.error:
+                    pass
+
+    return curses.wrapper(screen)
+
+
+def display_path(path):
+    value = str(path)
+    home = str(Path.home())
+    return "~" + value[len(home):] if value == home or value.startswith(home + os.sep) else value
+
+
+def interactive_path_picker(label, default):
+    def candidates(value):
+        matches = path_completion_matches(value)
+        expanded = Path(value).expanduser()
+        if expanded.is_dir() and not value.endswith(os.sep):
+            exact = display_path(expanded.resolve()) + "/"
+            if exact not in matches:
+                matches.insert(0, exact)
+        return matches
+
+    def screen(window):
+        palette = tui_palette()
+        tui_cursor(1)
+        window.keypad(True)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        except curses.error:
+            pass
+        value = display_path(Path(default).expanduser())
+        if str(default).endswith(os.sep) and value != os.sep:
+            value += os.sep
+        selected = 0
+        first = 0
+        while True:
+            options = candidates(value)
+            if options:
+                selected = min(selected, len(options) - 1)
+            else:
+                selected = 0
+            window.erase()
+            height, width = window.getmaxyx()
+            box_width = max(48, min(104, width - 4))
+            box_height = max(10, min(height - 4, 22))
+            x, y = max(2, (width - box_width) // 2), max(1, (height - box_height) // 2)
+            visible = box_height - 6
+            first = min(first, max(0, len(options) - visible))
+            if selected < first:
+                first = selected
+            elif selected >= first + visible:
+                first = selected - visible + 1
+            tui_box(window, y, x, box_height, box_width, palette["peach"], label.upper())
+            tui_text(window, y + 1, x + 3, "Path", palette["muted"] | curses.A_BOLD, 8)
+            tui_text(window, y + 1, x + 9, value, curses.A_BOLD, box_width - 12)
+            tui_text(window, y + 2, x + 3, "─" * (box_width - 6), palette["blue"], box_width - 6)
+            for offset, option in enumerate(options[first:first + visible]):
+                index = first + offset
+                marker = "▶" if index == selected else " "
+                style = (palette["peach"] | curses.A_BOLD | curses.A_REVERSE) if index == selected else 0
+                tui_text(window, y + 3 + offset, x + 3, f"{marker} {option}", style, box_width - 6)
+            if not options:
+                tui_text(window, y + 4, x + 5, "No matching folders", palette["muted"], box_width - 10)
+            tui_text(window, y + box_height - 2, x + 3,
+                     "Tab/↑↓ choose · Enter select · → browse · Ctrl-U clear · Esc back",
+                     palette["muted"], box_width - 6)
+            try:
+                window.move(y + 1, x + 9 + min(len(value), box_width - 13))
+            except curses.error:
+                pass
+            window.refresh()
+            key = window.get_wch()
+            if key in ("\n", "\r", curses.KEY_ENTER):
+                chosen = options[selected] if options else value
+                resolved = Path(chosen).expanduser().resolve()
+                if resolved.is_dir():
+                    return str(resolved)
+            elif key == "\x1b":
+                return ":back"
+            elif key == "\x03":
+                raise KeyboardInterrupt
+            elif key in ("\t", curses.KEY_DOWN):
+                if options:
+                    selected = (selected + 1) % len(options)
+            elif key in (curses.KEY_BTAB, curses.KEY_UP):
+                if options:
+                    selected = (selected - 1) % len(options)
+            elif key == curses.KEY_NPAGE and options:
+                selected = min(len(options) - 1, selected + visible)
+            elif key == curses.KEY_PPAGE and options:
+                selected = max(0, selected - visible)
+            elif key in (curses.KEY_RIGHT, "/") and options:
+                value = options[selected].rstrip("/") + "/"
+                selected = first = 0
+            elif key in ("\x7f", "\b", curses.KEY_BACKSPACE):
+                value = value[:-1]
+                selected = first = 0
+            elif key == "\x15":
+                value = ""
+                selected = first = 0
+            elif key == curses.KEY_MOUSE:
+                try:
+                    _, mouse_x, mouse_y, _, state = curses.getmouse()
+                    offset = mouse_y - (y + 3)
+                    if x + 1 <= mouse_x < x + box_width - 1 and 0 <= offset < visible:
+                        index = first + offset
+                        if index < len(options) and state & curses.BUTTON1_DOUBLE_CLICKED:
+                            return str(Path(options[index]).expanduser().resolve())
+                        if index < len(options) and state & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+                            selected = index
+                except curses.error:
+                    pass
+            elif isinstance(key, str) and key.isprintable():
+                value += key
+                selected = first = 0
+
+    return curses.wrapper(screen)
+
+
+def editor_visual_rows(text, width):
+    rows = []
+    start = 0
+    for logical in text.split("\n"):
+        if not logical:
+            rows.append((start, start, ""))
+        else:
+            for offset in range(0, len(logical), width):
+                chunk = logical[offset:offset + width]
+                rows.append((start + offset, start + offset + len(chunk), chunk))
+        start += len(logical) + 1
+    return rows or [(0, 0, "")]
+
+
+def interactive_text_editor(label, default=""):
+    def screen(window):
+        palette = tui_palette()
+        window.keypad(True)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        except curses.error:
+            pass
+        text = default
+        cursor = len(text)
+        scroll = 0
+        while True:
+            window.erase()
+            height, width = window.getmaxyx()
+            box_width = max(44, min(100, width - 4))
+            box_height = max(9, min(height - 4, 20))
+            x, y = max(2, (width - box_width) // 2), max(1, (height - box_height) // 2)
+            content_width = max(8, box_width - 6)
+            rows = editor_visual_rows(text, content_width)
+            cursor_row = len(rows) - 1
+            cursor_column = 0
+            for index, (start, end, _) in enumerate(rows):
+                if start <= cursor <= end:
+                    cursor_row = index
+                    cursor_column = cursor - start
+                    break
+            visible = box_height - 5
+            scroll = min(scroll, max(0, len(rows) - visible))
+            if cursor_row < scroll:
+                scroll = cursor_row
+            elif cursor_row >= scroll + visible:
+                scroll = cursor_row - visible + 1
+            tui_box(window, y, x, box_height, box_width, palette["peach"], label.upper())
+            tui_text(window, y + 1, x + 3, "Enter saves · ⌘Enter new line · click to place cursor", palette["muted"], box_width - 6)
+            for offset, (_, _, value) in enumerate(rows[scroll:scroll + visible]):
+                tui_text(window, y + 2 + offset, x + 3, value, 0, content_width)
+            tui_text(window, y + box_height - 2, x + 3, "Esc goes back", palette["muted"], box_width - 6)
+            try:
+                tui_cursor(1)
+                window.move(y + 2 + cursor_row - scroll, x + 3 + min(cursor_column, content_width - 1))
+            except curses.error:
+                pass
+            window.refresh()
+            key = window.get_wch()
+            if key in ("\n", "\r", curses.KEY_ENTER):
+                return text
+            if key == "\x1e":
+                text = text[:cursor] + "\n" + text[cursor:]
+                cursor += 1
+            elif key == "\x1b":
+                return ":back"
+            elif key == "\x03":
+                raise KeyboardInterrupt
+            elif key in ("\x7f", "\b", curses.KEY_BACKSPACE):
+                if cursor:
+                    text = text[:cursor - 1] + text[cursor:]
+                    cursor -= 1
+            elif key == curses.KEY_DC:
+                text = text[:cursor] + text[cursor + 1:]
+            elif key == curses.KEY_LEFT:
+                cursor = max(0, cursor - 1)
+            elif key == curses.KEY_RIGHT:
+                cursor = min(len(text), cursor + 1)
+            elif key == curses.KEY_HOME:
+                cursor = rows[cursor_row][0]
+            elif key == curses.KEY_END:
+                cursor = rows[cursor_row][1]
+            elif key in (curses.KEY_UP, curses.KEY_DOWN):
+                target = cursor_row + (-1 if key == curses.KEY_UP else 1)
+                if 0 <= target < len(rows):
+                    cursor = min(rows[target][0] + cursor_column, rows[target][1])
+            elif key == curses.KEY_MOUSE:
+                try:
+                    _, mouse_x, mouse_y, _, state = curses.getmouse()
+                    row = scroll + mouse_y - (y + 2)
+                    if 0 <= row < len(rows) and x + 3 <= mouse_x < x + box_width - 3 and state & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+                        cursor = min(rows[row][0] + mouse_x - (x + 3), rows[row][1])
+                except curses.error:
+                    pass
+            elif isinstance(key, str) and key.isprintable():
+                text = text[:cursor] + key + text[cursor:]
+                cursor += len(key)
+
+    return curses.wrapper(screen)
+
+
+def tui_confirm(window, message, palette):
+    height, width = window.getmaxyx()
+    box_width = min(max(len(message) + 8, 44), width - 4)
+    y, x = max(1, height // 2 - 2), max(2, (width - box_width) // 2)
+    tui_box(window, y, x, 5, box_width, palette["peach"], "CONFIRM")
+    tui_text(window, y + 2, x + 3, message, curses.A_BOLD, box_width - 6)
+    tui_text(window, y + 3, x + 3, "Enter confirm  ·  Esc cancel", palette["muted"], box_width - 6)
+    window.refresh()
+    while True:
+        key = window.getch()
+        if key in (10, 13):
+            return True
+        if key in (27, ord("q")):
+            return False
+
+
+def tui_view_text(window, title, content, palette):
+    """Show a resize-aware, scrollable prompt viewer over the dashboard."""
+    scroll = 0
+    window.timeout(-1)
+    try:
+        while True:
+            window.erase()
+            height, width = window.getmaxyx()
+            if height < 9 or width < 32:
+                tui_text(window, 1, 2, title, palette["peach"] | curses.A_BOLD, width - 4)
+                tui_text(window, 3, 2, "Resize to view this prompt", palette["muted"], width - 4)
+                window.refresh()
+            else:
+                box_height = height - 4
+                box_width = width - 4
+                y, x = 2, 2
+                body_width = box_width - 6
+                visible_rows = max(1, box_height - 5)
+                lines = wrapped_content(content, body_width)
+                scroll = min(scroll, max(0, len(lines) - visible_rows))
+                tui_box(window, y, x, box_height, box_width, palette["peach"], title)
+                position = f"{scroll + 1}–{min(len(lines), scroll + visible_rows)} / {len(lines)}"
+                tui_text(window, y + 1, x + 3, position, palette["blue"] | curses.A_BOLD, body_width)
+                for offset, line in enumerate(lines[scroll:scroll + visible_rows]):
+                    tui_text(window, y + 2 + offset, x + 3, line, 0, body_width)
+                help_text = "↑↓ scroll  ·  PgUp/PgDn  ·  Home/End  ·  Enter or Esc closes"
+                tui_text(window, y + box_height - 2, x + 3, help_text, palette["muted"], body_width)
+                window.refresh()
+
+            key = window.getch()
+            page = max(1, (height - 4) - 6)
+            if key in (10, 13, 27, ord("q")):
+                return
+            if key in (curses.KEY_UP, ord("k")):
+                scroll = max(0, scroll - 1)
+            elif key in (curses.KEY_DOWN, ord("j")):
+                scroll += 1
+            elif key == curses.KEY_PPAGE:
+                scroll = max(0, scroll - page)
+            elif key == curses.KEY_NPAGE:
+                scroll += page
+            elif key == curses.KEY_HOME:
+                scroll = 0
+            elif key == curses.KEY_END:
+                scroll = 1 << 30
+            elif key == curses.KEY_MOUSE:
+                try:
+                    _, _, _, _, state = curses.getmouse()
+                    if state & getattr(curses, "BUTTON4_PRESSED", 0):
+                        scroll = max(0, scroll - 3)
+                    elif state & getattr(curses, "BUTTON5_PRESSED", 0):
+                        scroll += 3
+                except curses.error:
+                    pass
+    finally:
+        window.timeout(1000)
+        window.clear()
+
+
+def tui_suspend(window, callback):
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        callback()
+    except SystemExit as exc:
+        message = str(exc)
+        if message and message != "Cancelled":
+            print(message)
+            input("Press return…")
+    finally:
+        curses.reset_prog_mode()
+        tui_cursor(0)
+        window.keypad(True)
+        window.clear()
+        window.refresh()
+
+
+def dashboard_screen(window):
+    palette = tui_palette()
+    tui_cursor(0)
+    window.keypad(True)
+    window.timeout(1000)
+    try:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        print("\033[?1003h", end="", flush=True)
+    except curses.error:
+        pass
+
+    selected = 0
+    selected_run = 0
+    selected_prompt = 0
+    focus = "agents"
+    message = "Ready"
+    agents, runs = [], []
+    hitboxes = []
+    last_refresh = 0
+
+    def reload_data(force=False):
+        nonlocal agents, runs, selected, last_refresh, message
+        if not force and time.monotonic() - last_refresh < 1:
+            return
+        try:
+            agents = request({"op": "list_agents"})["agents"]
+            runs = request({"op": "list_runs"})["runs"]
+            selected = max(0, min(selected, len(agents) - 1))
+            last_refresh = time.monotonic()
+        except BaseException as exc:
+            message = f"Scheduler reconnecting · {exc}"
+
+    def selected_agent():
+        return agents[selected] if agents else None
+
+    def selected_agent_runs():
+        agent = selected_agent()
+        return [run for run in runs if agent and run["agent"] == agent["name"]]
+
+    def prompt_items():
+        agent = selected_agent()
+        if not agent:
+            return []
+        return [
+            ("SYSTEM PROMPT", agent.get("system_prompt") or ""),
+            ("STARTUP PROMPT", agent.get("startup_prompt") or ""),
+        ]
+
+    def focus_panels():
+        panels = ["agents"]
+        if prompt_items():
+            panels.append("prompts")
+        if selected_agent_runs():
+            panels.append("runs")
+        return panels
+
+    def view_prompt(index=None):
+        nonlocal selected_prompt, message
+        prompts = prompt_items()
+        if not prompts:
+            message = "No prompt selected"
+            return
+        if index is not None:
+            selected_prompt = max(0, min(index, len(prompts) - 1))
+        title, content = prompts[selected_prompt]
+        tui_view_text(window, f"{selected_agent()['name']} · {title}", content, palette)
+        message = f"Viewed {title.lower()}"
+
+    def perform(action):
+        nonlocal message, selected, selected_run
+        agent = selected_agent()
+        try:
+            if action == "add":
+                tui_suspend(window, edit_agent)
+                message = "Agent created"
+            elif action == "edit" and agent:
+                tui_suspend(window, lambda: edit_agent(request({"op": "show_agent", "name": agent["name"]})["agent"]))
+                message = f"Updated {agent['name']}"
+            elif action == "run" and agent:
+                run_id = request({"op": "run_agent", "name": agent["name"]})["run_id"]
+                message = f"Started {agent['name']} · {run_id[:8]}"
+            elif action == "toggle" and agent:
+                request({"op": "set_enabled", "name": agent["name"], "enabled": not agent["enabled"]})
+                message = f"{'Enabled' if not agent['enabled'] else 'Paused'} {agent['name']}"
+            elif action == "delete" and agent and tui_confirm(window, f"Delete {agent['name']}?", palette):
+                request({"op": "delete_agent", "name": agent["name"]})
+                selected = max(0, selected - 1)
+                message = f"Deleted {agent['name']}"
+            elif action == "stop" and agent:
+                active = next((run for run in runs if run["agent"] == agent["name"] and run["state"] in {"starting", "running"}), None)
+                if active:
+                    request({"op": "stop_run", "run_id": active["id"]})
+                    message = f"Stopping {agent['name']}"
+                else:
+                    message = "No active run for this agent"
+            elif action == "resume":
+                recent = selected_agent_runs()
+                if recent:
+                    source = recent[min(selected_run, len(recent) - 1)]
+                    run_id = request({"op": "resume_run", "run_id": source["id"]})["run_id"]
+                    message = f"Resumed {source['id'][:8]} in a new tab · {run_id[:8]}"
+                else:
+                    message = "No recent run selected"
+            reload_data(True)
+        except BaseException as exc:
+            message = f"Error · {exc}"
+
+    def render():
+        nonlocal hitboxes
+        window.erase()
+        height, width = window.getmaxyx()
+        hitboxes = []
+        if height < 24 or width < 76:
+            tui_box(window, 1, 1, max(3, height - 2), max(3, width - 2), palette["peach"])
+            tui_text(window, height // 2 - 1, 4, "OMNITERM", palette["peach"] | curses.A_BOLD)
+            tui_text(window, height // 2 + 1, 4, "Resize to at least 76 × 24", palette["muted"])
+            window.refresh()
+            return
+
+        logo = [
+            "  ___   __  __  _   _  ___ ",
+            " / _ \\ |  \\/  || \\ | ||_ _|",
+            "| | | || |\\/| ||  \\| | | | ",
+            "| |_| || |  | || |\\  | | | ",
+            " \\___/ |_|  |_||_| \\_||___|",
+        ]
+        for row, line in enumerate(logo):
+            tui_text(window, row, 2, line, palette["peach"] | curses.A_BOLD, min(32, width - 4))
+        header_x = 36
+        tui_text(window, 1, header_x, "OmniTerm Agents", curses.A_BOLD, width - header_x - 2)
+        tui_text(window, 2, header_x, "Interactive scheduler · Codex + Claude", palette["muted"], width - header_x - 2)
+        active_count = sum(run["state"] in {"starting", "running"} for run in runs)
+        tui_text(window, 3, header_x, f"● {active_count} active   ◆ {len(agents)} agents   ◷ {len(runs)} runs", palette["green"], width - header_x - 2)
+        tui_text(window, 4, header_x, "mouse enabled  ·  ↑↓ navigate  ·  Enter opens selection", palette["blue"], width - header_x - 2)
+
+        body_y = 6
+        body_height = height - 11
+        left_width = max(38, min(58, width // 2))
+        right_x = left_width + 2
+        right_width = width - right_x - 1
+        tui_box(window, body_y, 1, body_height, left_width, palette["peach"], "AGENTS")
+        tui_box(window, body_y, right_x, body_height, right_width, palette["blue"], "DETAILS")
+
+        visible_cards = max(1, (body_height - 3) // 4)
+        first = max(0, min(selected - visible_cards + 1, max(0, len(agents) - visible_cards)))
+        if not agents:
+            tui_text(window, body_y + 3, 4, "◇ No agents yet", palette["muted"] | curses.A_BOLD)
+            tui_text(window, body_y + 5, 4, "Click ＋ Add agent to create one.", palette["muted"])
+        for position, agent in enumerate(agents[first:first + visible_cards]):
+            index = first + position
+            y = body_y + 2 + position * 4
+            chosen = index == selected
+            card_style = palette["peach"] | (curses.A_BOLD if chosen and focus == "agents" else 0)
+            marker = "▶" if chosen and focus == "agents" else "◆" if chosen else " "
+            state = "● ON" if agent["enabled"] else "○ OFF"
+            state_style = palette["green"] if agent["enabled"] else palette["muted"]
+            tui_text(window, y, 3, f"{marker} {agent['name']}", card_style, left_width - 18)
+            tui_text(window, y, left_width - 10, state, state_style | curses.A_BOLD, 7)
+            tui_text(window, y + 1, 5, f"{agent['provider']}  ·  {agent['schedule']['phrase']}", palette["muted"], left_width - 8)
+            next_text = fmt_time(agent.get("next_run"))
+            tui_text(window, y + 2, 5, f"◷ {next_text}   ↻ {agent['overlap']}", palette["blue"], left_width - 8)
+            hitboxes.append((y, y + 2, 2, left_width, "select", index))
+
+        agent = selected_agent()
+        if agent:
+            x, y = right_x + 3, body_y + 2
+            tui_text(window, y, x, agent["name"], palette["peach"] | curses.A_BOLD, right_width - 6)
+            tui_text(window, y + 1, x, f"{agent['provider'].upper()}  ·  {'enabled' if agent['enabled'] else 'paused'}", palette["green"] if agent["enabled"] else palette["muted"], right_width - 6)
+            details = [
+                ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
+                ("Schedule", agent["schedule"]["phrase"]), ("Overlap", agent["overlap"]),
+                ("Retention", "off" if agent.get("timeout_seconds") is None else f"{agent['timeout_seconds'] // 60} minutes"),
+            ]
+            for offset, (label, value) in enumerate(details):
+                tui_text(window, y + 3 + offset, x, f"{label:10}", palette["muted"] | curses.A_BOLD, 10)
+                tui_text(window, y + 3 + offset, x + 11, value, 0, right_width - 18)
+            if body_height >= 19:
+                prompt_width = right_width - 6
+                line_limit = 2 if body_height >= 24 else 1
+                prompt_y = y + 9
+                for prompt_index, (prompt_label, prompt_value) in enumerate(prompt_items()):
+                    block_y = prompt_y
+                    chosen_prompt = focus == "prompts" and prompt_index == selected_prompt
+                    marker = "▶" if chosen_prompt else "◇"
+                    label_style = palette["blue"] | curses.A_BOLD | (curses.A_REVERSE if chosen_prompt else 0)
+                    tui_text(window, prompt_y, x, f"{marker} {prompt_label}  ↗", label_style, prompt_width)
+                    prompt_y += 1
+                    for line in wrapped_preview(prompt_value, prompt_width, line_limit):
+                        tui_text(window, prompt_y, x + 2, line, palette["muted"], prompt_width - 2)
+                        prompt_y += 1
+                    hitboxes.append((block_y, prompt_y - 1, x, x + prompt_width - 1,
+                                     "view_prompt", prompt_index))
+                    prompt_y += 1
+                run_y = prompt_y
+            else:
+                prompt_y = y + 3 + len(details)
+                prompt_width = right_width - 6
+                for prompt_index, (prompt_label, prompt_value) in enumerate(prompt_items()):
+                    chosen_prompt = focus == "prompts" and prompt_index == selected_prompt
+                    marker = "▶" if chosen_prompt else "◇"
+                    style = palette["blue"] | curses.A_BOLD | (curses.A_REVERSE if chosen_prompt else 0)
+                    preview = wrapped_preview(prompt_value, max(8, prompt_width - 21), 1)[0]
+                    line = f"{marker} {prompt_label:<14} {preview}  ↗"
+                    tui_text(window, prompt_y + prompt_index, x, line, style, prompt_width)
+                    hitboxes.append((prompt_y + prompt_index, prompt_y + prompt_index,
+                                     x, x + prompt_width - 1, "view_prompt", prompt_index))
+                run_y = prompt_y + len(prompt_items()) + 1
+            panel_bottom = body_y + body_height - 2
+            if run_y < panel_bottom:
+                tui_text(window, run_y, x, "RECENT RUNS", palette["blue"] | curses.A_BOLD, right_width - 6)
+            max_run_rows = max(0, panel_bottom - run_y - 1)
+            agent_runs = [run for run in runs if run["agent"] == agent["name"]][:max_run_rows]
+            for offset, run in enumerate(agent_runs):
+                state_style = palette["green"] if run["state"] == "running" else palette["red"] if run["state"] in {"failed", "timed_out"} else palette["muted"]
+                chosen_run = focus == "runs" and offset == selected_run
+                symbol = "▶" if chosen_run else "●" if run["state"] == "running" else "◆"
+                style = state_style | (curses.A_BOLD | curses.A_REVERSE if chosen_run else 0)
+                tui_text(window, run_y + 1 + offset, x, f"{symbol} {run['state']:<10} {fmt_time(run['started'])[5:]}  {run['id'][:8]}", style, right_width - 6)
+                hitboxes.append((run_y + 1 + offset, run_y + 1 + offset, x, x + right_width - 7, "resume_run", offset))
+
+        actions = [("add", "＋ Add"), ("edit", "✎ Edit"), ("run", "▶ Run"), ("resume", "↻ Resume"), ("stop", "■ Stop"), ("toggle", "◉ Toggle"), ("delete", "⌫ Delete")]
+        footer_y = height - 4
+        cursor_x = 2
+        for action, label in actions:
+            button = f" {label} "
+            if cursor_x + len(button) + 1 >= width:
+                break
+            style = palette["red"] if action == "delete" else palette["peach"]
+            tui_text(window, footer_y, cursor_x, "[" + button + "]", style | curses.A_BOLD)
+            hitboxes.append((footer_y, footer_y, cursor_x, cursor_x + len(button) + 1, action, None))
+            cursor_x += len(button) + 4
+        tui_text(window, height - 2, 2, "● " + message, palette["green"] if not message.startswith("Error") else palette["red"], width - 4)
+        tui_text(window, height - 1, 2, "↑↓ navigate · ←→/Tab switch panel · Enter open/run/resume · a add · e edit · q refresh", palette["muted"], width - 4)
+        window.refresh()
+
+    try:
+        while True:
+            reload_data()
+            render()
+            key = window.getch()
+            if key == -1 or key == ord("q"):
+                reload_data(True)
+            elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, 9, curses.KEY_BTAB):
+                panels = focus_panels()
+                current = panels.index(focus) if focus in panels else 0
+                direction = -1 if key in (curses.KEY_LEFT, curses.KEY_BTAB) else 1
+                focus = panels[(current + direction) % len(panels)]
+                selected_run = min(selected_run, max(0, len(selected_agent_runs()) - 1))
+            elif key in (curses.KEY_UP, ord("k")) and agents:
+                if focus == "runs" and selected_agent_runs():
+                    selected_run = (selected_run - 1) % len(selected_agent_runs())
+                elif focus == "prompts":
+                    selected_prompt = (selected_prompt - 1) % len(prompt_items())
+                else:
+                    selected = (selected - 1) % len(agents)
+                    selected_run = 0
+                    selected_prompt = 0
+            elif key in (curses.KEY_DOWN, ord("j")) and agents:
+                if focus == "runs" and selected_agent_runs():
+                    selected_run = (selected_run + 1) % len(selected_agent_runs())
+                elif focus == "prompts":
+                    selected_prompt = (selected_prompt + 1) % len(prompt_items())
+                else:
+                    selected = (selected + 1) % len(agents)
+                    selected_run = 0
+                    selected_prompt = 0
+            elif key in (10, 13):
+                if focus == "prompts":
+                    view_prompt()
+                else:
+                    perform("resume" if focus == "runs" else "run")
+            elif key == ord("r"):
+                perform("run")
+            elif key == ord("a"):
+                perform("add")
+            elif key == ord("e"):
+                perform("edit")
+            elif key == ord("s"):
+                perform("stop")
+            elif key in (ord("t"), ord(" ")):
+                perform("toggle")
+            elif key == ord("R"):
+                perform("resume")
+            elif key in (ord("d"), curses.KEY_DC):
+                perform("delete")
+            elif key == curses.KEY_MOUSE:
+                try:
+                    _, mouse_x, mouse_y, _, state = curses.getmouse()
+                    if state & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+                        for y1, y2, x1, x2, action, value in reversed(hitboxes):
+                            if y1 <= mouse_y <= y2 and x1 <= mouse_x <= x2:
+                                if action == "select":
+                                    selected = value
+                                    selected_run = 0
+                                    selected_prompt = 0
+                                    focus = "agents"
+                                elif action == "view_prompt":
+                                    selected_prompt = value
+                                    focus = "prompts"
+                                    view_prompt(value)
+                                elif action == "resume_run":
+                                    selected_run = value
+                                    focus = "runs"
+                                    perform("resume")
+                                else:
+                                    perform(action)
+                                break
+                except curses.error:
+                    pass
+            elif key == curses.KEY_RESIZE:
+                window.clear()
+    finally:
+        print("\033[?1003l", end="", flush=True)
+
+
+def dashboard():
+    instance_id = request({"op": "ping"})["instance_id"]
+    def heartbeat():
+        while True:
+            time.sleep(2)
+            try:
+                if request({"op": "ping"})["instance_id"] != instance_id:
+                    os._exit(0)
+            except BaseException:
+                # The app may briefly replace its socket while rebuilding or
+                # waking. Keep the dashboard alive and compare instance IDs
+                # once the scheduler is reachable again.
+                continue
+    threading.Thread(target=heartbeat, daemon=True).start()
+    curses.wrapper(dashboard_screen)
+
+
+def dashboard_supervisor():
+    while True:
+        try:
+            dashboard()
+        except SystemExit:
+            time.sleep(1)
+        except BaseException as exc:
+            print(f"\nDashboard restarting after error: {exc}", file=sys.stderr)
+            time.sleep(1)
+
+
+def normalized_cli_argv(argv):
+    """Translate the original verb-first agent syntax for compatibility."""
+    argv = list(argv)
+    if len(argv) >= 2 and argv[0] == "agent":
+        legacy = argv[1]
+        if legacy == "add":
+            return ["agents", "add", *argv[2:]]
+        if legacy == "list":
+            return ["agents", *argv[2:]]
+        if legacy in {"edit", "show", "enable", "disable", "delete"} and len(argv) >= 3:
+            action = [] if legacy == "show" else [legacy]
+            return ["agent", argv[2], *action, *argv[3:]]
+    return argv
+
+
+def mcp_launcher_path():
+    return Path.home() / ".local/bin/omni-mcp"
+
+
+def provider_mcp_state(provider):
+    command = [provider, "mcp", "get", "omni"]
+    result = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+    output = result.stdout.strip()
+    launcher = str(mcp_launcher_path())
+    if result.returncode != 0:
+        return {"provider": provider, "state": "missing", "detail": output}
+    if launcher in output or str(mcp_launcher_path().resolve()) in output:
+        return {"provider": provider, "state": "installed", "detail": output}
+    return {"provider": provider, "state": "conflict", "detail": output}
+
+
+def install_mcp(quiet=False):
+    launcher = mcp_launcher_path()
+    if not launcher.exists():
+        raise SystemExit(f"Missing MCP launcher: {launcher}. Rebuild OmniTerm first.")
+    results = []
+    for provider in ("claude", "codex"):
+        if not shutil.which(provider):
+            results.append({"provider": provider, "state": "unavailable"})
+            continue
+        state = provider_mcp_state(provider)
+        if state["state"] == "missing":
+            command = ([provider, "mcp", "add", "--scope", "user", "omni", "--", str(launcher)]
+                       if provider == "claude" else
+                       [provider, "mcp", "add", "omni", "--", str(launcher)])
+            installed = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            state = provider_mcp_state(provider) if installed.returncode == 0 else {
+                "provider": provider, "state": "error", "detail": installed.stdout.strip()}
+        results.append(state)
+    if not quiet:
+        for item in results:
+            print(f"{item['provider']:8} {item['state']}")
+            if item["state"] in {"conflict", "error"} and item.get("detail"):
+                print("  " + item["detail"].replace("\n", "\n  "))
+    return results
+
+
+def mcp_status(as_json=False):
+    states = []
+    for provider in ("claude", "codex"):
+        if shutil.which(provider):
+            states.append(provider_mcp_state(provider))
+        else:
+            states.append({"provider": provider, "state": "unavailable"})
+    try:
+        instance = request({"op": "ping"})["instance_id"]
+        scheduler = {"state": "connected", "instance_id": instance}
+    except BaseException as exc:
+        scheduler = {"state": "unavailable", "detail": str(exc)}
+    value = {"launcher": str(mcp_launcher_path()), "launcher_exists": mcp_launcher_path().exists(),
+             "scheduler": scheduler, "providers": states}
+    if as_json:
+        print(json.dumps(value, indent=2))
+    else:
+        print(f"launcher  {'ready' if value['launcher_exists'] else 'missing'}  {value['launcher']}")
+        print(f"scheduler {scheduler['state']}")
+        for item in states:
+            print(f"{item['provider']:9} {item['state']}")
+    return value
+
+
+def mcp_round_trip():
+    process = subprocess.Popen([str(mcp_launcher_path())], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, bufsize=1)
+    try:
+        def exchange(message):
+            process.stdin.write(json.dumps(message) + "\n")
+            process.stdin.flush()
+            return json.loads(process.stdout.readline())
+        initialized = exchange({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                                           "clientInfo": {"name": "omni-doctor", "version": "1"}}})
+        tools = exchange({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        agents = exchange({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                           "params": {"name": "list_agents", "arguments": {}}})
+        if "error" in initialized or "error" in tools or agents.get("result", {}).get("isError"):
+            raise RuntimeError("MCP round trip returned an error")
+        return {"protocol": initialized["result"]["protocolVersion"],
+                "tool_count": len(tools["result"]["tools"]),
+                "agent_count": len(agents["result"]["structuredContent"]["agents"])}
+    finally:
+        process.terminate()
+        process.wait(timeout=3)
+
+
+def uninstall_mcp():
+    for provider in ("claude", "codex"):
+        if not shutil.which(provider):
+            continue
+        state = provider_mcp_state(provider)
+        if state["state"] != "installed":
+            print(f"{provider:8} {state['state']} (unchanged)")
+            continue
+        command = ([provider, "mcp", "remove", "--scope", "user", "omni"]
+                   if provider == "claude" else [provider, "mcp", "remove", "omni"])
+        result = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT)
+        print(f"{provider:8} {'removed' if result.returncode == 0 else 'error'}")
+
+
+def cli_parser():
+    parser = argparse.ArgumentParser(
+        prog="omni",
+        description="Manage scheduled Codex and Claude agents in OmniTerm.",
+        epilog='''examples:
+  omni                         Open the interactive dashboard
+  omni agents                  List configured agents
+  omni agents add .            Add the nearest AGENTS.md/CLAUDE.md project
+  omni agent "Daily review"    Show one agent
+  omni agent "Daily review" run
+  omni runs --agent "Daily review"''',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    subs = parser.add_subparsers(dest="command", metavar="COMMAND")
+    subs.add_parser("dashboard", help="open the full-screen interactive interface")
+
+    agents = subs.add_parser("agents", help="list agents or create a new one")
+    agents.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    agent_commands = agents.add_subparsers(dest="agents_command", metavar="ACTION")
+    add = agent_commands.add_parser("add", help="create an agent with an optional project path")
+    add.add_argument("path", nargs="?", help="folder or file used for project discovery")
+    listing = agent_commands.add_parser("list", help="list agents (same as ‘omni agents’)")
+    listing.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    agent = subs.add_parser("agent", help="show or operate on one named agent")
+    agent.add_argument("name", help="agent name")
+    agent.add_argument("action", nargs="?", default="show",
+                       choices=["show", "edit", "run", "runs", "schedule", "enable", "disable", "delete"],
+                       help="action to perform (default: show)")
+    agent.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    run = subs.add_parser("run", help="start an agent now"); run.add_argument("name")
+    resume = subs.add_parser("resume", help="resume a recent provider session in a new tab"); resume.add_argument("run_id")
+    runs = subs.add_parser("runs", help="list recent runs"); runs.add_argument("--agent"); runs.add_argument("--json", action="store_true")
+    stop = subs.add_parser("stop", help="stop an active run"); stop.add_argument("run_id")
+    subs.add_parser("settings", help="show global ~/.omni/settings.json values")
+    schedule = subs.add_parser("schedule", help="preview an agent schedule").add_subparsers(dest="schedule_command")
+    preview = schedule.add_parser("preview", help="show the next five occurrences"); preview.add_argument("name")
+    mcp = subs.add_parser("mcp", help="install and diagnose Claude/Codex MCP access").add_subparsers(dest="mcp_command")
+    mcp.add_parser("install", help="register Omni globally in Claude Code and Codex").add_argument("--quiet", action="store_true")
+    mcp.add_parser("status", help="show launcher, scheduler, and provider registration state").add_argument("--json", action="store_true")
+    mcp.add_parser("doctor", help="perform an MCP initialize, tool-list, and scheduler round trip")
+    mcp.add_parser("uninstall", help="remove only OmniTerm-owned MCP registrations")
+    return parser
+
+
+def print_agents(items, as_json=False):
+    if as_json:
+        print(json.dumps(items, indent=2))
+        return
+    if not items:
+        print("No agents configured. Run ‘omni agents add .’ to create one.")
+        return
+    print(f"{'NAME':28} {'PROVIDER':9} {'STATE':9} SCHEDULE")
+    for item in items:
+        print(f"{item['name'][:28]:28} {item['provider']:9} {'enabled' if item['enabled'] else 'disabled':9} {item['schedule']['phrase']}")
+
+
+def print_agent(agent, as_json=False):
+    if as_json:
+        print(json.dumps(agent, indent=2))
+        return
+    timeout = agent.get("timeout_seconds")
+    values = [
+        ("Name", agent["name"]), ("Provider", agent["provider"]),
+        ("State", "enabled" if agent["enabled"] else "disabled"),
+        ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
+        ("Schedule", agent["schedule"]["phrase"]), ("Overlap", agent["overlap"]),
+        ("Retention", "off" if timeout is None else f"{timeout}s"),
+        ("Next run", fmt_time(agent.get("next_run"))),
+    ]
+    for label, value in values:
+        print(f"{label:12} {value}")
+
+
+def print_runs(items, as_json=False):
+    if as_json:
+        print(json.dumps(items, indent=2))
+        return
+    if not items:
+        print("No runs found.")
+        return
+    print(f"{'RUN ID':36} {'AGENT':24} {'STATE':11} STARTED")
+    for item in items:
+        print(f"{item['id']:36} {item['agent'][:24]:24} {item['state']:11} {fmt_time(item['started'])}")
+
+
+def preview_schedule(name):
+    item = request({"op": "show_agent", "name": name})["agent"]
+    timezone = request({"op": "get_settings"})["settings"].get("timezone") or system_timezone()
+    cursor = item["next_run"]
+    for _ in range(5):
+        if cursor is None:
+            break
+        print(dt.datetime.fromtimestamp(cursor, ZoneInfo(timezone)).isoformat())
+        cursor = next_calendar(item["schedule"], timezone, cursor)
+
+
+def main(argv=None):
+    args = cli_parser().parse_args(normalized_cli_argv(sys.argv[1:] if argv is None else argv))
+    if args.command in {None, "dashboard"}:
+        return dashboard_supervisor()
+    if args.command == "agents":
+        if args.agents_command == "add":
+            return edit_agent(seed_path=args.path)
+        items = request({"op": "list_agents"})["agents"]
+        return print_agents(items, args.json)
+    if args.command == "agent":
+        if args.action == "edit": return edit_agent(request({"op": "show_agent", "name": args.name})["agent"])
+        if args.action == "run": print(request({"op": "run_agent", "name": args.name})["run_id"]); return
+        if args.action == "runs": return print_runs(request({"op": "list_runs", "name": args.name})["runs"], args.json)
+        if args.action == "schedule": return preview_schedule(args.name)
+        if args.action in {"enable", "disable"}: request({"op": "set_enabled", "name": args.name, "enabled": args.action == "enable"}); return
+        if args.action == "delete": request({"op": "delete_agent", "name": args.name}); return
+        return print_agent(request({"op": "show_agent", "name": args.name})["agent"], args.json)
+    if args.command == "run": print(request({"op": "run_agent", "name": args.name})["run_id"]); return
+    if args.command == "resume": print(request({"op": "resume_run", "run_id": args.run_id})["run_id"]); return
+    if args.command == "runs": return print_runs(request({"op": "list_runs", "name": args.agent})["runs"], args.json)
+    if args.command == "stop": request({"op": "stop_run", "run_id": args.run_id}); return
+    if args.command == "settings": print(json.dumps(request({"op": "get_settings"})["settings"], indent=2)); return
+    if args.command == "schedule" and args.schedule_command == "preview": return preview_schedule(args.name)
+    if args.command == "mcp":
+        if args.mcp_command == "install": return install_mcp(args.quiet)
+        if args.mcp_command == "status": return mcp_status(args.json)
+        if args.mcp_command == "doctor": print(json.dumps(mcp_round_trip(), indent=2)); return
+        if args.mcp_command == "uninstall": return uninstall_mcp()
+        return cli_parser().parse_args(["mcp", "--help"])
+
+
+if __name__ == "__main__":
+    main()

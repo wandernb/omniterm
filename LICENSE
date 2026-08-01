@@ -1,0 +1,21 @@
+OmniTerm is free software distributed under the GNU General Public License,
+version 3 or (at your option) any later version (GPL-3.0-or-later).
+
+Copyright (C) 2026 Paul REBOH
+Contact: dev at reboh dot net
+
+OmniTerm is a modified distribution of iTerm2. iTerm2 is GPL-2.0-or-later;
+upstream documents that its Apache-2.0 dependencies make the combined work
+effectively GPLv3. The complete upstream license text is retained at
+Vendor/iTerm2/LICENSE and the upstream clarification at Vendor/iTerm2/COPYING.
+
+Copyright in the original iTerm2 sources remains with George Nachman and the
+other iTerm2 contributors. The OmniTerm-specific application changes,
+scheduler, CLI, MCP integration, product design, packaging, and documentation
+are Copyright (C) 2026 Paul REBOH. Other later contributions remain copyright
+their respective contributors. This program is provided without warranty.
+
+The full GPLv3 text is included at `LICENSES/GPL-3.0.txt` and is also available
+at https://www.gnu.org/licenses/gpl-3.0.html. Release bundles include this
+notice, the upstream license, and third-party license files. The corresponding
+source for every binary release must be made available alongside that release.

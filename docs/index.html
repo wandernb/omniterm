@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="OmniTerm is an always-running macOS terminal and scheduler for interactive Claude Code and Codex agents.">
+  <meta name="theme-color" content="#111112">
+  <title>OmniTerm · Interactive agent scheduler</title>
+  <link rel="icon" href="assets/omniterm-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <nav class="wrap" aria-label="Main navigation">
+      <a class="brand" href="#top">OMNITERM</a>
+      <a class="nav-link" href="#features">Features</a>
+      <a class="nav-link" href="#workflow">Workflow</a>
+      <a class="nav-link" href="#mcp">MCP</a>
+      <a class="nav-link" href="guide.html">Docs</a>
+      <a class="button secondary" href="https://github.com/somelibs/omniterm">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero wrap">
+      <pre class="ascii" aria-label="OMNI">
+  ___   __  __  _   _  ___
+ / _ \ |  \/  || \ | ||_ _|
+| | | || |\/| ||  \| | | |
+| |_| || |  | || |\  | | |
+ \___/ |_|  |_||_| \_||___|</pre>
+      <h1>Your agents,<br>always on hand.</h1>
+      <p class="lede">A native, single-window macOS terminal for scheduling and resuming real interactive Claude Code and Codex sessions.</p>
+      <div class="actions">
+        <a class="button" href="guide.html#install">Install OmniTerm</a>
+        <a class="button secondary" href="https://github.com/somelibs/omniterm#quick-start">Quick start</a>
+      </div>
+      <figure class="terminal-frame">
+        <img src="assets/screenshots/omni-dashboard-detail.png" alt="OmniTerm dashboard showing scheduled coding and productivity agents">
+      </figure>
+    </section>
+
+    <section id="features" class="wrap">
+      <span class="eyebrow">One terminal · many workflows</span>
+      <h2>Interactive automation without losing the terminal.</h2>
+      <p class="section-copy">OmniTerm schedules genuine provider TUIs in persistent tabs. Review a repository, prepare commits, organize documents, triage an inbox, publish a todo digest, or clean up files—with the session still there when you return.</p>
+      <div class="grid">
+        <article class="card"><span class="icon">◆</span><h3>Human schedules</h3><p>Use phrases such as “weekdays at 9am,” with replace or parallel overlap behavior.</p></article>
+        <article class="card"><span class="icon">▣</span><h3>Real interactive tabs</h3><p>Claude Code and Codex remain live, colorful, resizable, and resumable inside native PTYs.</p></article>
+        <article class="card"><span class="icon">↻</span><h3>Persistent history</h3><p>Open a recent run to resume its exact provider session in a fresh tab.</p></article>
+        <article class="card"><span class="icon">⌁</span><h3>Menu-bar native</h3><p>One hidden-by-default window, always available with Control-Option-Space.</p></article>
+        <article class="card"><span class="icon">◈</span><h3>Shared terminal style</h3><p>Keep your existing iTerm2 profiles, fonts, colors, and mappings in sync.</p></article>
+        <article class="card"><span class="icon">●</span><h3>Local by design</h3><p>Configuration, history, Unix-socket IPC, and MCP mediation stay on your Mac.</p></article>
+      </div>
+    </section>
+
+    <section id="workflow" class="wrap split">
+      <div>
+        <span class="eyebrow">Guided configuration</span>
+        <h2>Build agents without writing cron.</h2>
+        <p class="section-copy">The responsive wizard guides you through provider, model, workspace, prompts, schedule, overlap, and retention. Navigate by keyboard or mouse, with completion for models and paths.</p>
+        <div class="command">$ omni agents add .</div>
+      </div>
+      <div class="shot-stack">
+        <img src="assets/screenshots/omni-agent-wizard.png" alt="OmniTerm agent configuration wizard">
+        <img src="assets/screenshots/omni-provider-picker.png" alt="OmniTerm Claude and Codex provider picker">
+      </div>
+    </section>
+
+    <section id="mcp" class="wrap">
+      <span class="eyebrow">Claude Code + Codex MCP</span>
+      <h2>Let agents schedule agents.</h2>
+      <p class="section-copy">The bundled, constrained MCP adapter lets both providers inspect schedules, create and update agents, start or stop runs, and resume sessions. It exposes no arbitrary shell or remote network service.</p>
+      <div class="command">$ omni mcp doctor<br>protocol ready · 12 tools · scheduler connected</div>
+      <div class="actions">
+        <a class="button secondary" href="guide.html#mcp">Read MCP documentation</a>
+        <a class="button secondary" href="guide.html#architecture">Explore architecture</a>
+        <a class="button secondary" href="guide.html#privacy">Privacy & security</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">Copyright © 2026 Paul REBOH · GPL-3.0-or-later · A modified distribution of iTerm2, not endorsed by the iTerm2 project.</div>
+  </footer>
+</body>
+</html>

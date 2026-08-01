@@ -1,0 +1,315 @@
+#!/usr/bin/python3
+"""MCP stdio adapter for OmniTerm's native agent scheduler."""
+
+import importlib.machinery
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
+SUPPORTED_PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+HELPER_DIR = Path(__file__).resolve().parent
+OMNI = importlib.machinery.SourceFileLoader("omni_cli_for_mcp", str(HELPER_DIR / "omni")).load_module()
+
+
+def scheduler_request(payload, launch=True):
+    last_error = None
+    attempts = 8 if launch else 1
+    for attempt in range(attempts):
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(3)
+        try:
+            client.connect(str(SOCKET))
+            client.sendall(json.dumps(payload, separators=(",", ":")).encode() + b"\n")
+            client.shutdown(socket.SHUT_WR)
+            chunks = []
+            while True:
+                chunk = client.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            response = json.loads(b"".join(chunks))
+            if not response.get("ok"):
+                raise ValueError(response.get("error", "OmniTerm scheduler request failed"))
+            return response
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if attempt == 0 and launch:
+                subprocess.run(["open", "-g", "-b", "com.omniterm.app"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if attempt + 1 < attempts:
+                time.sleep(0.4)
+        finally:
+            client.close()
+    raise RuntimeError(f"OmniTerm scheduler is unavailable: {last_error}")
+
+
+def schema(properties=None, required=None):
+    value = {"type": "object", "properties": properties or {}, "additionalProperties": False}
+    if required:
+        value["required"] = required
+    return value
+
+
+def tool(name, title, description, properties=None, required=None, read_only=False,
+         destructive=False, idempotent=False):
+    return {
+        "name": name,
+        "title": title,
+        "description": description,
+        "inputSchema": schema(properties, required),
+        "outputSchema": {"type": "object"},
+        "annotations": {
+            "readOnlyHint": read_only,
+            "destructiveHint": destructive,
+            "idempotentHint": idempotent,
+            "openWorldHint": False,
+        },
+    }
+
+
+STRING = {"type": "string"}
+TOOLS = [
+    tool("list_agents", "List Omni agents",
+         "List scheduled OmniTerm agents. Prompt bodies are omitted. Use get_agent for one complete definition.",
+         {"enabled": {"type": "boolean", "description": "Optionally filter by enabled state."}},
+         read_only=True),
+    tool("get_agent", "Get an Omni agent",
+         "Get the complete definition and computed schedule metadata for one named OmniTerm agent.",
+         {"name": STRING}, ["name"], read_only=True),
+    tool("list_runs", "List Omni runs",
+         "List recent OmniTerm agent runs, including resumability and provider session IDs when available.",
+         {"agent": STRING, "state": STRING,
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}},
+         read_only=True),
+    tool("preview_schedule", "Preview an Omni schedule",
+         "Normalize a human-friendly schedule such as ‘daily at 09:00’ and preview occurrences in OmniTerm's global timezone.",
+         {"schedule": STRING,
+          "count": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5}},
+         ["schedule"], read_only=True),
+    tool("get_settings", "Get Omni settings",
+         "Get OmniTerm's global timezone, default retention timeout, and retained-run count.",
+         read_only=True),
+    tool("create_agent", "Create an Omni agent",
+         "Create and schedule a Claude or Codex agent. Use a human-friendly schedule. Workspace defaults to the nearest AGENTS.md/CLAUDE.md project from this MCP client's cwd.",
+         {
+             "name": STRING, "provider": {"type": "string", "enum": ["claude", "codex"]},
+             "schedule": STRING, "workspace": STRING, "system_prompt": STRING,
+             "startup_prompt": STRING, "model": STRING, "permission_mode": STRING,
+             "advanced_args": {"type": "array", "items": STRING},
+             "overlap": {"type": "string", "enum": ["replace", "parallel"], "default": "replace"},
+             "timeout": {"type": ["string", "null"], "description": "Duration such as 2h, 30m, or off."},
+             "enabled": {"type": "boolean", "default": True},
+         }, ["name", "provider", "schedule"]),
+    tool("update_agent", "Update an Omni agent",
+         "Partially update an existing OmniTerm agent. The name is immutable; only supplied fields change.",
+         {
+             "name": STRING, "provider": {"type": "string", "enum": ["claude", "codex"]},
+             "schedule": STRING, "workspace": STRING, "system_prompt": STRING,
+             "startup_prompt": STRING, "model": STRING, "permission_mode": STRING,
+             "advanced_args": {"type": "array", "items": STRING},
+             "overlap": {"type": "string", "enum": ["replace", "parallel"]},
+             "timeout": {"type": ["string", "null"]}, "enabled": {"type": "boolean"},
+         }, ["name"], idempotent=True),
+    tool("set_agent_enabled", "Enable or disable an Omni agent",
+         "Enable or pause future scheduled occurrences without deleting the agent.",
+         {"name": STRING, "enabled": {"type": "boolean"}}, ["name", "enabled"], idempotent=True),
+    tool("delete_agent", "Delete an Omni agent",
+         "Delete an OmniTerm agent definition and its scheduler-owned history. This is destructive.",
+         {"name": STRING}, ["name"], destructive=True, idempotent=True),
+    tool("run_agent", "Run an Omni agent now",
+         "Start a manual occurrence in a new interactive OmniTerm tab, honoring its overlap policy.",
+         {"name": STRING}, ["name"]),
+    tool("stop_run", "Stop an Omni run",
+         "Terminate an active OmniTerm run using its supervised process group.",
+         {"run_id": STRING}, ["run_id"], destructive=True, idempotent=True),
+    tool("resume_run", "Resume an Omni run",
+         "Resume the recorded Claude or Codex provider session from a prior run in a new OmniTerm tab.",
+         {"run_id": STRING}, ["run_id"]),
+]
+
+
+RESERVED = {"-C", "--cd", "--cwd", "--system-prompt", "--model", "-m",
+            "--permission-mode", "--ask-for-approval", "-a", "--sandbox"}
+
+
+def clean_agent(agent):
+    return {key: value for key, value in agent.items() if key not in {"next_run", "last_run"}}
+
+
+def validate_agent(agent):
+    name = str(agent.get("name", "")).strip()
+    if not name:
+        raise ValueError("Agent name must not be empty")
+    provider = agent.get("provider")
+    if provider not in {"claude", "codex"}:
+        raise ValueError("Provider must be claude or codex")
+    workspace = Path(agent.get("workspace", "")).expanduser().resolve()
+    if not workspace.is_dir():
+        raise ValueError(f"Workspace does not exist: {workspace}")
+    overlap = agent.get("overlap", "replace")
+    if overlap not in {"replace", "parallel"}:
+        raise ValueError("Overlap must be replace or parallel")
+    advanced = agent.get("advanced_args", [])
+    if not isinstance(advanced, list) or not all(isinstance(item, str) for item in advanced):
+        raise ValueError("advanced_args must be an array of strings")
+    if any(item.split("=", 1)[0] in RESERVED for item in advanced):
+        raise ValueError("Advanced arguments contain an OmniTerm-owned flag")
+    agent.update(name=name, provider=provider, workspace=str(workspace), overlap=overlap,
+                 advanced_args=advanced)
+    return agent
+
+
+def build_agent(arguments, existing=None):
+    settings = scheduler_request({"op": "get_settings"})["settings"]
+    timezone = settings.get("timezone") or OMNI.system_timezone()
+    current = clean_agent(existing or {})
+    if not existing:
+        workspace = OMNI.discover_project(arguments.get("workspace", os.getcwd()))
+        current = {
+            "name": arguments["name"], "provider": arguments["provider"],
+            "workspace": str(workspace), "system_prompt": "", "startup_prompt": "",
+            "model": "", "permission_mode": "", "advanced_args": [],
+            "overlap": "replace", "timeout_seconds": settings.get("default_timeout_seconds", 7200),
+            "enabled": True,
+        }
+    mappings = {
+        "provider": "provider", "workspace": "workspace", "system_prompt": "system_prompt",
+        "startup_prompt": "startup_prompt", "model": "model", "permission_mode": "permission_mode",
+        "advanced_args": "advanced_args", "overlap": "overlap", "enabled": "enabled",
+    }
+    for source, target in mappings.items():
+        if source in arguments:
+            current[target] = arguments[source]
+    if "timeout" in arguments:
+        current["timeout_seconds"] = OMNI.parse_duration(arguments["timeout"] or "off")
+    if "schedule" in arguments:
+        schedule, next_run = OMNI.parse_schedule(arguments["schedule"], timezone)
+        current["schedule"] = schedule
+        current["next_run"] = next_run
+    elif existing:
+        current["next_run"] = existing.get("next_run")
+    return validate_agent(current)
+
+
+def serializable_run(run):
+    value = dict(run)
+    session_id = value.get("session_id")
+    value["resumable"] = isinstance(session_id, str) and bool(session_id)
+    return value
+
+
+def call_tool(name, arguments):
+    if name == "list_agents":
+        agents = scheduler_request({"op": "list_agents"})["agents"]
+        if "enabled" in arguments:
+            agents = [agent for agent in agents if bool(agent.get("enabled")) == arguments["enabled"]]
+        summaries = [{key: agent.get(key) for key in
+                      ("name", "provider", "enabled", "workspace", "schedule", "next_run", "overlap", "timeout_seconds")}
+                     for agent in agents]
+        return {"agents": summaries}
+    if name == "get_agent":
+        return {"agent": scheduler_request({"op": "show_agent", "name": arguments["name"]})["agent"]}
+    if name == "list_runs":
+        runs = scheduler_request({"op": "list_runs", "name": arguments.get("agent")})["runs"]
+        if arguments.get("state"):
+            runs = [run for run in runs if run.get("state") == arguments["state"]]
+        limit = max(1, min(100, int(arguments.get("limit", 20))))
+        return {"runs": [serializable_run(run) for run in runs[:limit]]}
+    if name == "preview_schedule":
+        settings = scheduler_request({"op": "get_settings"})["settings"]
+        timezone = settings.get("timezone") or OMNI.system_timezone()
+        schedule, cursor = OMNI.parse_schedule(arguments["schedule"], timezone)
+        occurrences = []
+        for _ in range(max(1, min(20, int(arguments.get("count", 5))))):
+            if cursor is None:
+                break
+            occurrences.append(cursor)
+            cursor = OMNI.next_calendar(schedule, timezone, cursor)
+        return {"schedule": schedule, "timezone": timezone, "occurrences": occurrences}
+    if name == "get_settings":
+        return {"settings": scheduler_request({"op": "get_settings"})["settings"]}
+    if name == "create_agent":
+        existing = scheduler_request({"op": "list_agents"})["agents"]
+        if any(item["name"] == arguments["name"] for item in existing):
+            raise ValueError("Agent already exists; use update_agent")
+        agent = build_agent(arguments)
+        scheduler_request({"op": "create_agent", "agent": agent})
+        return {"agent": scheduler_request({"op": "show_agent", "name": agent["name"]})["agent"]}
+    if name == "update_agent":
+        existing = scheduler_request({"op": "show_agent", "name": arguments["name"]})["agent"]
+        agent = build_agent(arguments, existing)
+        scheduler_request({"op": "update_agent", "agent": agent})
+        return {"agent": scheduler_request({"op": "show_agent", "name": agent["name"]})["agent"]}
+    if name == "set_agent_enabled":
+        scheduler_request({"op": "set_enabled", "name": arguments["name"], "enabled": arguments["enabled"]})
+        return {"name": arguments["name"], "enabled": arguments["enabled"]}
+    if name == "delete_agent":
+        scheduler_request({"op": "delete_agent", "name": arguments["name"]})
+        return {"name": arguments["name"], "deleted": True}
+    if name == "run_agent":
+        response = scheduler_request({"op": "run_agent", "name": arguments["name"]})
+        return {"name": arguments["name"], "run_id": response["run_id"]}
+    if name == "stop_run":
+        scheduler_request({"op": "stop_run", "run_id": arguments["run_id"]})
+        return {"run_id": arguments["run_id"], "stopped": True}
+    if name == "resume_run":
+        response = scheduler_request({"op": "resume_run", "run_id": arguments["run_id"]})
+        return {"source_run_id": arguments["run_id"], "run_id": response["run_id"]}
+    raise ValueError(f"Unknown Omni tool: {name}")
+
+
+def tool_result(value, error=False):
+    return {
+        "content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False, separators=(",", ":"))}],
+        "structuredContent": value,
+        "isError": error,
+    }
+
+
+def response_for(message):
+    method = message.get("method")
+    request_id = message.get("id")
+    if request_id is None:
+        return None
+    if method == "initialize":
+        requested = message.get("params", {}).get("protocolVersion")
+        protocol = requested if requested in SUPPORTED_PROTOCOLS else SUPPORTED_PROTOCOLS[0]
+        result = {"protocolVersion": protocol, "capabilities": {"tools": {"listChanged": False}},
+                  "serverInfo": {"name": "omni", "title": "OmniTerm Agent Scheduler", "version": "1.0.0"},
+                  "instructions": "Use Omni tools to inspect and schedule interactive Claude or Codex agents. Prefer preview_schedule before create_agent or schedule updates."}
+        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
+    if method == "tools/call":
+        params = message.get("params", {})
+        try:
+            result = tool_result(call_tool(params.get("name"), params.get("arguments") or {}))
+        except Exception as exc:
+            result = tool_result({"error": str(exc)}, error=True)
+        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+    return {"jsonrpc": "2.0", "id": request_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"}}
+
+
+def main():
+    for raw_line in sys.stdin.buffer:
+        try:
+            message = json.loads(raw_line)
+            response = response_for(message)
+        except Exception as exc:
+            response = {"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32700, "message": f"Parse error: {exc}"}}
+        if response is not None:
+            sys.stdout.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()

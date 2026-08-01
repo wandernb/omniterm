@@ -1,0 +1,4 @@
+[submodule "Vendor/iTerm2"]
+	path = Vendor/iTerm2
+	url = https://github.com/gnachman/iTerm2.git
+	ignore = dirty

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111112">
+  <title>OmniTerm documentation</title>
+  <link rel="icon" href="assets/omniterm-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <nav class="wrap" aria-label="Documentation navigation">
+      <a class="brand" href="index.html">OMNITERM</a>
+      <a class="nav-link" href="#install">Install</a>
+      <a class="nav-link" href="#cli">CLI</a>
+      <a class="nav-link" href="#mcp">MCP</a>
+      <a class="button secondary" href="https://github.com/somelibs/omniterm">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <pre class="ascii" aria-label="OMNI">
+  ___   __  __  _   _  ___
+ / _ \ |  \/  || \ | ||_ _|
+| | | || |\/| ||  \| | | |
+| |_| || |  | || |\  | | |
+ \___/ |_|  |_||_| \_||___|</pre>
+      <h1>Documentation</h1>
+      <p class="lede">Install, configure, automate, and understand OmniTerm.</p>
+    </section>
+
+    <section id="install" class="wrap">
+      <span class="eyebrow">Installation</span>
+      <h2>From release to first agent.</h2>
+      <p class="section-copy">Download the DMG and run <strong>Install OmniTerm.command</strong>. The installer copies the app to Applications, creates the CLI launchers, starts OmniTerm in the background, and registers MCP with installed providers.</p>
+      <div class="command">$ omni mcp doctor<br>$ omni agents add .<br>$ omni</div>
+      <div class="actions">
+        <a class="button secondary" href="https://github.com/somelibs/omniterm/blob/main/docs/INSTALLATION.md">Complete installation guide ↗</a>
+        <a class="button secondary" href="https://github.com/somelibs/omniterm#quick-start">Build from source ↗</a>
+      </div>
+    </section>
+
+    <section id="cli" class="wrap">
+      <span class="eyebrow">CLI essentials</span>
+      <h2>A useful command surface, not cron syntax.</h2>
+      <div class="grid">
+        <article class="card"><span class="icon">+</span><h3>Create</h3><p><code>omni agents add .</code> discovers project instructions and opens a prefilled wizard.</p></article>
+        <article class="card"><span class="icon">▶</span><h3>Run</h3><p><code>omni agent NAME run</code> starts an interactive provider session immediately.</p></article>
+        <article class="card"><span class="icon">↻</span><h3>Resume</h3><p><code>omni resume RUN-ID</code> opens the exact Claude or Codex session in a new tab.</p></article>
+      </div>
+      <div class="command">$ omni --help<br>$ omni agents<br>$ omni agent my-agent<br>$ omni runs</div>
+    </section>
+
+    <section id="mcp" class="wrap split">
+      <div>
+        <span class="eyebrow">MCP integration</span>
+        <h2>Available in new Claude and Codex sessions.</h2>
+        <p class="section-copy">OmniTerm registers a local stdio adapter named <code>omni</code>. The native app stays the sole scheduler and state writer while providers receive a constrained scheduling toolset.</p>
+        <div class="actions"><a class="button secondary" href="https://github.com/somelibs/omniterm/blob/main/docs/MCP.md">Full MCP guide ↗</a></div>
+      </div>
+      <img style="width:100%;border:1px solid var(--border);border-radius:14px" src="assets/screenshots/omni-provider-picker.png" alt="Claude and Codex provider selection">
+    </section>
+
+    <section id="architecture" class="wrap">
+      <span class="eyebrow">Architecture</span>
+      <h2>Native terminal, local scheduler.</h2>
+      <div class="command">Claude / Codex ──stdio── omni-mcp ──Unix socket── OmniTerm scheduler<br>omni CLI ─────────────────────────────────────────┘</div>
+      <div class="actions"><a class="button secondary" href="https://github.com/somelibs/omniterm/blob/main/docs/ARCHITECTURE.md">Architecture details ↗</a></div>
+    </section>
+
+    <section id="privacy" class="wrap">
+      <span class="eyebrow">Privacy & security</span>
+      <h2>No new cloud between you and your agents.</h2>
+      <p class="section-copy">OmniTerm adds no analytics, account, remote API, or listening TCP service. Provider CLIs retain their own authentication, network, and privacy behavior.</p>
+      <div class="actions"><a class="button secondary" href="https://github.com/somelibs/omniterm/blob/main/docs/PRIVACY.md">Privacy documentation ↗</a></div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">Copyright © 2026 Paul REBOH · GPL-3.0-or-later</div></footer>
+</body>
+</html>

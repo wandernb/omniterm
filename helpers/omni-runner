@@ -1,0 +1,137 @@
+#!/usr/bin/python3
+"""Interactive PTY-side supervisor for one OmniTerm agent run."""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
+
+
+def request(payload):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(str(SOCKET))
+    client.sendall(json.dumps(payload).encode() + b"\n")
+    client.shutdown(socket.SHUT_WR)
+    data = b""
+    while True:
+        chunk = client.recv(65536)
+        if not chunk: break
+        data += chunk
+    return json.loads(data)
+
+
+def provider_argv(agent, run_id=None, resume_session_id=None):
+    if agent["provider"] == "claude":
+        argv = ["claude"]
+        if resume_session_id:
+            argv += ["--resume", resume_session_id]
+        else:
+            argv += ["--system-prompt", agent.get("system_prompt", "")]
+            if run_id:
+                argv += ["--session-id", run_id]
+        if agent.get("model"): argv += ["--model", agent["model"]]
+        if agent.get("permission_mode"): argv += ["--permission-mode", agent["permission_mode"]]
+    else:
+        argv = ["codex", "-C", agent["workspace"], "-c", f"developer_instructions={json.dumps(agent.get('system_prompt', ''))}"]
+        if agent.get("model"): argv += ["--model", agent["model"]]
+        if agent.get("permission_mode"): argv += ["--ask-for-approval", agent["permission_mode"]]
+        if resume_session_id:
+            argv += ["resume", resume_session_id]
+    argv += agent.get("advanced_args", [])
+    if not resume_session_id and agent.get("startup_prompt"): argv.append(agent["startup_prompt"])
+    return argv
+
+
+def provider_environment(source=None):
+    """Keep managed interactive agents colorful even if OmniTerm inherited NO_COLOR."""
+    environment = dict(os.environ if source is None else source)
+    environment.pop("NO_COLOR", None)
+    environment["CLICOLOR"] = "1"
+    environment["FORCE_COLOR"] = "1"
+    environment.setdefault("COLORTERM", "truecolor")
+    return environment
+
+
+def forward_terminal_resize(process_group):
+    """Notify the isolated provider group after iTerm updates the PTY size."""
+    try:
+        os.killpg(process_group, signal.SIGWINCH)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def codex_session_files():
+    root = Path.home() / ".codex/sessions"
+    return {path for path in root.rglob("*.jsonl")} if root.exists() else set()
+
+
+def codex_session_id(path, workspace):
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for _ in range(8):
+                event = json.loads(handle.readline())
+                if event.get("type") == "session_meta":
+                    payload = event.get("payload", {})
+                    if payload.get("cwd") == workspace:
+                        return payload.get("id")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def main():
+    run_id = sys.argv[1]
+    response = request({"op": "run_spec", "run_id": run_id})
+    if not response.get("ok"):
+        raise SystemExit(response.get("error", "Run not found"))
+    agent = response["agent"]
+    run = response["run"]
+    resume_session_id = run.get("resume_session_id") if isinstance(run.get("resume_session_id"), str) else None
+    argv = provider_argv(agent, run_id=run_id, resume_session_id=resume_session_id)
+    previous_codex_files = codex_session_files() if agent["provider"] == "codex" and not resume_session_id else set()
+    started = time.monotonic()
+    child = subprocess.Popen(argv,
+                             cwd=agent["workspace"],
+                             env=provider_environment(),
+                             start_new_session=True)
+    signal.signal(signal.SIGWINCH,
+                  lambda *_: forward_terminal_resize(child.pid))
+    known_session_id = run.get("session_id") if isinstance(run.get("session_id"), str) else None
+    request({"op": "runner_started", "run_id": run_id, "pid": os.getpid(), "pgid": child.pid,
+             "session_id": known_session_id})
+    if agent["provider"] == "codex" and not resume_session_id:
+        def find_session():
+            for _ in range(60):
+                candidates = codex_session_files() - previous_codex_files
+                candidates = sorted(candidates, key=lambda path: path.stat().st_mtime, reverse=True)
+                for path in candidates:
+                    session_id = codex_session_id(path, agent["workspace"])
+                    if session_id:
+                        try: request({"op": "runner_session", "run_id": run_id, "session_id": session_id})
+                        except OSError: pass
+                        return
+                time.sleep(0.5)
+        threading.Thread(target=find_session, daemon=True).start()
+    code = child.wait()
+    state = "completed" if code == 0 else "failed"
+    reason = f"exit {code}"
+    signal.signal(signal.SIGUSR1, lambda *_: sys.exit(0))
+    try: request({"op": "runner_finished", "run_id": run_id, "state": state, "reason": reason})
+    except OSError: pass
+    runtime = int(time.monotonic() - started)
+    print(f"\n── OmniTerm run {state}: {reason} · {runtime}s ──")
+    print("This completed run is static. Close the tab when you no longer need its output.")
+    while True:
+        try: time.sleep(3600)
+        except KeyboardInterrupt: return
+
+
+if __name__ == "__main__":
+    main()
