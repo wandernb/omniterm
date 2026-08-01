@@ -68,6 +68,13 @@ rm -f "$dmg" "$zip" "$release_dir/SHA256SUMS"
 hdiutil create -quiet -volname "OmniTerm $version" -srcfolder "$work" -format UDZO "$dmg"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 
+dmg_sign_args=(--force --sign "$identity")
+if [[ "$identity" != - ]]; then
+  dmg_sign_args+=(--timestamp)
+fi
+codesign "${dmg_sign_args[@]}" "$dmg"
+codesign --verify --strict "$dmg"
+
 if [[ -n "${OMNITERM_NOTARY_PROFILE:-}" ]]; then
   xcrun notarytool submit "$dmg" --keychain-profile "$OMNITERM_NOTARY_PROFILE" --wait
   xcrun stapler staple "$dmg"
