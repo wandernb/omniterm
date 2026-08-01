@@ -12,6 +12,11 @@ DerivedData/
 *.dmg
 *.zip
 SHA256SUMS
+!releases/
+!releases/**/*.dmg
+!releases/**/*.zip
+!releases/**/SHA256SUMS
+!releases/**/README.md
 *.log
 *.p12
 *.cer

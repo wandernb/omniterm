@@ -1,5 +1,8 @@
 # OmniTerm
 
+[![Tests](https://github.com/somelibs/omniterm/actions/workflows/tests.yml/badge.svg)](https://github.com/somelibs/omniterm/actions/workflows/tests.yml)
+[![Coverage](https://github.com/somelibs/omniterm/actions/workflows/coverage.yml/badge.svg)](https://github.com/somelibs/omniterm/actions/workflows/coverage.yml)
+
 ```text
   ___   __  __  _   _  ___
  / _ \ |  \/  || \ | ||_ _|
@@ -19,6 +22,12 @@ its own tab—not as captured batch output.
 [![OmniTerm agent dashboard](docs/assets/screenshots/omni-dashboard-detail.png)](docs/assets/screenshots/omni-dashboard-detail.png)
 
 <p align="center">
+  <a href="https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.dmg"><strong>Download OmniTerm 0.1.0 DMG</strong></a>
+  ·
+  <a href="https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.zip">ZIP</a>
+  ·
+  <a href="releases/0.1.0/SHA256SUMS">Checksums</a>
+  <br>
   <a href="https://somelibs.github.io/omniterm/">Documentation website</a>
   ·
   <a href="docs/INSTALLATION.md">Installation</a>
@@ -26,9 +35,9 @@ its own tab—not as captured batch output.
   <a href="docs/MCP.md">MCP integration</a>
 </p>
 
-> **Pre-release:** packaging and original OmniTerm artwork are implemented.
-> Public binaries still require a Developer ID signing identity and Apple
-> notarization credentials.
+> **Early release:** the downloadable build is ad-hoc signed and is not Apple
+> notarized yet. macOS may require the manual first-open step described in the
+> [installation guide](docs/INSTALLATION.md).
 
 ## Highlights
 
@@ -51,8 +60,10 @@ its own tab—not as captured batch output.
 
 ## Install
 
-For a release, download the DMG and run **Install OmniTerm.command**. It installs
-the app, stable CLI launchers, and provider MCP registrations. See
+Download the committed [OmniTerm 0.1.0 DMG](https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.dmg)
+and run **Install OmniTerm.command**. It installs the app, stable CLI launchers,
+and provider MCP registrations. A [ZIP archive](https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.zip)
+and [SHA-256 manifest](releases/0.1.0/SHA256SUMS) are also stored in this repository. See
 [Installation](docs/INSTALLATION.md) for checksums, verification, upgrades, and
 uninstall instructions.
 

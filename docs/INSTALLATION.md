@@ -2,8 +2,8 @@
 
 ## Release DMG
 
-1. Download `OmniTerm-VERSION.dmg` and `SHA256SUMS` from the same GitHub
-   release and verify the checksum.
+1. Download the committed [OmniTerm 0.1.0 DMG](https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.dmg)
+   and [SHA256SUMS](../releases/0.1.0/SHA256SUMS), then verify the checksum.
 2. Open the DMG.
 3. Run **Install OmniTerm.command**. This copies the signed app to
    `/Applications`, installs `omni` and `omni-mcp` into `~/.local/bin`, starts
@@ -15,6 +15,10 @@ afterward, or run `omni mcp install`, to create the launchers and provider
 registrations.
 
 Add `~/.local/bin` to `PATH` if your shell does not already include it.
+
+The current build is ad-hoc signed but not Apple-notarized. If Gatekeeper
+blocks the first launch, Control-click OmniTerm in Applications, choose
+**Open**, and confirm once. Future Developer ID releases will remove this step.
 
 ## Background startup and settings
 
