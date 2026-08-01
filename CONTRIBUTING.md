@@ -8,6 +8,7 @@ Run the fast helper and script checks from the project root:
 
 ```sh
 python3 -m unittest discover -s tests -v
+python3 tests/coverage_report.py --fail-under 65
 /bin/zsh -n scripts/*.sh
 ```
 
