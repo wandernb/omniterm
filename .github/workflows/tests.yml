@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+    paths:
+      - "helpers/**"
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    paths:
+      - "helpers/**"
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  helper-tests:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run helper unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Check shell script syntax
+        run: /bin/zsh -n scripts/*.sh

@@ -14,6 +14,7 @@
     <nav class="wrap" aria-label="Main navigation">
       <a class="brand" href="#top">OMNITERM</a>
       <a class="nav-link" href="#features">Features</a>
+      <a class="nav-link" href="#settings">Settings</a>
       <a class="nav-link" href="#workflow">Workflow</a>
       <a class="nav-link" href="#mcp">MCP</a>
       <a class="nav-link" href="guide.html">Docs</a>
@@ -48,10 +49,22 @@
         <article class="card"><span class="icon">◆</span><h3>Human schedules</h3><p>Use phrases such as “weekdays at 9am,” with replace or parallel overlap behavior.</p></article>
         <article class="card"><span class="icon">▣</span><h3>Real interactive tabs</h3><p>Claude Code and Codex remain live, colorful, resizable, and resumable inside native PTYs.</p></article>
         <article class="card"><span class="icon">↻</span><h3>Persistent history</h3><p>Open a recent run to resume its exact provider session in a fresh tab.</p></article>
-        <article class="card"><span class="icon">⌁</span><h3>Menu-bar native</h3><p>One hidden-by-default window, always available with Control-Option-Space.</p></article>
+        <article class="card"><span class="icon">⌁</span><h3>Menu-bar native</h3><p>Launches and reopen requests stay hidden until you use the menu or configurable shortcut.</p></article>
         <article class="card"><span class="icon">◈</span><h3>Shared terminal style</h3><p>Keep your existing iTerm2 profiles, fonts, colors, and mappings in sync.</p></article>
         <article class="card"><span class="icon">●</span><h3>Local by design</h3><p>Configuration, history, Unix-socket IPC, and MCP mediation stay on your Mac.</p></article>
       </div>
+    </section>
+
+    <section id="settings" class="wrap">
+      <span class="eyebrow">Native OmniTerm settings</span>
+      <h2>Starts quietly. Opens only when asked.</h2>
+      <p class="section-copy">OmniTerm is a true menu-bar app. Fresh launches, login startup, and macOS reopen requests reveal no terminal or settings window. Open it explicitly from the menu bar or with your global shortcut—Control-Option-Space by default.</p>
+      <div class="grid">
+        <article class="card"><span class="icon">⌘</span><h3>Shortcut + behavior</h3><p>Record any global shortcut, control window centering, or tune and disable double-Escape-to-hide.</p></article>
+        <article class="card"><span class="icon">◐</span><h3>Launch at login</h3><p>Enable native macOS login startup from the menu-bar settings without showing a startup window.</p></article>
+        <article class="card"><span class="icon">◷</span><h3>Agent defaults</h3><p>Set the scheduling timezone, default retention, and number of protected recent run tabs.</p></article>
+      </div>
+      <div class="command">Menu bar → OmniTerm Settings…<br>Canonical configuration → ~/.omni/settings.json</div>
     </section>
 
     <section id="workflow" class="wrap split">

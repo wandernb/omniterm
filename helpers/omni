@@ -165,21 +165,24 @@ def path_completion_matches(text):
 def request(payload):
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        client.connect(str(SOCKET))
-    except OSError as exc:
-        raise SystemExit(f"OmniTerm scheduler is unavailable: {exc}")
-    client.sendall(json.dumps(payload).encode() + b"\n")
-    client.shutdown(socket.SHUT_WR)
-    chunks = []
-    while True:
-        chunk = client.recv(65536)
-        if not chunk:
-            break
-        chunks.append(chunk)
-    response = json.loads(b"".join(chunks))
-    if not response.get("ok"):
-        raise SystemExit(response.get("error", "Scheduler request failed"))
-    return response
+        try:
+            client.connect(str(SOCKET))
+        except OSError as exc:
+            raise SystemExit(f"OmniTerm scheduler is unavailable: {exc}")
+        client.sendall(json.dumps(payload).encode() + b"\n")
+        client.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        response = json.loads(b"".join(chunks))
+        if not response.get("ok"):
+            raise SystemExit(response.get("error", "Scheduler request failed"))
+        return response
+    finally:
+        client.close()
 
 
 def parse_duration(value):
@@ -189,7 +192,10 @@ def parse_duration(value):
     units = {"s": 1, "sec": 1, "m": 60, "min": 60, "h": 3600, "hour": 3600, "d": 86400, "day": 86400}
     for suffix, factor in sorted(units.items(), key=lambda item: -len(item[0])):
         if text.endswith(suffix):
-            return int(float(text[:-len(suffix)].strip()) * factor)
+            seconds = int(float(text[:-len(suffix)].strip()) * factor)
+            if seconds < 1:
+                raise ValueError("Duration must be positive or off")
+            return seconds
     raise ValueError("Use a duration such as 30m, 2h, 1d, or off")
 
 

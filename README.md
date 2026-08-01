@@ -33,8 +33,12 @@ its own tab—not as captured batch output.
 ## Highlights
 
 - One persistent terminal window with unlimited tabs and split panes.
-- Menu-bar-only app; it launches hidden and toggles with Control-Option-Space.
+- Menu-bar-only app; launches and reopen requests stay hidden until explicitly
+  opened from the menu bar or configurable global shortcut
+  (Control-Option-Space by default).
 - Command-W/Q hide sessions; a fast double-Escape hides the window.
+- Native OmniTerm settings for the shortcut, login startup, window behavior,
+  timezone, and agent retention defaults.
 - Human schedules such as `weekdays at 9am` and `every 30 minutes`.
 - Claude and Codex agents with workspace, model, system prompt, startup prompt,
   `replace`/`parallel` overlap, and configurable retention.
@@ -68,8 +72,9 @@ supported Xcode installation.
 
 ## Quick start
 
-Press Control-Option-Space to open OmniTerm. The first tab is the `Omni`
-dashboard. Add an agent interactively or from any project:
+Choose **Open OmniTerm** from the menu bar or press the configured shortcut
+(Control-Option-Space by default). The first tab is the `Omni` dashboard. Add
+an agent interactively or from any project:
 
 ```sh
 omni agents add .
@@ -83,6 +88,28 @@ omni runs
 name and workspace, and opens the prefilled wizard. Agent definitions are
 stored as individual JSON files under `~/.omni/agents`; global timezone and
 defaults live in `~/.omni/settings.json`.
+
+## Settings and background startup
+
+Choose **OmniTerm Settings…** from the menu bar to configure:
+
+- the global show/hide shortcut;
+- launch at login;
+- centering the terminal on the active screen when opened;
+- double-Escape-to-hide and its maximum interval;
+- scheduling timezone, default run retention, and protected recent-tab count.
+
+Changes apply immediately and persist in `~/.omni/settings.json`, which remains
+the canonical global configuration file for the GUI, CLI, scheduler, and MCP
+server. The inherited iTerm2 preferences window is intentionally unavailable;
+terminal profiles, colors, fonts, and key mappings continue to come from the
+shared iTerm2 preferences suite.
+
+Fresh launches, login startup, and macOS reopen requests are strictly
+background-only: they do not restore or reveal either the terminal or Settings
+window. Only the menu-bar **Open OmniTerm** command or configured global
+shortcut reveals the terminal. macOS may ask you to approve launch-at-login in
+**System Settings → General → Login Items**.
 
 <details>
 <summary>See the interactive agent wizard</summary>
@@ -110,7 +137,7 @@ omni agent NAME disable      Disable scheduling
 omni agent NAME delete       Delete the definition
 omni runs                    List recent runs
 omni resume RUN-ID           Resume the exact provider session
-omni settings                Edit global settings
+omni settings                Show global settings
 omni mcp doctor              Validate MCP end to end
 ```
 
@@ -155,10 +182,11 @@ New Claude Code and Codex sessions then discover the server as `omni`. See
 - OmniTerm runs as its own native process and does not launch iTerm2.
 - The tab bar is always visible and the `Omni` dashboard remains first.
 - New-window requests become tabs; panes and tabs remain unrestricted.
-- A single Escape is delivered to the TTY; two Escapes within 350 ms hide.
-- The window opens centered on the current screen and Space.
+- A single Escape is delivered to the TTY; two Escapes quickly hide by default.
+- The window opens centered on the current screen and Space by default.
 - Peach `#f7b185` chrome distinguishes it from ordinary iTerm2 windows.
-- Settings and Sparkle auto-update are disabled in OmniTerm.
+- OmniTerm-specific settings are available from the menu bar; inherited iTerm2
+  settings and Sparkle auto-update are unavailable.
 - Complete termination is available from **Terminate OmniTerm Completely**.
 
 ## Architecture and data

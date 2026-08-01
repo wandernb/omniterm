@@ -13,6 +13,7 @@
     <nav class="wrap" aria-label="Documentation navigation">
       <a class="brand" href="index.html">OMNITERM</a>
       <a class="nav-link" href="#install">Install</a>
+      <a class="nav-link" href="#settings">Settings</a>
       <a class="nav-link" href="#cli">CLI</a>
       <a class="nav-link" href="#mcp">MCP</a>
       <a class="button secondary" href="https://github.com/somelibs/omniterm">GitHub ↗</a>
@@ -40,6 +41,18 @@
         <a class="button secondary" href="https://github.com/somelibs/omniterm/blob/main/docs/INSTALLATION.md">Complete installation guide ↗</a>
         <a class="button secondary" href="https://github.com/somelibs/omniterm#quick-start">Build from source ↗</a>
       </div>
+    </section>
+
+    <section id="settings" class="wrap">
+      <span class="eyebrow">Settings and startup</span>
+      <h2>Background by default, configurable from the menu bar.</h2>
+      <p class="section-copy">Choose <strong>OmniTerm Settings…</strong> from the menu-bar icon. Changes apply immediately and are saved to <code>~/.omni/settings.json</code>. Starting the app, logging in, or reopening an already-running app never reveals the terminal or Settings window; only <strong>Open OmniTerm</strong> or the global shortcut does.</p>
+      <div class="grid">
+        <article class="card"><span class="icon">⌘</span><h3>General</h3><p>Configure the global shortcut, active-screen centering, double-Escape behavior, and its timing.</p></article>
+        <article class="card"><span class="icon">◐</span><h3>Login</h3><p>Register OmniTerm as a native macOS login item. macOS may request approval in System Settings.</p></article>
+        <article class="card"><span class="icon">◷</span><h3>Agents</h3><p>Choose the scheduling timezone, default run retention, and protected recent-tab count.</p></article>
+      </div>
+      <div class="command">Default shortcut: Control-Option-Space<br>macOS approval: System Settings → General → Login Items</div>
     </section>
 
     <section id="cli" class="wrap">

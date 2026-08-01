@@ -16,15 +16,18 @@ SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
 
 def request(payload):
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.connect(str(SOCKET))
-    client.sendall(json.dumps(payload).encode() + b"\n")
-    client.shutdown(socket.SHUT_WR)
-    data = b""
-    while True:
-        chunk = client.recv(65536)
-        if not chunk: break
-        data += chunk
-    return json.loads(data)
+    try:
+        client.connect(str(SOCKET))
+        client.sendall(json.dumps(payload).encode() + b"\n")
+        client.shutdown(socket.SHUT_WR)
+        data = b""
+        while True:
+            chunk = client.recv(65536)
+            if not chunk: break
+            data += chunk
+        return json.loads(data)
+    finally:
+        client.close()
 
 
 def provider_argv(agent, run_id=None, resume_session_id=None):

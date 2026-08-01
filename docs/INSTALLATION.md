@@ -16,6 +16,22 @@ registrations.
 
 Add `~/.local/bin` to `PATH` if your shell does not already include it.
 
+## Background startup and settings
+
+Installation and ordinary app launches start OmniTerm as a menu-bar app without
+showing a terminal or Settings window. Use **Open OmniTerm** from the menu-bar
+icon or press Control-Option-Space, the default configurable shortcut, when you
+want the terminal.
+
+Choose **OmniTerm Settings…** from the menu bar to change the shortcut, enable
+launch at login, configure active-screen centering and double-Escape behavior,
+or set scheduler timezone and retention defaults. Changes apply immediately and
+are stored in `~/.omni/settings.json`.
+
+When launch at login is enabled, macOS may ask for confirmation under **System
+Settings → General → Login Items**. Login startup remains background-only and
+does not open a terminal window.
+
 ## Verify
 
 ```sh
