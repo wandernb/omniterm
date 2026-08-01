@@ -1,0 +1,26 @@
+name: Coverage
+
+on:
+  push:
+    paths:
+      - "helpers/**"
+      - "tests/**"
+      - ".github/workflows/coverage.yml"
+  pull_request:
+    paths:
+      - "helpers/**"
+      - "tests/**"
+      - ".github/workflows/coverage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce helper coverage floor
+        run: python3 tests/coverage_report.py --fail-under 65
