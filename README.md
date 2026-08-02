@@ -1,7 +1,7 @@
 # OmniTerm
 
-[![Tests](https://github.com/somelibs/omniterm/actions/workflows/tests.yml/badge.svg)](https://github.com/somelibs/omniterm/actions/workflows/tests.yml)
-[![Coverage](https://github.com/somelibs/omniterm/actions/workflows/coverage.yml/badge.svg)](https://github.com/somelibs/omniterm/actions/workflows/coverage.yml)
+[![Tests](https://github.com/wandernb/omniterm/actions/workflows/tests.yml/badge.svg)](https://github.com/wandernb/omniterm/actions/workflows/tests.yml)
+[![Coverage](https://github.com/wandernb/omniterm/actions/workflows/coverage.yml/badge.svg)](https://github.com/wandernb/omniterm/actions/workflows/coverage.yml)
 
 ```text
   ___   __  __  _   _  ___
@@ -22,17 +22,19 @@ its own tab—not as captured batch output.
 [![OmniTerm agent dashboard](docs/assets/screenshots/omni-dashboard-detail.png)](docs/assets/screenshots/omni-dashboard-detail.png)
 
 <p align="center">
-  <a href="https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.dmg"><strong>Download OmniTerm 0.1.0 DMG</strong></a>
+  <a href="https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.dmg"><strong>Download latest · OmniTerm 0.2.0 DMG</strong></a>
   ·
-  <a href="https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.zip">ZIP</a>
+  <a href="https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.zip">ZIP</a>
   ·
-  <a href="releases/0.1.0/SHA256SUMS">Checksums</a>
+  <a href="releases/0.2.0/SHA256SUMS">Checksums</a>
   <br>
-  <a href="https://somelibs.github.io/omniterm/">Documentation website</a>
+  <a href="https://wandernb.github.io/omniterm/">Documentation website</a>
   ·
   <a href="docs/INSTALLATION.md">Installation</a>
   ·
   <a href="docs/MCP.md">MCP integration</a>
+  ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 > **Early release:** the downloadable build is ad-hoc signed and is not Apple
@@ -48,7 +50,8 @@ its own tab—not as captured batch output.
 - Command-W/Q hide sessions; a fast double-Escape hides the window.
 - Native OmniTerm settings for the shortcut, login startup, window behavior,
   timezone, and agent retention defaults.
-- Human schedules such as `weekdays at 9am` and `every 30 minutes`.
+- Calendar-style recurrence controls for minute, hourly, daily, weekly, and
+  monthly schedules.
 - Claude and Codex agents with workspace, model, system prompt, startup prompt,
   `replace`/`parallel` overlap, and configurable retention.
 - Responsive mouse-and-keyboard TUI with system/startup prompt previews and
@@ -60,17 +63,17 @@ its own tab—not as captured batch output.
 
 ## Install
 
-Download the committed [OmniTerm 0.1.0 DMG](https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.dmg)
+Download the latest committed [OmniTerm 0.2.0 DMG](https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.dmg)
 and run **Install OmniTerm.command**. It installs the app, stable CLI launchers,
-and provider MCP registrations. A [ZIP archive](https://github.com/somelibs/omniterm/raw/refs/heads/main/releases/0.1.0/OmniTerm-0.1.0.zip)
-and [SHA-256 manifest](releases/0.1.0/SHA256SUMS) are also stored in this repository. See
+and provider MCP registrations. A [ZIP archive](https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.zip)
+and [SHA-256 manifest](releases/0.2.0/SHA256SUMS) are also stored in this repository. See
 [Installation](docs/INSTALLATION.md) for checksums, verification, upgrades, and
 uninstall instructions.
 
 Build the development version from source:
 
 ```sh
-git clone git@github.com:somelibs/omniterm.git
+git clone git@github.com:wandernb/omniterm.git
 cd OmniTerm
 ./scripts/bootstrap.sh
 cd Vendor/iTerm2 && make paranoid-deps && cd ../..
@@ -95,10 +98,23 @@ omni agent my-agent run
 omni runs
 ```
 
+In the dashboard, Up and Down select an agent. Enter moves focus to the
+right-side **Run now** button; press Enter again or click the button to start
+that agent. Left always returns focus to the agent list. No other dashboard
+key starts an agent.
+
 `omni agents add PATH` finds the closest `AGENTS.md` or `CLAUDE.md`, derives a
 name and workspace, and opens the prefilled wizard. Agent definitions are
 stored as individual JSON files under `~/.omni/agents`; global timezone and
 defaults live in `~/.omni/settings.json`.
+
+Agent creation stays in one inline, resize-aware form. Use Left and Right to
+move between fields and Up, Down, Tab, or the mouse to choose inline options.
+The workspace field completes directories like `cd`: Tab writes a shared
+prefix or selected match into the field and repeated Tab moves through the
+directory tree; Enter accepts the path currently shown. In either prompt field,
+Enter advances while Shift-Enter, Option-Enter, or Command-Enter inserts a
+line break.
 
 ## Settings and background startup
 
@@ -126,8 +142,6 @@ shortcut reveals the terminal. macOS may ask you to approve launch-at-login in
 <summary>See the interactive agent wizard</summary>
 
 ![OmniTerm agent configuration wizard](docs/assets/screenshots/omni-agent-wizard.png)
-
-![OmniTerm provider picker](docs/assets/screenshots/omni-provider-picker.png)
 
 </details>
 
@@ -162,10 +176,19 @@ instructions. Startup prompts are separate user messages injected into the
 interactive TTY. Supported schedule phrases include:
 
 - `every 30 minutes`
+- `every 2 hours at minute 15`
+- `every 3 days at 09:00`
+- `every 2 weeks on monday at 10:00`
+- `every 1 month on day 31 at 09:00`
 - `daily at 09:00`
 - `weekdays at 9am`
 - `weekly on monday at 10:00`
 - `once at 2026-08-01 14:00`
+
+The inline editor presents repeat count, period, and context-sensitive
+minute/time/weekday/month-day controls, plus a live human-readable preview.
+Monthly schedules clamp day 29–31 to the end of shorter months and return to
+the requested day when a later month supports it.
 
 `replace` gracefully stops a preceding run before starting the new one;
 `parallel` allows both. The ten newest run tabs remain interactive regardless

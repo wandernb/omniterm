@@ -20,7 +20,7 @@ location and must contain binaries and corresponding source for the same tag.
 ```sh
 export OMNITERM_SIGN_IDENTITY='Developer ID Application: Example (TEAMID)'
 export OMNITERM_NOTARY_PROFILE='omniterm-notary'
-./scripts/package-release.sh 0.1.0
+./scripts/package-release.sh 0.2.0
 ```
 
 The default artifact targets the build machine's architecture. For a universal
@@ -49,3 +49,16 @@ behavior, provider runs, upgrade, and uninstall. Then:
 Never publish an ad-hoc-signed artifact, a build containing an upstream signing
 identity, a binary without matching source, or a tag created from a different
 tree than the released binary.
+
+## Versioning and changelog
+
+OmniTerm follows [Semantic Versioning](https://semver.org/): increment MAJOR
+for incompatible behavior or configuration changes, MINOR for backward-
+compatible features, and PATCH for backward-compatible fixes. During the
+initial `0.y.z` series, MINOR may still contain substantial product changes,
+but breaking changes must be called out explicitly.
+
+Maintain `CHANGELOG.md` in Keep a Changelog format. Move entries from
+`Unreleased` into a dated version section before building, keep comparison
+links current, and ensure the app metadata, artifact filenames, release
+directory, tag, README, and website all use the same version.

@@ -2,6 +2,7 @@
 """OmniTerm's human-friendly agent scheduler client."""
 
 import argparse
+import calendar
 import curses
 import datetime as dt
 import json
@@ -32,6 +33,7 @@ PEACH = "\033[38;2;247;177;133m"
 GREEN = "\033[38;2;105;219;124m"
 BLUE = "\033[38;2;125;170;255m"
 MUTED = "\033[38;2;145;145;145m"
+DASHBOARD_ACTIVATE_KEY = 0x1D
 
 
 def styled(text, *styles):
@@ -94,6 +96,94 @@ def generated_agent_name(workspace, startup_prompt):
     command = re.sub(r"^[/:]+", "", command)
     command = re.sub(r"[^A-Za-z0-9._:-]+", " ", command).strip()
     return f"{folder} · {command}" if command else folder
+
+
+def schedule_form_values(phrase):
+    """Translate a canonical/legacy phrase into the inline recurrence controls."""
+    text = " ".join((phrase or "daily at 09:00").lower().split())
+    patterns = [
+        (r"every (\d+) minutes?", lambda match: (match[1], "minutes", "", "")),
+        (r"every (\d+) hours?(?: at minute (\d{1,2}))?",
+         lambda match: (match[1], "hours", match[2] or "", "")),
+        (r"every (\d+) days?(?: at ([^ ]+))?",
+         lambda match: (match[1], "days", match[2] or "", "")),
+        (r"every (\d+) weeks? on ([a-z]+)(?: at ([^ ]+))?",
+         lambda match: (match[1], "weeks", match[2], match[3] or "09:00")),
+        (r"every (\d+) months? on day (\d{1,2})(?: at ([^ ]+))?",
+         lambda match: (match[1], "months", match[2], match[3] or "09:00")),
+        (r"daily at ([^ ]+)", lambda match: ("1", "days", match[1], "")),
+        (r"weekdays at ([^ ]+)", lambda match: ("1", "weekdays", match[1], "")),
+        (r"weekly on ([a-z]+) at ([^ ]+)",
+         lambda match: ("1", "weeks", match[1], match[2])),
+        (r"once at (.+)", lambda match: ("1", "once", match[1], "")),
+    ]
+    for pattern, convert in patterns:
+        match = re.fullmatch(pattern, text)
+        if match:
+            count, unit, on_value, at_value = convert(match)
+            return {"repeat_count": count, "repeat_unit": unit,
+                    "repeat_on": on_value, "repeat_time": at_value}
+    return {"repeat_count": "1", "repeat_unit": "days",
+            "repeat_on": "09:00", "repeat_time": ""}
+
+
+def schedule_phrase_from_form(values):
+    count = (values.get("repeat_count") or "1").strip()
+    unit = values.get("repeat_unit") or "days"
+    on_value = (values.get("repeat_on") or "").strip().lower()
+    at_value = (values.get("repeat_time") or "").strip().lower()
+    singular = count == "1"
+    if unit == "once":
+        return f"once at {on_value}"
+    if unit == "weekdays":
+        return f"weekdays at {on_value or '09:00'}"
+    noun = unit[:-1] if singular else unit
+    phrase = f"every {count} {noun}"
+    if unit == "hours" and on_value:
+        phrase += f" at minute {on_value}"
+    elif unit == "days" and on_value:
+        phrase += f" at {on_value}"
+    elif unit == "weeks":
+        phrase += f" on {on_value or 'monday'} at {at_value or '09:00'}"
+    elif unit == "months":
+        phrase += f" on day {on_value or '1'} at {at_value or '09:00'}"
+    return phrase
+
+
+def normalize_schedule_controls(values):
+    """Populate context-sensitive recurrence controls after changing period."""
+    unit = values.get("repeat_unit")
+    on_value = values.get("repeat_on", "")
+    at_value = values.get("repeat_time", "")
+    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    if unit == "minutes":
+        values["repeat_on"] = values["repeat_time"] = ""
+    elif unit == "hours":
+        values["repeat_on"] = on_value if on_value.isdigit() and 0 <= int(on_value) <= 59 else "00"
+        values["repeat_time"] = ""
+    elif unit in {"days", "weekdays"}:
+        try:
+            parse_time(on_value)
+        except ValueError:
+            values["repeat_on"] = "09:00"
+        values["repeat_time"] = ""
+    elif unit == "weeks":
+        values["repeat_on"] = on_value if on_value in weekdays else "monday"
+        try:
+            parse_time(at_value)
+        except ValueError:
+            values["repeat_time"] = "09:00"
+    elif unit == "months":
+        values["repeat_on"] = on_value if on_value.isdigit() and 1 <= int(on_value) <= 31 else "1"
+        try:
+            parse_time(at_value)
+        except ValueError:
+            values["repeat_time"] = "09:00"
+    elif unit == "once" and not on_value:
+        tomorrow = dt.datetime.now() + dt.timedelta(days=1)
+        values["repeat_on"] = tomorrow.strftime("%Y-%m-%d 09:00")
+        values["repeat_time"] = ""
+    values["schedule_phrase"] = schedule_phrase_from_form(values)
 
 
 def codex_model_choices():
@@ -214,15 +304,73 @@ def parse_schedule(phrase, timezone=None, now=None):
     phrase = " ".join(phrase.lower().split())
     zone = ZoneInfo(timezone or system_timezone())
     current = now or dt.datetime.now(zone)
-    if phrase.startswith("every "):
-        words = phrase.split()
-        amount = int(words[1])
-        unit = words[2].rstrip("s")
-        factor = {"minute": 60, "hour": 3600}.get(unit)
-        if not factor or amount < 1:
-            raise ValueError("Intervals support positive minutes or hours")
-        interval = amount * factor
-        return {"kind": "interval", "phrase": phrase, "interval_seconds": interval}, current.timestamp() + interval
+    interval_match = re.fullmatch(
+        r"every (\d+) (minute|minutes|hour|hours|day|days|week|weeks|month|months)"
+        r"(?: at minute (\d{1,2})| at ([^ ]+)| on ([a-z]+)(?: at ([^ ]+))?"
+        r"| on day (\d{1,2})(?: at ([^ ]+))?)?", phrase)
+    if interval_match:
+        amount = int(interval_match.group(1))
+        unit = interval_match.group(2).rstrip("s")
+        if amount < 1:
+            raise ValueError("Repeat count must be positive")
+        minute_value, direct_time, weekday_value, weekday_time, month_day, month_time = interval_match.groups()[2:]
+        if unit == "minute":
+            if any((minute_value, direct_time, weekday_value, month_day)):
+                raise ValueError("Minute intervals do not use an on/at value")
+            seconds = amount * 60
+            return {"kind": "interval", "phrase": phrase,
+                    "interval_seconds": seconds}, current.timestamp() + seconds
+        if unit == "hour" and not minute_value:
+            if any((direct_time, weekday_value, month_day)):
+                raise ValueError("Use ‘every 2 hours at minute 15’")
+            seconds = amount * 3600
+            return {"kind": "interval", "phrase": phrase,
+                    "interval_seconds": seconds}, current.timestamp() + seconds
+
+        schedule = {"kind": "calendar_interval", "phrase": phrase,
+                    "interval": amount, "unit": unit}
+        if unit == "hour":
+            minute = int(minute_value)
+            if not 0 <= minute <= 59:
+                raise ValueError("Minute must be between 0 and 59")
+            candidate = current.replace(minute=minute, second=0, microsecond=0)
+            if candidate <= current:
+                candidate += dt.timedelta(hours=1)
+            schedule["minute"] = minute
+        elif unit == "day":
+            if weekday_value or month_day or minute_value:
+                raise ValueError("Use ‘every 2 days at 09:00’")
+            if direct_time:
+                hour, minute = parse_time(direct_time)
+                candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if candidate <= current:
+                    candidate += dt.timedelta(days=1)
+                schedule.update(hour=hour, minute=minute)
+            else:
+                candidate = current + dt.timedelta(days=amount)
+        elif unit == "week":
+            days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            if direct_time or month_day or minute_value or weekday_value not in days:
+                raise ValueError("Use ‘every 2 weeks on monday at 09:00’")
+            hour, minute = parse_time(weekday_time or current.strftime("%H:%M"))
+            weekday = days.index(weekday_value)
+            delta = (weekday - current.weekday()) % 7
+            candidate = (current + dt.timedelta(days=delta)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0)
+            if candidate <= current:
+                candidate += dt.timedelta(days=7)
+            schedule.update(weekday=weekday, hour=hour, minute=minute)
+        else:
+            if direct_time or weekday_value or minute_value or month_day is None:
+                raise ValueError("Use ‘every 2 months on day 15 at 09:00’")
+            day = int(month_day)
+            if not 1 <= day <= 31:
+                raise ValueError("Month day must be between 1 and 31")
+            hour, minute = parse_time(month_time or current.strftime("%H:%M"))
+            candidate = next_month_day(current, day, hour, minute)
+            schedule.update(day=day, hour=hour, minute=minute)
+        schedule["anchor"] = candidate.timestamp()
+        return schedule, schedule["anchor"]
     if phrase.startswith("daily at ") or phrase.startswith("weekdays at "):
         weekdays = phrase.startswith("weekdays")
         hour, minute = parse_time(phrase.split(" at ", 1)[1])
@@ -250,7 +398,21 @@ def parse_schedule(phrase, timezone=None, now=None):
         if candidate <= current:
             raise ValueError("One-time schedule must be in the future")
         return {"kind": "once", "phrase": phrase, "at": candidate.timestamp()}, candidate.timestamp()
-    raise ValueError("Try ‘every 30 minutes’, ‘daily at 09:00’, ‘weekdays at 9am’, ‘weekly on monday at 10:00’, or ‘once at 2026-08-01 14:00’")
+    raise ValueError("Try ‘every 30 minutes’, ‘every 2 hours at minute 15’, ‘every 3 days at 09:00’, ‘every 2 weeks on monday at 10:00’, or ‘every 1 month on day 15 at 09:00’")
+
+
+def next_month_day(current, day, hour, minute, month_step=0):
+    """Find a month-relative occurrence, clamping short months like Calendar."""
+    month_index = current.year * 12 + current.month - 1 + month_step
+    while True:
+        year, zero_month = divmod(month_index, 12)
+        month = zero_month + 1
+        clamped = min(day, calendar.monthrange(year, month)[1])
+        candidate = current.replace(year=year, month=month, day=clamped,
+                                    hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate > current or month_step:
+            return candidate
+        month_index += 1
 
 
 def next_calendar(schedule, timezone, after):
@@ -261,6 +423,36 @@ def next_calendar(schedule, timezone, after):
         return None
     if kind == "interval":
         return after + schedule["interval_seconds"]
+    if kind == "calendar_interval":
+        anchor = schedule["anchor"]
+        if after < anchor:
+            return anchor
+        interval = schedule["interval"]
+        unit = schedule["unit"]
+        anchor_date = dt.datetime.fromtimestamp(anchor, zone)
+        current = dt.datetime.fromtimestamp(after, zone)
+        if unit == "hour":
+            step = interval * 3600
+            return anchor + (int((after - anchor) // step) + 1) * step
+        if unit in {"day", "week"}:
+            days = interval * (7 if unit == "week" else 1)
+            elapsed = max(0, (current.date() - anchor_date.date()).days)
+            multiples = elapsed // days
+            candidate = anchor_date + dt.timedelta(days=multiples * days)
+            if candidate <= current:
+                candidate += dt.timedelta(days=days)
+            return candidate.timestamp()
+        elapsed_months = ((current.year - anchor_date.year) * 12 +
+                          current.month - anchor_date.month)
+        multiples = max(0, elapsed_months // interval)
+        candidate = next_month_day(anchor_date, schedule["day"],
+                                   schedule["hour"], schedule["minute"],
+                                   multiples * interval)
+        if candidate <= current:
+            candidate = next_month_day(anchor_date, schedule["day"],
+                                       schedule["hour"], schedule["minute"],
+                                       (multiples + 1) * interval)
+        return candidate.timestamp()
     if kind in {"daily", "weekdays"}:
         candidate = current.replace(hour=schedule["hour"], minute=schedule["minute"], second=0, microsecond=0) + dt.timedelta(days=1)
         while kind == "weekdays" and candidate.weekday() > 4:
@@ -365,116 +557,69 @@ def edit_agent(existing=None, seed_path=None):
     default_timeout = int(global_settings.get("default_timeout_seconds", 7200))
     global_timezone = global_settings.get("timezone") or system_timezone()
     project = discover_project(seed_path) if seed_path and not old else None
+    schedule_phrase = old.get("schedule", {}).get("phrase", "daily at 09:00")
     values = {
         "name": old.get("name", ""), "provider": old.get("provider", "codex"),
         "workspace": old.get("workspace", str(project or Path.cwd())), "system_prompt": old.get("system_prompt", ""),
         "startup_prompt": old.get("startup_prompt", ""), "model": old.get("model", ""),
-        "schedule_phrase": old.get("schedule", {}).get("phrase", "daily at 09:00"),
+        "schedule_phrase": schedule_phrase,
         "overlap": old.get("overlap", "replace"),
         "timeout": "off" if "timeout_seconds" in old and old.get("timeout_seconds") is None else f"{old.get('timeout_seconds', default_timeout)}s",
         "permission_mode": old.get("permission_mode", ""),
         "advanced_args": shlex.join(old.get("advanced_args", [])),
     }
-    fields = [
-        ("name", "Name", {}),
-        ("provider", "Provider", {"choices": ["codex", "claude"], "picker": True}),
-        ("workspace", "Workspace", {"path_picker": True}),
-        ("system_prompt", "System prompt", {"multiline": True}),
-        ("startup_prompt", "Startup prompt", {"multiline": True}),
-        ("model", "Model", {"picker": True}),
-        ("schedule_phrase", "Schedule", {"choices": ["every 30 minutes", "every 1 hour", "daily at 09:00", "weekdays at 9am", "weekly on monday at 10:00", "once at "]}),
-        ("overlap", "Overlap", {"choices": ["replace", "parallel"]}),
-        ("timeout", "Timeout", {"choices": ["30m", "1h", "2h", "4h", "8h", "off"]}),
-        ("permission_mode", "Permission mode", {"choices": ["", "default", "acceptEdits", "bypassPermissions", "untrusted", "on-request", "never"]}),
-        ("advanced_args", "Advanced arguments", {}),
-    ]
-    index = 0
-    while index < len(fields):
-        key, label, options = fields[index]
-        options = dict(options)
-        if key == "model":
-            options["choices"] = model_choices(values["provider"])
-        wizard_header(index, fields, values)
-        try:
-            if options.pop("picker", False):
-                current = values.get(key) or ("provider default" if key == "model" else None)
-                value = interactive_picker(label, options.pop("choices"), current)
-                if value == "Custom model…":
-                    value = ask("Custom model", values.get(key))
-                elif key == "model" and value == "provider default":
-                    value = ""
-            elif options.pop("path_picker", False):
-                value = interactive_path_picker(label, values.get(key) or str(Path.cwd()))
-            else:
-                value = ask(label, values.get(key), **options)
-        except (EOFError, KeyboardInterrupt):
-            raise SystemExit("Cancelled")
-        if value == ":cancel":
-            raise SystemExit("Cancelled")
-        if value == ":back":
-            index = max(0, index - 1)
-            continue
-        values[key] = value
-        index += 1
+    values.update(schedule_form_values(schedule_phrase))
+    normalize_schedule_controls(values)
+    try:
+        values = interactive_agent_form(
+            values,
+            existing=old,
+            validator=lambda candidate: normalized_agent(candidate, old, global_timezone))
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit("Cancelled")
+    if values is None:
+        raise SystemExit("Cancelled")
+
+    agent = normalized_agent(values, old, global_timezone)
+    request({"op": "save_agent", "agent": agent})
+    print(styled(f"  ● Saved {agent['name']}", GREEN, BOLD))
+
+
+def normalized_agent(values, old, global_timezone):
+    """Validate form values and produce the scheduler's canonical agent object."""
     name = values["name"] or generated_agent_name(values["workspace"], values["startup_prompt"])
     if old.get("name") and name != old["name"]:
-        raise SystemExit("Agent names are immutable; create a new agent to use another name")
+        raise ValueError("Agent names are immutable; create a new agent to use another name")
     provider = values["provider"].lower()
     if provider not in {"codex", "claude"}:
-        raise SystemExit("Provider must be codex or claude")
+        raise ValueError("Provider must be codex or claude")
     workspace = str(Path(values["workspace"]).expanduser().resolve())
     if not Path(workspace).is_dir():
-        raise SystemExit(f"Workspace does not exist: {workspace}")
+        raise ValueError(f"Workspace does not exist: {workspace}")
     system_prompt = values["system_prompt"]
     startup_prompt = values["startup_prompt"]
     model = values["model"]
-    phrase = values["schedule_phrase"]
+    phrase = (schedule_phrase_from_form(values)
+              if values.get("repeat_unit") else values["schedule_phrase"])
+    values["schedule_phrase"] = phrase
     schedule, next_run = parse_schedule(phrase, global_timezone)
     overlap = values["overlap"]
     if overlap not in {"replace", "parallel"}:
-        raise SystemExit("Overlap must be replace or parallel")
+        raise ValueError("Overlap must be replace or parallel")
     timeout = parse_duration(values["timeout"])
     permissions = values["permission_mode"]
+    if permissions == "auto-mode":
+        permissions = "auto"
     advanced = shlex.split(values["advanced_args"])
     reserved = {"-C", "--cd", "--cwd", "--system-prompt", "--model", "-m", "--permission-mode", "--ask-for-approval", "-a", "--sandbox"}
     if any(value.split("=", 1)[0] in reserved for value in advanced):
-        raise SystemExit("Advanced arguments contain an OmniTerm-owned flag")
-    agent = {"name": name, "provider": provider, "workspace": workspace,
-             "system_prompt": system_prompt, "startup_prompt": startup_prompt,
-             "model": model, "schedule": schedule,
-             "next_run": next_run, "overlap": overlap, "timeout_seconds": timeout,
-             "permission_mode": "" if permissions == "default" else permissions, "advanced_args": advanced,
-             "enabled": old.get("enabled", True)}
-    os.system("clear")
-    width = terminal_width()
-    print(styled("OMNITERM", PEACH, BOLD) + styled("  ·  AGENT REVIEW", BOLD))
-    print(styled("Confirm the normalized configuration before saving", MUTED))
-    print()
-    review = []
-    for label, value in (
-        ("Name", name), ("Provider", provider), ("Workspace", workspace),
-        ("Model", model or "provider default"), ("Schedule", schedule["phrase"]),
-        ("Timezone", f"{global_timezone} (global)"), ("Overlap", overlap),
-        ("Retention", "off" if timeout is None else values["timeout"]),
-    ):
-        plain = f"{label:15}  {value}"
-        review.append((plain, styled(f"{label:15}", MUTED) + "  " + styled(value, BOLD)))
-    print_panel(review, width, "CONFIGURATION", PEACH)
-    print()
-    next_lines = []
-    cursor = next_run
-    for _ in range(3):
-        value = dt.datetime.fromtimestamp(cursor, ZoneInfo(global_timezone)).strftime("%a %d %b %Y · %H:%M %Z")
-        next_lines.append((f"◷  {value}", styled("◷  ", GREEN) + styled(value, BOLD)))
-        cursor = next_calendar(schedule, global_timezone, cursor)
-        if cursor is None:
-            break
-    print_panel(next_lines, width, "NEXT RUNS", BLUE)
-    print()
-    if ask("Save agent? (y/n)", "y").lower() != "y":
-        raise SystemExit("Cancelled")
-    request({"op": "save_agent", "agent": agent})
-    print(styled(f"  ● Saved {name}", GREEN, BOLD))
+        raise ValueError("Advanced arguments contain an OmniTerm-owned flag")
+    return {"name": name, "provider": provider, "workspace": workspace,
+            "system_prompt": system_prompt, "startup_prompt": startup_prompt,
+            "model": model, "schedule": schedule,
+            "next_run": next_run, "overlap": overlap, "timeout_seconds": timeout,
+            "permission_mode": "" if permissions == "default" else permissions,
+            "advanced_args": advanced, "enabled": old.get("enabled", True)}
 
 
 def fmt_time(value, timezone=None):
@@ -569,6 +714,528 @@ def tui_palette():
     return {name: curses.color_pair(index) for index, name in enumerate(colors, 1)}
 
 
+AGENT_FORM_FIELDS = [
+    ("name", "Name"),
+    ("provider", "Provider"),
+    ("workspace", "Workspace"),
+    ("system_prompt", "System prompt"),
+    ("startup_prompt", "Startup prompt"),
+    ("model", "Model"),
+    ("repeat_count", "Repeat every"),
+    ("repeat_unit", "Period"),
+    ("repeat_on", "On / at"),
+    ("repeat_time", "At time"),
+    ("schedule_phrase", "Schedule preview"),
+    ("overlap", "Overlap"),
+    ("timeout", "Retention"),
+    ("permission_mode", "Permissions"),
+    ("advanced_args", "Advanced args"),
+    ("__save__", "Save agent"),
+]
+
+AGENT_FORM_DESCRIPTIONS = {
+    "name": "Optional; blank derives a name from the workspace and startup prompt.",
+    "provider": "Select the interactive coding agent used for each run.",
+    "workspace": "Type like `cd`; Tab completes and descends through folders, Enter accepts the path.",
+    "system_prompt": "Persistent role instructions supplied to the provider.",
+    "startup_prompt": "The first user prompt injected into each new session.",
+    "model": "Choose a discovered model or type an exact provider model name.",
+    "repeat_count": "How many periods occur between runs.",
+    "repeat_unit": "Choose minutes, hours, days, weekdays, weeks, or months.",
+    "repeat_on": "The alignment changes with the period: minute, time, weekday, or month day.",
+    "repeat_time": "Time of day for weekly and monthly schedules.",
+    "schedule_phrase": "Live human-readable preview generated from the recurrence controls.",
+    "overlap": "Replace the preceding run, or allow parallel sessions.",
+    "timeout": "How long older run tabs remain interactive; the newest ten are protected.",
+    "permission_mode": "Optional provider permission policy.",
+    "advanced_args": "Optional provider flags not already managed by OmniTerm.",
+    "__save__": "Validate and save this agent. Errors remain here without losing the form.",
+}
+
+
+def agent_form_choices(key, values):
+    choices = {
+        "provider": ["codex", "claude"],
+        "repeat_count": [str(value) for value in range(1, 31)],
+        "repeat_unit": ["minutes", "hours", "days", "weekdays", "weeks", "months", "once"],
+        "overlap": ["replace", "parallel"],
+        "timeout": ["30m", "1h", "2h", "4h", "8h", "off"],
+    }
+    if key == "model":
+        return model_choices(values.get("provider", "codex"))
+    if key == "permission_mode":
+        if values.get("provider") == "claude":
+            return ["", "default", "auto-mode", "acceptEdits", "bypassPermissions",
+                    "manual", "dontAsk", "plan"]
+        return ["", "default", "untrusted", "on-request", "never"]
+    if key == "repeat_on":
+        unit = values.get("repeat_unit")
+        if unit == "hours":
+            return [f"{value:02}" for value in range(60)]
+        if unit in {"days", "weekdays"}:
+            return [f"{hour:02}:{minute:02}" for hour in range(24) for minute in (0, 15, 30, 45)]
+        if unit == "weeks":
+            return ["monday", "tuesday", "wednesday", "thursday",
+                    "friday", "saturday", "sunday"]
+        if unit == "months":
+            return [str(value) for value in range(1, 32)]
+        return []
+    if key == "repeat_time":
+        if values.get("repeat_unit") in {"weeks", "months"}:
+            return [f"{hour:02}:{minute:02}" for hour in range(24) for minute in (0, 15, 30, 45)]
+        return []
+    return choices.get(key, [])
+
+
+def agent_form_label(key, fallback, values):
+    unit = values.get("repeat_unit")
+    if key == "repeat_on":
+        return {"hours": "At minute", "days": "At time", "weekdays": "At time",
+                "weeks": "On weekday", "months": "On day", "once": "Run once at"}.get(unit,
+                                                                                         "Alignment")
+    if key == "repeat_time" and unit not in {"weeks", "months"}:
+        return "At time · unused"
+    return fallback
+
+
+def workspace_path_options(value):
+    """Return directory completions beneath the current shell-style path input."""
+    shown = value or "."
+    expanded = Path(shown).expanduser()
+    if expanded.is_dir():
+        current = expanded.resolve()
+        prefix = display_path(current)
+        query = prefix + ("" if prefix == os.sep else os.sep)
+        return [("child", child) for child in path_completion_matches(query)]
+    return [("child", match) for match in path_completion_matches(shown)]
+
+
+def shell_path_tab(value, state):
+    """Apply shell-like directory completion and preserve a repeated-Tab cycle."""
+    if (state.get("matches") and
+            (value == state.get("query") or value in state.get("matches", []))):
+        state["index"] = (state.get("index", -1) + 1) % len(state["matches"])
+        return state["matches"][state["index"]], state
+
+    matches = path_completion_matches(value)
+    expanded = Path(value or ".").expanduser()
+    if expanded.is_dir() and not value.endswith(os.sep):
+        completed = display_path(expanded.resolve())
+        completed += "" if completed == os.sep else os.sep
+        return completed, {"query": None, "matches": [], "index": -1}
+    if not matches:
+        return value, {"query": value, "matches": [], "index": -1}
+
+    common = os.path.commonprefix(matches)
+    if len(common) > len(value):
+        return common, {"query": None, "matches": [], "index": -1}
+    return matches[0], {"query": value, "matches": matches, "index": 0}
+
+
+def _field_preview(key, value, width):
+    if key == "__save__":
+        return "Save configuration"
+    if key == "model" and not value:
+        return "provider default"
+    if key == "permission_mode" and not value:
+        return "provider default"
+    if key == "permission_mode" and value == "auto":
+        return "auto-mode"
+    if key in {"system_prompt", "startup_prompt"}:
+        value = (value or "").replace("\n", " ↵ ")
+    value = str(value or "")
+    return value if len(value) <= width else "…" + value[-max(1, width - 1):]
+
+
+def set_terminal_boolean_variable(name, enabled):
+    if not sys.stdout.isatty():
+        return
+    sequence = (f"\033]1337;SetUserVar={name}=MQ==\007" if enabled
+                else f"\033]1337;SetUserVar={name}\007")
+    sys.stdout.write(sequence)
+    sys.stdout.flush()
+
+
+def set_agent_form_terminal_mode(enabled):
+    """Tell OmniTerm when modified Return should become a form newline."""
+    set_terminal_boolean_variable("omniAgentForm", enabled)
+
+
+def is_native_dashboard():
+    return (os.environ.get("OMNITERM_KIND") == "dashboard" and
+            os.environ.get("OMNITERM_DASHBOARD_KEYS") == "1")
+
+
+def set_dashboard_terminal_mode(enabled):
+    """Enable physical-key routing that cannot confuse arrows with Return."""
+    if is_native_dashboard():
+        set_terminal_boolean_variable("omniDashboardControls", enabled)
+
+
+def is_dashboard_activate_key(key):
+    if is_native_dashboard():
+        return key == DASHBOARD_ACTIVATE_KEY
+    return key in (10, 13, curses.KEY_ENTER)
+
+
+def interactive_agent_form(initial, existing=None, validator=None):
+    """Edit an agent in one resize-aware screen with no nested picker panels."""
+    values = {key: str(value or "") for key, value in initial.items()}
+    existing = existing or {}
+
+    def screen(window):
+        palette = tui_palette()
+        window.keypad(True)
+        window.timeout(-1)
+        try:
+            curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        except curses.error:
+            pass
+        active = 0
+        cursors = {key: len(values.get(key, "")) for key, _ in AGENT_FORM_FIELDS}
+        selected = 0
+        field_scroll = 0
+        status = ""
+        status_error = False
+        escape_at = 0.0
+        tab_state = {"query": None, "matches": [], "index": -1}
+        mouse_fields = []
+        mouse_options = []
+
+        def current():
+            return AGENT_FORM_FIELDS[active]
+
+        def reset_selection():
+            nonlocal selected, tab_state
+            field_key, _ = current()
+            choices = agent_form_choices(field_key, values)
+            current_value = values.get(field_key, "")
+            shown_value = ("provider default"
+                           if field_key == "model" and not current_value else current_value)
+            if field_key == "permission_mode" and shown_value == "auto":
+                shown_value = "auto-mode"
+            selected = choices.index(shown_value) if shown_value in choices else 0
+            tab_state = {"query": None, "matches": [], "index": -1}
+
+        def move(delta):
+            nonlocal active, status, status_error
+            active = max(0, min(len(AGENT_FORM_FIELDS) - 1, active + delta))
+            status = ""
+            status_error = False
+            reset_selection()
+
+        def visible_options(key):
+            nonlocal selected
+            if key == "workspace":
+                if tab_state.get("matches"):
+                    options = [("child", item) for item in tab_state["matches"]]
+                    selected = tab_state.get("index", 0)
+                    return options
+                return workspace_path_options(values.get(key, ""))
+            choices = agent_form_choices(key, values)
+            query = values.get(key, "").lower()
+            if query in {str(item).lower() for item in choices} or key in {"provider", "overlap"}:
+                filtered = choices
+            else:
+                filtered = [item for item in choices
+                            if not query or str(item).lower().startswith(query)]
+                if not filtered:
+                    filtered = choices
+            return [("choice", item) for item in filtered]
+
+        while True:
+            values["schedule_phrase"] = schedule_phrase_from_form(values)
+            key, fallback_label = current()
+            label = agent_form_label(key, fallback_label, values)
+            options = visible_options(key)
+            if options:
+                selected = max(0, min(selected, len(options) - 1))
+            else:
+                selected = 0
+
+            window.erase()
+            height, width = window.getmaxyx()
+            mouse_fields = []
+            mouse_options = []
+            tui_cursor(1 if key != "__save__" else 0)
+            if height < 14 or width < 56:
+                tui_text(window, 1, 2, "OMNI · AGENT", palette["peach"] | curses.A_BOLD, width - 4)
+                tui_text(window, 3, 2, "Resize the terminal to at least 56 × 14", palette["muted"], width - 4)
+                window.refresh()
+                pressed = window.get_wch()
+                if pressed == "\x03":
+                    raise KeyboardInterrupt
+                continue
+
+            tui_text(window, 1, 3, "OMNI", palette["peach"] | curses.A_BOLD)
+            tui_text(window, 1, 9, "AGENT CONFIGURATION", curses.A_BOLD)
+            mode = "EDIT" if existing else "NEW"
+            tui_text(window, 1, max(3, width - len(mode) - 4), mode,
+                     palette["green"] | curses.A_BOLD)
+            tui_text(window, 2, 3,
+                     "← → fields  ·  Tab complete/choose  ·  ↑ ↓ suggestions  ·  Enter select",
+                     palette["muted"], width - 6)
+            tui_text(window, 3, 3,
+                     "⇧/⌥/⌘ Enter newline in prompts  ·  Ctrl-B/F edit cursor  ·  Esc twice cancel",
+                     palette["muted"], width - 6)
+            tui_text(window, 4, 2, "─" * max(1, width - 4), palette["peach"], width - 4)
+
+            detail_budget = 7 if key in {"workspace", "provider", "model", "repeat_count",
+                                         "repeat_unit", "repeat_on", "repeat_time", "schedule_phrase",
+                                         "overlap", "timeout", "permission_mode",
+                                         "system_prompt", "startup_prompt"} else 4
+            list_top = 5
+            list_height = max(4, height - list_top - detail_budget - 3)
+            field_scroll = min(field_scroll, max(0, len(AGENT_FORM_FIELDS) - list_height))
+            if active < field_scroll:
+                field_scroll = active
+            elif active >= field_scroll + list_height:
+                field_scroll = active - list_height + 1
+
+            label_width = 17
+            value_x = 4 + label_width
+            for offset, (field_key, field_label) in enumerate(
+                    AGENT_FORM_FIELDS[field_scroll:field_scroll + list_height]):
+                index = field_scroll + offset
+                y = list_top + offset
+                is_active = index == active
+                marker = "◆" if is_active else "·"
+                style = palette["peach"] | curses.A_BOLD if is_active else palette["muted"]
+                tui_text(window, y, 3, marker, style)
+                field_label = agent_form_label(field_key, field_label, values)
+                tui_text(window, y, 6, f"{field_label:<15}", style, label_width - 1)
+                preview = _field_preview(field_key, values.get(field_key, ""), width - value_x - 4)
+                value_style = curses.A_BOLD | (curses.A_REVERSE if is_active else 0)
+                if field_key == "__save__" and is_active:
+                    value_style |= palette["green"]
+                tui_text(window, y, value_x, f" {preview} ", value_style, width - value_x - 3)
+                mouse_fields.append((y, index))
+
+            detail_y = list_top + list_height + 1
+            tui_text(window, detail_y - 1, 2, "─" * max(1, width - 4), palette["blue"], width - 4)
+            tui_text(window, detail_y, 3, label.upper(), palette["blue"] | curses.A_BOLD,
+                     width - 6)
+            tui_text(window, detail_y + 1, 3, AGENT_FORM_DESCRIPTIONS[key],
+                     palette["muted"], width - 6)
+
+            cursor_target = None
+            if key in {"system_prompt", "startup_prompt"}:
+                text = values.get(key, "")
+                cursor = cursors[key]
+                content_width = max(12, width - 8)
+                rows = editor_visual_rows(text, content_width)
+                cursor_row = 0
+                cursor_col = 0
+                for row_index, (start, end, _) in enumerate(rows):
+                    if start <= cursor <= end:
+                        cursor_row, cursor_col = row_index, cursor - start
+                        break
+                first_row = max(0, cursor_row - 2)
+                for offset, (_, _, line) in enumerate(rows[first_row:first_row + 3]):
+                    tui_text(window, detail_y + 2 + offset, 4, line, 0, content_width)
+                cursor_target = (detail_y + 2 + cursor_row - first_row,
+                                 4 + min(cursor_col, content_width - 1))
+            elif options:
+                available = max(1, height - detail_y - 3)
+                first_option = max(0, min(selected - available + 1,
+                                          max(0, len(options) - available)))
+                for offset, (kind, option) in enumerate(options[first_option:first_option + available]):
+                    index = first_option + offset
+                    shown = str(option) if option != "" else "provider default"
+                    is_selected = (index == selected and
+                                   (key != "workspace" or bool(tab_state.get("matches"))))
+                    option_style = (palette["peach"] | curses.A_BOLD | curses.A_REVERSE
+                                    if is_selected else 0)
+                    y = detail_y + 2 + offset
+                    tui_text(window, y, 5, ("▶ " if is_selected else "  ") + shown,
+                             option_style, width - 9)
+                    mouse_options.append((y, index))
+            elif key != "__save__":
+                value = values.get(key, "")
+                tui_text(window, detail_y + 2, 4, value, curses.A_BOLD, width - 8)
+                cursor_target = (detail_y + 2,
+                                 4 + min(cursors[key], max(0, width - 9)))
+
+            message = status or ("Tab completes · Enter accepts this path" if key == "workspace"
+                                 else "Enter advances" if not options and key != "__save__"
+                                 else "Enter saves" if key == "__save__" else "")
+            if message:
+                tui_text(window, height - 2, 3, message,
+                         (palette["red"] if status_error else palette["muted"]), width - 6)
+            if cursor_target:
+                try:
+                    window.move(*cursor_target)
+                except curses.error:
+                    pass
+            window.refresh()
+            pressed = window.get_wch()
+
+            if pressed == curses.KEY_RESIZE:
+                continue
+            if pressed == "\x03":
+                raise KeyboardInterrupt
+            if pressed == "\x1b":
+                now = time.monotonic()
+                if escape_at and now - escape_at < 1.0:
+                    return None
+                escape_at = now
+                status, status_error = "Press Escape again to cancel", False
+                continue
+            escape_at = 0.0
+
+            if pressed == curses.KEY_MOUSE:
+                try:
+                    _, mouse_x, mouse_y, _, state = curses.getmouse()
+                    if state & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+                        for row, index in mouse_fields:
+                            if mouse_y == row:
+                                active = index
+                                reset_selection()
+                                break
+                        else:
+                            for row, index in mouse_options:
+                                if mouse_y == row:
+                                    selected = index
+                                    if current()[0] == "workspace":
+                                        options = visible_options("workspace")
+                                        values["workspace"] = options[index][1]
+                                        cursors["workspace"] = len(values["workspace"])
+                                        reset_selection()
+                                        pressed = None
+                                    else:
+                                        pressed = "\n"
+                                    break
+                            else:
+                                continue
+                    else:
+                        continue
+                except curses.error:
+                    continue
+                if pressed is None:
+                    continue
+
+            key, _ = current()
+            options = visible_options(key)
+            if pressed == curses.KEY_LEFT:
+                move(-1)
+                continue
+            if pressed == curses.KEY_RIGHT:
+                if key == "workspace":
+                    folder = Path(values[key]).expanduser()
+                    if not folder.is_dir():
+                        status, status_error = "Choose an existing workspace before continuing", True
+                        continue
+                    values[key] = str(folder.resolve())
+                move(1)
+                continue
+            if pressed in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_BTAB):
+                if options:
+                    delta = -1 if pressed in (curses.KEY_UP, curses.KEY_BTAB) else 1
+                    selected = (selected + delta) % len(options)
+                continue
+            if pressed == "\t":
+                if key == "workspace":
+                    value, tab_state = shell_path_tab(values[key], tab_state)
+                    values[key] = value
+                    cursors[key] = len(value)
+                    selected = max(0, tab_state.get("index", 0))
+                elif options:
+                    selected = (selected + 1) % len(options)
+                continue
+            if pressed in ("\n", "\r", curses.KEY_ENTER):
+                if key == "__save__":
+                    if validator:
+                        try:
+                            validator(values)
+                        except (ValueError, OSError) as exc:
+                            message = str(exc)
+                            lookup = {
+                                "name": "name", "provider": "provider",
+                                "workspace": "workspace", "schedule": "schedule_phrase",
+                                "overlap": "overlap", "duration": "timeout",
+                                "advanced": "advanced_args",
+                            }
+                            lowered = message.lower()
+                            target = next((field for word, field in lookup.items()
+                                           if word in lowered), None)
+                            if target:
+                                active = next(index for index, item in enumerate(AGENT_FORM_FIELDS)
+                                              if item[0] == target)
+                            status, status_error = message, True
+                            reset_selection()
+                            continue
+                    return values
+                if key == "workspace":
+                    folder = Path(values[key]).expanduser()
+                    if not folder.is_dir():
+                        status, status_error = "Complete or enter an existing folder before continuing", True
+                        continue
+                    values[key] = str(folder.resolve())
+                    cursors[key] = len(values[key])
+                    move(1)
+                    continue
+                if options:
+                    _, option = options[selected]
+                    if key == "model" and option == "provider default":
+                        values[key] = ""
+                    elif key == "model" and option == "Custom model…":
+                        values[key] = ""
+                        cursors[key] = 0
+                        status, status_error = "Type the custom model name", False
+                        continue
+                    else:
+                        values[key] = option
+                    if key == "repeat_unit":
+                        normalize_schedule_controls(values)
+                    cursors[key] = len(values[key])
+                move(1)
+                continue
+            if pressed == "\x1e" and key in {"system_prompt", "startup_prompt"}:
+                cursor = cursors[key]
+                values[key] = values[key][:cursor] + "\n" + values[key][cursor:]
+                cursors[key] += 1
+                continue
+            schedule_unused = ((key == "repeat_on" and values.get("repeat_unit") == "minutes") or
+                               (key == "repeat_time" and
+                                values.get("repeat_unit") not in {"weeks", "months"}))
+            if (key in {"__save__", "schedule_phrase"} or schedule_unused or
+                    (existing.get("name") and key == "name")):
+                continue
+            if pressed in ("\x7f", "\b", curses.KEY_BACKSPACE):
+                cursor = cursors[key]
+                if cursor:
+                    values[key] = values[key][:cursor - 1] + values[key][cursor:]
+                    cursors[key] -= 1
+                reset_selection()
+            elif pressed == curses.KEY_DC:
+                cursor = cursors[key]
+                values[key] = values[key][:cursor] + values[key][cursor + 1:]
+                reset_selection()
+            elif pressed in (curses.KEY_HOME, "\x01"):
+                cursors[key] = 0
+            elif pressed in (curses.KEY_END, "\x05"):
+                cursors[key] = len(values[key])
+            elif pressed == "\x02":
+                cursors[key] = max(0, cursors[key] - 1)
+            elif pressed == "\x06":
+                cursors[key] = min(len(values[key]), cursors[key] + 1)
+            elif pressed == "\x15":
+                values[key] = ""
+                cursors[key] = 0
+                reset_selection()
+            elif isinstance(pressed, str) and pressed.isprintable():
+                cursor = cursors[key]
+                values[key] = values[key][:cursor] + pressed + values[key][cursor:]
+                cursors[key] += len(pressed)
+                reset_selection()
+
+    set_agent_form_terminal_mode(True)
+    try:
+        return curses.wrapper(screen)
+    finally:
+        set_agent_form_terminal_mode(False)
+
+
 def interactive_picker(label, choices, default=None):
     choices = list(dict.fromkeys(([default] if default and default not in choices else []) + list(choices)))
 
@@ -576,6 +1243,7 @@ def interactive_picker(label, choices, default=None):
         palette = tui_palette()
         tui_cursor(0)
         window.keypad(True)
+        window.timeout(-1)
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         except curses.error:
@@ -654,6 +1322,7 @@ def interactive_path_picker(label, default):
         palette = tui_palette()
         tui_cursor(1)
         window.keypad(True)
+        window.timeout(-1)
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         except curses.error:
@@ -765,6 +1434,7 @@ def interactive_text_editor(label, default=""):
     def screen(window):
         palette = tui_palette()
         window.keypad(True)
+        window.timeout(-1)
         try:
             curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         except curses.error:
@@ -857,7 +1527,7 @@ def tui_confirm(window, message, palette):
     window.refresh()
     while True:
         key = window.getch()
-        if key in (10, 13):
+        if is_dashboard_activate_key(key):
             return True
         if key in (27, ord("q")):
             return False
@@ -894,7 +1564,7 @@ def tui_view_text(window, title, content, palette):
 
             key = window.getch()
             page = max(1, (height - 4) - 6)
-            if key in (10, 13, 27, ord("q")):
+            if is_dashboard_activate_key(key) or key in (27, ord("q")):
                 return
             if key in (curses.KEY_UP, ord("k")):
                 scroll = max(0, scroll - 1)
@@ -923,6 +1593,7 @@ def tui_view_text(window, title, content, palette):
 
 
 def tui_suspend(window, callback):
+    set_dashboard_terminal_mode(False)
     curses.def_prog_mode()
     curses.endwin()
     try:
@@ -938,6 +1609,7 @@ def tui_suspend(window, callback):
         window.keypad(True)
         window.clear()
         window.refresh()
+        set_dashboard_terminal_mode(True)
 
 
 def dashboard_screen(window):
@@ -945,6 +1617,7 @@ def dashboard_screen(window):
     tui_cursor(0)
     window.keypad(True)
     window.timeout(1000)
+    set_dashboard_terminal_mode(True)
     try:
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
         print("\033[?1003h", end="", flush=True)
@@ -958,11 +1631,11 @@ def dashboard_screen(window):
     message = "Ready"
     agents, runs = [], []
     hitboxes = []
-    last_refresh = 0
+    last_refresh = None
 
     def reload_data(force=False):
         nonlocal agents, runs, selected, last_refresh, message
-        if not force and time.monotonic() - last_refresh < 1:
+        if not force and last_refresh is not None and time.monotonic() - last_refresh < 1:
             return
         try:
             agents = request({"op": "list_agents"})["agents"]
@@ -988,13 +1661,22 @@ def dashboard_screen(window):
             ("STARTUP PROMPT", agent.get("startup_prompt") or ""),
         ]
 
-    def focus_panels():
-        panels = ["agents"]
-        if prompt_items():
-            panels.append("prompts")
-        if selected_agent_runs():
-            panels.append("runs")
-        return panels
+    def move_detail_focus(delta):
+        nonlocal focus, selected_prompt, selected_run
+        items = [("run_now", 0)]
+        items.extend(("prompts", index) for index in range(len(prompt_items())))
+        items.extend(("runs", index) for index in range(len(selected_agent_runs())))
+        if not items:
+            return
+        current_item = ((focus, selected_prompt) if focus == "prompts" else
+                        (focus, selected_run) if focus == "runs" else
+                        ("run_now", 0))
+        current_index = items.index(current_item) if current_item in items else 0
+        focus, index = items[(current_index + delta) % len(items)]
+        if focus == "prompts":
+            selected_prompt = index
+        elif focus == "runs":
+            selected_run = index
 
     def view_prompt(index=None):
         nonlocal selected_prompt, message
@@ -1073,7 +1755,9 @@ def dashboard_screen(window):
         tui_text(window, 2, header_x, "Interactive scheduler · Codex + Claude", palette["muted"], width - header_x - 2)
         active_count = sum(run["state"] in {"starting", "running"} for run in runs)
         tui_text(window, 3, header_x, f"● {active_count} active   ◆ {len(agents)} agents   ◷ {len(runs)} runs", palette["green"], width - header_x - 2)
-        tui_text(window, 4, header_x, "mouse enabled  ·  ↑↓ navigate  ·  Enter opens selection", palette["blue"], width - header_x - 2)
+        tui_text(window, 4, header_x,
+                 "mouse enabled  ·  ↑↓ navigate  ·  Enter opens details",
+                 palette["blue"], width - header_x - 2)
 
         body_y = 6
         body_height = height - 11
@@ -1106,7 +1790,17 @@ def dashboard_screen(window):
         agent = selected_agent()
         if agent:
             x, y = right_x + 3, body_y + 2
-            tui_text(window, y, x, agent["name"], palette["peach"] | curses.A_BOLD, right_width - 6)
+            run_button = "[ ▶ Run now ]"
+            run_x = right_x + right_width - len(run_button) - 2
+            run_focused = focus == "run_now"
+            run_style = palette["green"] | curses.A_BOLD
+            if run_focused:
+                run_style |= curses.A_REVERSE
+            tui_text(window, y, x, agent["name"], palette["peach"] | curses.A_BOLD,
+                     max(1, run_x - x - 1))
+            tui_text(window, y, run_x, run_button, run_style, len(run_button))
+            hitboxes.append((y, y, run_x, run_x + len(run_button) - 1,
+                             "run_now", None))
             tui_text(window, y + 1, x, f"{agent['provider'].upper()}  ·  {'enabled' if agent['enabled'] else 'paused'}", palette["green"] if agent["enabled"] else palette["muted"], right_width - 6)
             details = [
                 ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
@@ -1160,7 +1854,9 @@ def dashboard_screen(window):
                 tui_text(window, run_y + 1 + offset, x, f"{symbol} {run['state']:<10} {fmt_time(run['started'])[5:]}  {run['id'][:8]}", style, right_width - 6)
                 hitboxes.append((run_y + 1 + offset, run_y + 1 + offset, x, x + right_width - 7, "resume_run", offset))
 
-        actions = [("add", "＋ Add"), ("edit", "✎ Edit"), ("run", "▶ Run"), ("resume", "↻ Resume"), ("stop", "■ Stop"), ("toggle", "◉ Toggle"), ("delete", "⌫ Delete")]
+        actions = [("add", "＋ Add"), ("edit", "✎ Edit"),
+                   ("resume", "↻ Resume"), ("stop", "■ Stop"),
+                   ("toggle", "◉ Toggle"), ("delete", "⌫ Delete")]
         footer_y = height - 4
         cursor_x = 2
         for action, label in actions:
@@ -1172,7 +1868,9 @@ def dashboard_screen(window):
             hitboxes.append((footer_y, footer_y, cursor_x, cursor_x + len(button) + 1, action, None))
             cursor_x += len(button) + 4
         tui_text(window, height - 2, 2, "● " + message, palette["green"] if not message.startswith("Error") else palette["red"], width - 4)
-        tui_text(window, height - 1, 2, "↑↓ navigate · ←→/Tab switch panel · Enter open/run/resume · a add · e edit · q refresh", palette["muted"], width - 4)
+        tui_text(window, height - 1, 2,
+                 "↑↓ navigate · ← agents · →/Enter details · Enter activates · a add · e edit",
+                 palette["muted"], width - 4)
         window.refresh()
 
     try:
@@ -1182,37 +1880,37 @@ def dashboard_screen(window):
             key = window.getch()
             if key == -1 or key == ord("q"):
                 reload_data(True)
-            elif key in (curses.KEY_LEFT, curses.KEY_RIGHT, 9, curses.KEY_BTAB):
-                panels = focus_panels()
-                current = panels.index(focus) if focus in panels else 0
-                direction = -1 if key in (curses.KEY_LEFT, curses.KEY_BTAB) else 1
-                focus = panels[(current + direction) % len(panels)]
-                selected_run = min(selected_run, max(0, len(selected_agent_runs()) - 1))
+            elif key in (curses.KEY_LEFT, curses.KEY_BTAB):
+                focus = "agents"
+            elif key in (curses.KEY_RIGHT, 9):
+                if focus == "agents":
+                    focus = "run_now"
+                elif key == 9:
+                    move_detail_focus(1)
             elif key in (curses.KEY_UP, ord("k")) and agents:
-                if focus == "runs" and selected_agent_runs():
-                    selected_run = (selected_run - 1) % len(selected_agent_runs())
-                elif focus == "prompts":
-                    selected_prompt = (selected_prompt - 1) % len(prompt_items())
-                else:
+                if focus == "agents":
                     selected = (selected - 1) % len(agents)
                     selected_run = 0
                     selected_prompt = 0
-            elif key in (curses.KEY_DOWN, ord("j")) and agents:
-                if focus == "runs" and selected_agent_runs():
-                    selected_run = (selected_run + 1) % len(selected_agent_runs())
-                elif focus == "prompts":
-                    selected_prompt = (selected_prompt + 1) % len(prompt_items())
                 else:
+                    move_detail_focus(-1)
+            elif key in (curses.KEY_DOWN, ord("j")) and agents:
+                if focus == "agents":
                     selected = (selected + 1) % len(agents)
                     selected_run = 0
                     selected_prompt = 0
-            elif key in (10, 13):
-                if focus == "prompts":
+                else:
+                    move_detail_focus(1)
+            elif is_dashboard_activate_key(key):
+                if focus == "agents":
+                    if selected_agent():
+                        focus = "run_now"
+                elif focus == "run_now":
+                    perform("run")
+                elif focus == "prompts":
                     view_prompt()
                 else:
-                    perform("resume" if focus == "runs" else "run")
-            elif key == ord("r"):
-                perform("run")
+                    perform("resume")
             elif key == ord("a"):
                 perform("add")
             elif key == ord("e"):
@@ -1244,6 +1942,9 @@ def dashboard_screen(window):
                                     selected_run = value
                                     focus = "runs"
                                     perform("resume")
+                                elif action == "run_now":
+                                    focus = "run_now"
+                                    perform("run")
                                 else:
                                     perform(action)
                                 break
@@ -1252,6 +1953,7 @@ def dashboard_screen(window):
             elif key == curses.KEY_RESIZE:
                 window.clear()
     finally:
+        set_dashboard_terminal_mode(False)
         print("\033[?1003l", end="", flush=True)
 
 

@@ -38,6 +38,44 @@ class ScheduleTests(unittest.TestCase):
         _, next_run = OMNI.parse_schedule("weekdays at 9am", "Europe/Paris", friday)
         self.assertEqual(dt.datetime.fromtimestamp(next_run, self.zone).weekday(), 0)
 
+    def test_structured_calendar_intervals_keep_their_alignment(self):
+        cases = {
+            "every 2 hours at minute 15": ("hour", dt.datetime(2026, 7, 29, 12, 15,
+                                                                 tzinfo=self.zone)),
+            "every 3 days at 09:00": ("day", dt.datetime(2026, 7, 30, 9, 0,
+                                                           tzinfo=self.zone)),
+            "every 2 weeks on monday at 10:00": ("week", dt.datetime(2026, 8, 3, 10, 0,
+                                                                       tzinfo=self.zone)),
+            "every 1 month on day 31 at 09:00": ("month", dt.datetime(2026, 7, 31, 9, 0,
+                                                                        tzinfo=self.zone)),
+        }
+        for phrase, (unit, first) in cases.items():
+            with self.subTest(phrase=phrase):
+                schedule, next_run = OMNI.parse_schedule(phrase, "Europe/Paris", self.now)
+                self.assertEqual(schedule["kind"], "calendar_interval")
+                self.assertEqual(schedule["unit"], unit)
+                self.assertEqual(dt.datetime.fromtimestamp(next_run, self.zone), first)
+
+    def test_monthly_interval_clamps_short_months_without_losing_requested_day(self):
+        schedule, first = OMNI.parse_schedule(
+            "every 1 month on day 31 at 09:00", "Europe/Paris", self.now)
+        august = OMNI.next_calendar(schedule, "Europe/Paris", first)
+        september = OMNI.next_calendar(schedule, "Europe/Paris", august)
+        self.assertEqual(dt.datetime.fromtimestamp(august, self.zone).date(),
+                         dt.date(2026, 8, 31))
+        self.assertEqual(dt.datetime.fromtimestamp(september, self.zone).date(),
+                         dt.date(2026, 9, 30))
+
+    def test_schedule_form_builds_context_sensitive_human_phrase(self):
+        values = {"repeat_count": "2", "repeat_unit": "weeks",
+                  "repeat_on": "friday", "repeat_time": "14:30"}
+        self.assertEqual(OMNI.schedule_phrase_from_form(values),
+                         "every 2 weeks on friday at 14:30")
+        self.assertIn("monday", OMNI.agent_form_choices("repeat_on", values))
+        values["repeat_unit"] = "months"
+        OMNI.normalize_schedule_controls(values)
+        self.assertIn(values["repeat_on"], [str(day) for day in range(1, 32)])
+
     def test_daily_follows_wall_clock_across_dst(self):
         before_dst = dt.datetime(2026, 3, 28, 9, 0, tzinfo=self.zone).timestamp()
         schedule = {"kind": "daily", "hour": 9, "minute": 0}
@@ -72,7 +110,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(schedule["phrase"], "daily at 9am")
 
     def test_schedule_rejects_bad_forms(self):
-        phrases = ("every 0 hours", "every 2 days", "weekly on someday at 9am",
+        phrases = ("every 0 hours", "weekly on someday at 9am",
                    "once at 2020-01-01 09:00", "tomorrow")
         for phrase in phrases:
             with self.subTest(phrase=phrase), self.assertRaises(ValueError):
@@ -320,6 +358,7 @@ class PresentationHelperTests(unittest.TestCase):
                                              default="codex")
         self.assertEqual(result, "claude")
         window.keypad.assert_called_once_with(True)
+        window.timeout.assert_called_once_with(-1)
 
     def test_interactive_path_picker_accepts_existing_directory(self):
         with tempfile.TemporaryDirectory() as root:
@@ -338,6 +377,7 @@ class PresentationHelperTests(unittest.TestCase):
                     mock.patch.object(OMNI, "tui_text"):
                 result = OMNI.interactive_path_picker("Workspace", root)
         self.assertEqual(result, str(Path(root).resolve()))
+        window.timeout.assert_called_once_with(-1)
 
     def test_interactive_text_editor_inserts_at_cursor(self):
         window = mock.Mock()
@@ -353,6 +393,96 @@ class PresentationHelperTests(unittest.TestCase):
                 mock.patch.object(OMNI, "tui_text"):
             result = OMNI.interactive_text_editor("Prompt", "ab")
         self.assertEqual(result, "ab\nX")
+        window.timeout.assert_called_once_with(-1)
+
+
+class DashboardExit(Exception):
+    pass
+
+
+class DashboardTests(unittest.TestCase):
+    @staticmethod
+    def agent(name):
+        return {
+            "name": name, "provider": "codex", "enabled": True,
+            "workspace": "/tmp", "model": "",
+            "schedule": {"phrase": "daily at 09:00"},
+            "overlap": "replace", "timeout_seconds": 7200,
+            "next_run": None, "system_prompt": "System",
+            "startup_prompt": "Start",
+        }
+
+    def run_dashboard(self, keys, mouse=None):
+        agents = [self.agent("A"), self.agent("B")]
+        requests = []
+
+        def request(payload):
+            requests.append(payload)
+            if payload["op"] == "list_agents":
+                return {"agents": agents}
+            if payload["op"] == "list_runs":
+                return {"runs": []}
+            if payload["op"] == "run_agent":
+                return {"run_id": "run-12345678"}
+            return {"ok": True}
+
+        window = mock.Mock()
+        window.getmaxyx.return_value = (32, 120)
+        window.getch.side_effect = [*keys, DashboardExit()]
+        palette = {"peach": 1, "muted": 2, "blue": 3,
+                   "green": 4, "red": 5}
+        with mock.patch.object(OMNI, "request", side_effect=request), \
+                mock.patch.object(OMNI.time, "monotonic", return_value=0), \
+                mock.patch.dict(OMNI.os.environ, {
+                    "OMNITERM_KIND": "dashboard", "OMNITERM_DASHBOARD_KEYS": "1"}), \
+                mock.patch.object(OMNI.curses, "mousemask"), \
+                mock.patch.object(OMNI.curses, "getmouse", return_value=mouse), \
+                mock.patch.object(OMNI, "tui_palette", return_value=palette), \
+                mock.patch.object(OMNI, "tui_cursor"), \
+                mock.patch.object(OMNI, "tui_box"), \
+                mock.patch.object(OMNI, "tui_text") as draw, \
+                redirect_stdout(io.StringIO()), self.assertRaises(DashboardExit):
+            OMNI.dashboard_screen(window)
+        return requests, draw
+
+    def test_down_selects_next_agent_and_enter_only_focuses_run_now(self):
+        requests, draw = self.run_dashboard(
+            [OMNI.curses.KEY_DOWN, OMNI.DASHBOARD_ACTIVATE_KEY])
+        self.assertNotIn("run_agent", [payload["op"] for payload in requests])
+        self.assertIn("▶ B", [call.args[3] for call in draw.call_args_list])
+        focused_run_buttons = [
+            call for call in draw.call_args_list
+            if call.args[3] == "[ ▶ Run now ]" and call.args[4] & OMNI.curses.A_REVERSE
+        ]
+        self.assertTrue(focused_run_buttons)
+
+    def test_enter_activates_run_now_only_after_it_has_focus(self):
+        activate = OMNI.DASHBOARD_ACTIVATE_KEY
+        requests, _ = self.run_dashboard([activate, activate])
+        self.assertEqual(
+            [payload for payload in requests if payload["op"] == "run_agent"],
+            [{"op": "run_agent", "name": "A"}],
+        )
+
+    def test_return_bytes_arrows_and_shortcuts_cannot_activate_run_now(self):
+        activate = OMNI.DASHBOARD_ACTIVATE_KEY
+        requests, _ = self.run_dashboard(
+            [activate, 10, 13, ord("r"), OMNI.curses.KEY_DOWN])
+        self.assertNotIn("run_agent", [payload["op"] for payload in requests])
+
+    def test_left_from_run_now_returns_to_agent_list(self):
+        activate = OMNI.DASHBOARD_ACTIVATE_KEY
+        requests, _ = self.run_dashboard(
+            [activate, OMNI.curses.KEY_LEFT, activate])
+        self.assertNotIn("run_agent", [payload["op"] for payload in requests])
+
+    def test_run_now_button_is_clickable(self):
+        mouse = (0, 105, 8, 0, OMNI.curses.BUTTON1_CLICKED)
+        requests, _ = self.run_dashboard([OMNI.curses.KEY_MOUSE], mouse=mouse)
+        self.assertEqual(
+            [payload for payload in requests if payload["op"] == "run_agent"],
+            [{"op": "run_agent", "name": "A"}],
+        )
 
 
 class AgentWizardTests(unittest.TestCase):
@@ -367,33 +497,20 @@ class AgentWizardTests(unittest.TestCase):
                                          "default_timeout_seconds": 1800}}
                 return {"ok": True}
 
-            answers = {
-                "Name": "",
-                "System prompt": "You review code.",
-                "Startup prompt": "review",
-                "Schedule": "every 1 hour",
-                "Overlap": "replace",
-                "Timeout": "2h",
-                "Permission mode": "default",
-                "Advanced arguments": "--color always",
-                "Save agent? (y/n)": "y",
-            }
-
-            def ask(label, *args, **kwargs):
-                return answers[label]
-
-            def picker(label, choices, default=None):
-                return "codex" if label == "Provider" else "provider default"
+            def form(values, **kwargs):
+                values.update({
+                    "name": "", "provider": "codex", "workspace": root,
+                    "system_prompt": "You review code.", "startup_prompt": "review",
+                    "model": "", "schedule_phrase": "every 1 hour",
+                    "overlap": "replace", "timeout": "2h",
+                    "permission_mode": "default", "advanced_args": "--color always",
+                })
+                values.update(OMNI.schedule_form_values("every 1 hour"))
+                kwargs["validator"](values)
+                return values
 
             with mock.patch.object(OMNI, "request", side_effect=request), \
-                    mock.patch.object(OMNI, "wizard_header"), \
-                    mock.patch.object(OMNI, "interactive_picker", side_effect=picker), \
-                    mock.patch.object(OMNI, "interactive_path_picker", return_value=root), \
-                    mock.patch.object(OMNI, "model_choices",
-                                      return_value=["provider default", "Custom model…"]), \
-                    mock.patch.object(OMNI, "ask", side_effect=ask), \
-                    mock.patch.object(OMNI, "print_panel"), \
-                    mock.patch.object(OMNI.os, "system"), \
+                    mock.patch.object(OMNI, "interactive_agent_form", side_effect=form), \
                     redirect_stdout(io.StringIO()):
                 OMNI.edit_agent(seed_path=root)
 
@@ -407,6 +524,104 @@ class AgentWizardTests(unittest.TestCase):
         self.assertEqual(agent["timeout_seconds"], 7200)
         self.assertEqual(agent["permission_mode"], "")
         self.assertEqual(agent["advanced_args"], ["--color", "always"])
+
+    def test_workspace_tab_completion_extends_prefix_then_cycles_matches(self):
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "alpha").mkdir()
+            (Path(root) / "alpine").mkdir()
+            query = str(Path(root) / "a")
+            value, state = OMNI.shell_path_tab(query, {})
+            self.assertEqual(value, str(Path(root) / "alp"))
+            value, state = OMNI.shell_path_tab(value, state)
+            self.assertEqual(value, str(Path(root) / "alpha") + "/")
+            self.assertEqual(state["index"], 0)
+            value, state = OMNI.shell_path_tab(value, state)
+            self.assertEqual(value, str(Path(root) / "alpine") + "/")
+            self.assertEqual(state["index"], 1)
+
+    def test_inline_form_navigates_fields_and_modified_enter_adds_prompt_line(self):
+        with tempfile.TemporaryDirectory() as root:
+            values = {
+                "name": "", "provider": "codex", "workspace": root,
+                "system_prompt": "", "startup_prompt": "", "model": "",
+                "schedule_phrase": "daily at 09:00", "overlap": "replace",
+                "timeout": "2h", "permission_mode": "", "advanced_args": "",
+            }
+            window = mock.Mock()
+            window.getmaxyx.return_value = (32, 120)
+            window.get_wch.side_effect = ([OMNI.curses.KEY_RIGHT] * 3 +
+                                          ["\x1e", "x"] +
+                                          [OMNI.curses.KEY_RIGHT] * 12 + ["\n"])
+            palette = {"peach": 1, "muted": 2, "blue": 3, "green": 4, "red": 5}
+            with mock.patch.object(OMNI.curses, "wrapper",
+                                   side_effect=lambda callback: callback(window)), \
+                    mock.patch.object(OMNI.curses, "mousemask"), \
+                    mock.patch.object(OMNI, "tui_palette", return_value=palette), \
+                    mock.patch.object(OMNI, "tui_cursor"), \
+                    mock.patch.object(OMNI, "tui_text"):
+                result = OMNI.interactive_agent_form(values)
+        self.assertEqual(result["system_prompt"], "\nx")
+        window.timeout.assert_called_once_with(-1)
+
+    def test_inline_workspace_enter_accepts_current_path(self):
+        with tempfile.TemporaryDirectory() as root:
+            child = Path(root) / "project"
+            child.mkdir()
+            values = {
+                "name": "", "provider": "codex", "workspace": root,
+                "system_prompt": "", "startup_prompt": "", "model": "",
+                "schedule_phrase": "daily at 09:00", "overlap": "replace",
+                "timeout": "2h", "permission_mode": "", "advanced_args": "",
+            }
+            window = mock.Mock()
+            window.getmaxyx.return_value = (32, 120)
+            window.get_wch.side_effect = ([OMNI.curses.KEY_RIGHT] * 2 + ["\n"] +
+                                          [OMNI.curses.KEY_RIGHT] * 12 + ["\n"])
+            palette = {"peach": 1, "muted": 2, "blue": 3, "green": 4, "red": 5}
+            with mock.patch.object(OMNI.curses, "wrapper",
+                                   side_effect=lambda callback: callback(window)), \
+                    mock.patch.object(OMNI.curses, "mousemask"), \
+                    mock.patch.object(OMNI, "tui_palette", return_value=palette), \
+                    mock.patch.object(OMNI, "tui_cursor"), \
+                    mock.patch.object(OMNI, "tui_text"):
+                result = OMNI.interactive_agent_form(values)
+        self.assertEqual(Path(result["workspace"]).resolve(), Path(root).resolve())
+
+    def test_inline_workspace_tab_descends_before_enter_accepts(self):
+        with tempfile.TemporaryDirectory() as root:
+            child = Path(root) / "project"
+            child.mkdir()
+            values = {
+                "name": "", "provider": "codex", "workspace": root,
+                "system_prompt": "", "startup_prompt": "", "model": "",
+                "schedule_phrase": "daily at 09:00", "overlap": "replace",
+                "timeout": "2h", "permission_mode": "", "advanced_args": "",
+            }
+            window = mock.Mock()
+            window.getmaxyx.return_value = (32, 120)
+            window.get_wch.side_effect = ([OMNI.curses.KEY_RIGHT] * 2 + ["\t", "\t", "\n"] +
+                                          [OMNI.curses.KEY_RIGHT] * 12 + ["\n"])
+            palette = {"peach": 1, "muted": 2, "blue": 3, "green": 4, "red": 5}
+            with mock.patch.object(OMNI.curses, "wrapper",
+                                   side_effect=lambda callback: callback(window)), \
+                    mock.patch.object(OMNI.curses, "mousemask"), \
+                    mock.patch.object(OMNI, "tui_palette", return_value=palette), \
+                    mock.patch.object(OMNI, "tui_cursor"), \
+                    mock.patch.object(OMNI, "tui_text"):
+                result = OMNI.interactive_agent_form(values)
+        self.assertEqual(Path(result["workspace"]).resolve(), child.resolve())
+
+    def test_claude_auto_mode_label_normalizes_to_cli_permission_value(self):
+        with tempfile.TemporaryDirectory() as root:
+            values = {
+                "name": "A", "provider": "claude", "workspace": root,
+                "system_prompt": "", "startup_prompt": "", "model": "",
+                "schedule_phrase": "daily at 09:00", "overlap": "replace",
+                "timeout": "2h", "permission_mode": "auto-mode", "advanced_args": "",
+            }
+            agent = OMNI.normalized_agent(values, {}, "UTC")
+        self.assertEqual(agent["permission_mode"], "auto")
+        self.assertIn("auto-mode", OMNI.agent_form_choices("permission_mode", values))
 
 
 class SocketRequestTests(unittest.TestCase):
