@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Release assets for measurable DMG and ZIP download counts.
+- Live aggregate release-download counts on the documentation website.
+
 ## [0.2.0] - 2026-08-02
 
 ### Added

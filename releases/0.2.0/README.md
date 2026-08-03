@@ -2,8 +2,8 @@
 
 This is the latest OmniTerm distribution.
 
-- [Download the DMG](https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.dmg)
-- [Download the ZIP](https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.zip)
+- [Download the DMG](https://github.com/wandernb/omniterm/releases/download/v0.2.0/OmniTerm-0.2.0.dmg)
+- [Download the ZIP](https://github.com/wandernb/omniterm/releases/download/v0.2.0/OmniTerm-0.2.0.zip)
 - Verify either artifact with `SHA256SUMS` in this directory.
 - Read the [changelog](../../CHANGELOG.md#020---2026-08-02).
 

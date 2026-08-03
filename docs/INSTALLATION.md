@@ -2,8 +2,8 @@
 
 ## Release DMG
 
-1. Download the latest committed [OmniTerm 0.2.0 DMG](https://github.com/wandernb/omniterm/raw/refs/heads/main/releases/0.2.0/OmniTerm-0.2.0.dmg)
-   and [SHA256SUMS](../releases/0.2.0/SHA256SUMS), then verify the checksum.
+1. Download the latest [OmniTerm 0.2.0 DMG](https://github.com/wandernb/omniterm/releases/download/v0.2.0/OmniTerm-0.2.0.dmg)
+   and [SHA256SUMS](https://github.com/wandernb/omniterm/releases/download/v0.2.0/SHA256SUMS), then verify the checksum.
 2. Open the DMG.
 3. Run **Install OmniTerm.command**. This copies the signed app to
    `/Applications`, installs `omni` and `omni-mcp` into `~/.local/bin`, starts
