@@ -27,6 +27,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Retention now applies only to active runs, because finished runs no longer
   have tabs.
 - Updated the embedded iTerm2 to `v20261031-nightly`.
+- The scheduler now runs on its own queue, so busy terminal tabs cannot delay it
+  and scheduler work cannot slow down drawing.
 
 ### Fixed
 
@@ -40,6 +42,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   uses the login shell's `PATH` and records a start failure as a failed run
   instead of crashing with a traceback.
 - Runs left behind by a dead runner no longer stay in `starting` forever.
+- An agent file with an invalid schedule no longer crashes OmniTerm at launch.
+- A client that stalls mid-request can no longer hold a scheduler thread.
 - `patches/iterm2-omniterm.patch` had drifted from the fork; it is now rewritten
   on every build.
 - The helper test suite and `omni-mcp` load on Python 3.15.

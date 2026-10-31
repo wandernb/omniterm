@@ -1,9 +1,9 @@
 diff --git a/ModernTests/OmniSchedulerTests.m b/ModernTests/OmniSchedulerTests.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..a55d7501d5768cef25ee6a9e19c22f6a896e3d25
+index 0000000000000000000000000000000000000000..306b1633a5bf55b345d4ac037e2ac3d3aaefec5d
 --- /dev/null
 +++ b/ModernTests/OmniSchedulerTests.m
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,488 @@
 +//
 +//  OmniSchedulerTests.m
 +//  ModernTests
@@ -14,6 +14,9 @@ index 0000000000000000000000000000000000000000..a55d7501d5768cef25ee6a9e19c22f6a
 +#import <XCTest/XCTest.h>
 +
 +#import "OmniScheduler.h"
++
++#import <sys/socket.h>
++#import <sys/un.h>
 +
 +@interface OmniScheduler (Tests)
 +- (NSDictionary *)defaultSettings;
@@ -277,6 +280,55 @@ index 0000000000000000000000000000000000000000..a55d7501d5768cef25ee6a9e19c22f6a
 +    return task.processIdentifier;
 +}
 +
++- (void)useShortSocketPath {
++    // sockaddr_un paths are too short for the temporary directory.
++    [_scheduler setValue:[@"/private/tmp"
++        stringByAppendingPathComponent:[NSString stringWithFormat:@"omni-%@.sock",
++                                                                  NSUUID.UUID.UUIDString]]
++                  forKey:@"socketPath"];
++}
++
++- (void)testClientsAreServedWhileTheMainThreadIsBlocked {
++    [self useShortSocketPath];
++    [_scheduler start];
++    NSString *socketPath = [_scheduler valueForKey:@"socketPath"];
++    __block ssize_t received = 0;
++    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
++        const int client = socket(AF_UNIX, SOCK_STREAM, 0);
++        struct sockaddr_un address = { 0 };
++        address.sun_family = AF_UNIX;
++        strlcpy(address.sun_path, socketPath.fileSystemRepresentation, sizeof(address.sun_path));
++        if (connect(client, (struct sockaddr *)&address, sizeof(address)) == 0) {
++            const char request[] = "{\"op\":\"ping\"}\n";
++            write(client, request, strlen(request));
++            char buffer[256];
++            received = read(client, buffer, sizeof(buffer));
++        }
++        close(client);
++        dispatch_semaphore_signal(finished);
++    });
++    // This test thread is the main thread, so nothing can run on it until the wait ends.
++    const long timedOut = dispatch_semaphore_wait(finished,
++                                                  dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
++    XCTAssertEqual(timedOut, 0);
++    XCTAssertGreaterThan(received, 0);
++}
++
++- (void)testAgentFileWithInvalidScheduleCannotBreakStartup {
++    NSString *path = [_scheduler agentPathForName:@"Broken"];
++    XCTAssertTrue([@"{\"name\":\"Broken\",\"schedule\":\"daily\"}" writeToFile:path
++                                                                     atomically:YES
++                                                                       encoding:NSUTF8StringEncoding
++                                                                          error:nil]);
++    [self useShortSocketPath];
++    XCTAssertNoThrow([_scheduler start]);
++    XCTAssertNoThrow([_scheduler checkNow]);
++    NSDictionary *response = [_scheduler responseForRequest:@{ @"op": @"list_agents" }];
++    XCTAssertEqualObjects(response[@"ok"], @YES);
++    XCTAssertEqual([response[@"agents"] count], 0);
++}
++
 +- (void)testListRunsTreatsNullAgentFilterAsAllRuns {
 +    [self startSchedulerWithAgentTimeout:@7200];
 +    [self insertRun:@"run" state:@"completed" started:1 pid:NSNull.null];
@@ -441,10 +493,10 @@ index 0000000000000000000000000000000000000000..a55d7501d5768cef25ee6a9e19c22f6a
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..baabfd7c23a7868292d6547d204989c27c76c059 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..6ac0256c965c576313a92aed32e6286e3d231fc1 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -2418,3 +2418,93 @@ Bug Fixes:
+@@ -2418,3 +2418,98 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -538,6 +590,11 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..baabfd7c23a7868292d6547d204989c2
 +A malformed or null scheduler request, such as
 +listing runs with no agent, no longer crashes
 +OmniTerm.
++The scheduler no longer runs on the main thread,
++so a busy tab cannot delay it, and it cannot slow
++down drawing.
++An agent file with an invalid schedule is now
++skipped instead of crashing OmniTerm at launch.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
 index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..e3e6534598fd8ad7f2cfb9ed3f346d5e8dc4daf3 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
@@ -2134,10 +2191,10 @@ index 0000000000000000000000000000000000000000..7edacb48aa7810fd5b9c2916e25f2084
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7437b30d6
+index 0000000000000000000000000000000000000000..e7bf96b333ddbbd53aa59a214851825ef1a92e0a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,788 @@
+@@ -0,0 +1,829 @@
 +#import "OmniScheduler.h"
 +
 +@import SQLite3;
@@ -2161,11 +2218,12 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +@property(nonatomic, copy) NSString *configPath;
 +@property(nonatomic, copy) NSString *agentsPath;
 +@property(nonatomic, copy) NSString *settingsPath;
-+@property(nonatomic, copy) NSString *agentFilesFingerprint;
++@property(atomic, copy) NSString *agentFilesFingerprint;
 +- (NSDictionary *)defaultSettings;
 +- (id)nextRunForAgent:(NSDictionary *)agent after:(NSTimeInterval)timestamp;
 +- (void)enforceRunRetention;
 +- (void)reapAbandonedRuns;
++- (void)checkNowGuarded;
 +- (NSDictionary *)responseForRequest:(id)request;
 +- (void)reloadAgentFilesIfNeeded:(BOOL)force;
 +- (BOOL)writeAgentFile:(NSDictionary *)agent;
@@ -2177,6 +2235,9 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +
 +// Comfortably longer than tab creation plus the runner's login-shell PATH lookup.
 +static const NSTimeInterval OmniRunnerStartGracePeriod = 120;
++
++// A client that stalls mid-request must not hold a thread indefinitely.
++static const int OmniClientTimeoutSeconds = 5;
 +
 +static NSInteger OmniIntegerValue(id value) {
 +    return [value respondsToSelector:@selector(integerValue)] ? [value integerValue] : 0;
@@ -2209,7 +2270,12 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +    return [calendar dateFromComponents:components];
 +}
 +
-+@implementation OmniScheduler
++@implementation OmniScheduler {
++    // All database and schedule work runs here so that a busy main thread
++    // cannot starve clients, and scheduler work cannot stall terminal drawing.
++    // SQLite is opened with SQLITE_OPEN_FULLMUTEX.
++    dispatch_queue_t _queue;
++}
 +
 +- (NSDictionary *)defaultSettings {
 +    return @{ @"schema_version": @2,
@@ -2228,6 +2294,7 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        _launchHandler = [launchHandler copy];
 +        _lockFile = -1;
 +        _listener = -1;
++        _queue = dispatch_queue_create("com.omniterm.scheduler", DISPATCH_QUEUE_SERIAL);
 +        NSString *library = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,
 +                                                                 NSUserDomainMask,
 +                                                                 YES).firstObject;
@@ -2243,6 +2310,7 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +
 +- (void)dealloc {
 +    [self stop];
++    dispatch_release(_queue);
 +    [_launchHandler release];
 +    [_supportPath release];
 +    [_socketPath release];
@@ -2342,7 +2410,11 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +            [self writeAgentFile:agent];
 +        }
 +    }
-+    [self reloadAgentFilesIfNeeded:YES];
++    @try {
++        [self reloadAgentFilesIfNeeded:YES];
++    } @catch (NSException *exception) {
++        NSLog(@"OmniScheduler could not load agent files: %@", exception);
++    }
 +
 +    unlink(_socketPath.fileSystemRepresentation);
 +    _listener = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -2362,19 +2434,18 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +    }
 +    chmod(_socketPath.fileSystemRepresentation, 0600);
 +    [[NSFileManager defaultManager] removeItemAtPath:[_supportPath stringByAppendingPathComponent:@"startup-error.txt"] error:nil];
-+    _listenerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, _listener, 0,
-+                                              dispatch_get_main_queue());
++    _listenerSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, _listener, 0, _queue);
 +    __block OmniScheduler *weakSelf = self;
 +    dispatch_source_set_event_handler(_listenerSource, ^{
 +        [weakSelf acceptClient];
 +    });
 +    dispatch_resume(_listenerSource);
 +
-+    _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
++    _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _queue);
 +    dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, 0), 2 * NSEC_PER_SEC,
 +                              250 * NSEC_PER_MSEC);
 +    dispatch_source_set_event_handler(_timer, ^{
-+        [weakSelf checkNow];
++        [weakSelf checkNowGuarded];
 +    });
 +    dispatch_resume(_timer);
 +}
@@ -2391,6 +2462,8 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        dispatch_release(_listenerSource);
 +        _listenerSource = nil;
 +    }
++    // Let in-flight scheduler work finish before its database closes.
++    dispatch_sync(_queue, ^{});
 +    if (_listener >= 0) {
 +        close(_listener);
 +        _listener = -1;
@@ -2420,6 +2493,9 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        close(client);
 +        return;
 +    }
++    const struct timeval timeout = { .tv_sec = OmniClientTimeoutSeconds, .tv_usec = 0 };
++    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
++    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 +    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
 +        NSMutableData *data = [NSMutableData data];
 +        char buffer[8192];
@@ -2431,10 +2507,16 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        }
 +        id request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 +        __block NSDictionary *response = nil;
-+        dispatch_sync(dispatch_get_main_queue(), ^{
++        dispatch_sync(_queue, ^{
 +            response = [[self responseForRequest:request] retain];
 +        });
-+        NSData *encoded = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
++        NSData *encoded = nil;
++        @try {
++            encoded = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
++        } @catch (NSException *exception) {
++            NSLog(@"OmniScheduler could not encode a response: %@", exception);
++        }
++        encoded = encoded ?: [@"{\"ok\":false,\"error\":\"Malformed response\"}" dataUsingEncoding:NSUTF8StringEncoding];
 +        write(client, encoded.bytes, encoded.length);
 +        write(client, "\n", 1);
 +        [response release];
@@ -2547,7 +2629,9 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        return NO;
 +    }
 +    chmod(_settingsPath.fileSystemRepresentation, 0600);
-+    [self checkNow];
++    dispatch_async(_queue, ^{
++        [self checkNowGuarded];
++    });
 +    return YES;
 +}
 +
@@ -2572,7 +2656,9 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        NSString *path = [_agentsPath stringByAppendingPathComponent:filename];
 +        NSData *data = [NSData dataWithContentsOfFile:path];
 +        NSMutableDictionary *agent = data ? [[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil] mutableCopy] : nil;
-+        if (![agent isKindOfClass:[NSDictionary class]] || ![agent[@"name"] isKindOfClass:[NSString class]]) {
++        if (![agent isKindOfClass:[NSDictionary class]] ||
++            ![agent[@"name"] isKindOfClass:[NSString class]] ||
++            ![agent[@"schedule"] isKindOfClass:[NSDictionary class]]) {
 +            [agent release];
 +            continue;
 +        }
@@ -2760,8 +2846,7 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +            const pid_t processGroup = (pid_t)OmniIntegerValue(run[@"pgid"]);
 +            if (processGroup > 1) {
 +                kill(-processGroup, SIGTERM);
-+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
-+                               dispatch_get_main_queue(), ^{
++                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), _queue, ^{
 +                    if (kill(-processGroup, 0) == 0) kill(-processGroup, SIGKILL);
 +                });
 +            }
@@ -2776,7 +2861,11 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +    NSString *runner = [NSBundle.mainBundle pathForResource:@"omni-runner" ofType:nil inDirectory:@"Helpers"];
 +    NSString *escapedRunner = [runner stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"];
 +    NSString *command = [NSString stringWithFormat:@"'%@' %@", escapedRunner, runID];
-+    self.launchHandler(command, [NSString stringWithFormat:@"AGENT · %@%@", name, resumeSessionID ? @" ↻" : @""]);
++    NSString *title = [NSString stringWithFormat:@"AGENT · %@%@", name, resumeSessionID ? @" ↻" : @""];
++    void (^launchHandler)(NSString *, NSString *) = self.launchHandler;
++    dispatch_async(dispatch_get_main_queue(), ^{
++        launchHandler(command, title);
++    });
 +    [self enforceRunRetention];
 +    return @{ @"ok": @YES, @"run_id": runID };
 +}
@@ -2805,8 +2894,7 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +        kill(-processGroup, SIGTERM);
 +        [self runSQL:@"UPDATE runs SET state='evicting',reason='retention age' WHERE id=?"
 +            bindings:@[ run[@"id"] ]];
-+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
-+                       dispatch_get_main_queue(), ^{
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), _queue, ^{
 +            if (kill(-processGroup, 0) == 0) kill(-processGroup, SIGKILL);
 +        });
 +    }
@@ -2828,6 +2916,16 @@ index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7
 +            [self runSQL:@"UPDATE runs SET state='failed',reason=?,finished=? WHERE id=?"
 +                bindings:@[ reason, @(now), run[@"id"] ]];
 +        }
++    }
++}
++
++// A timer callback has no caller to report to, so one bad agent definition must
++// not take the app down on every tick.
++- (void)checkNowGuarded {
++    @try {
++        [self checkNow];
++    } @catch (NSException *exception) {
++        NSLog(@"OmniScheduler tick failed: %@", exception);
 +    }
 +}
 +
