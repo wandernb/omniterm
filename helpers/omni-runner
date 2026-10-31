@@ -3,6 +3,7 @@
 
 import json
 import os
+import pwd
 import signal
 import socket
 import subprocess
@@ -12,6 +13,11 @@ import time
 from pathlib import Path
 
 SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
+CODEX_DANGEROUS_MODE = "dangerous"
+PATH_MARKER = "__OMNITERM_PATH__"
+LOGIN_SHELL_TIMEOUT = 15
+FALLBACK_PATH_DIRECTORIES = ("~/.local/bin", "~/.claude/bin", "/opt/homebrew/bin", "/usr/local/bin",
+                             "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 
 
 def request(payload):
@@ -19,7 +25,10 @@ def request(payload):
     try:
         client.connect(str(SOCKET))
         client.sendall(json.dumps(payload).encode() + b"\n")
-        client.shutdown(socket.SHUT_WR)
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass  # The scheduler may already have answered and closed.
         data = b""
         while True:
             chunk = client.recv(65536)
@@ -31,6 +40,7 @@ def request(payload):
 
 
 def provider_argv(agent, run_id=None, resume_session_id=None):
+    permissions = agent.get("permission_mode")
     if agent["provider"] == "claude":
         argv = ["claude"]
         if resume_session_id:
@@ -40,11 +50,15 @@ def provider_argv(agent, run_id=None, resume_session_id=None):
             if run_id:
                 argv += ["--session-id", run_id]
         if agent.get("model"): argv += ["--model", agent["model"]]
-        if agent.get("permission_mode"): argv += ["--permission-mode", agent["permission_mode"]]
+        if permissions: argv += ["--permission-mode", permissions]
     else:
-        argv = ["codex", "-C", agent["workspace"], "-c", f"developer_instructions={json.dumps(agent.get('system_prompt', ''))}"]
+        argv = ["codex", "-C", agent["workspace"], "-c", f"developer_instructions={json.dumps(agent.get('system_prompt', ''))}",
+                "-c", codex_trust_override(agent["workspace"])]
         if agent.get("model"): argv += ["--model", agent["model"]]
-        if agent.get("permission_mode"): argv += ["--ask-for-approval", agent["permission_mode"]]
+        if permissions == CODEX_DANGEROUS_MODE:
+            argv.append("--dangerously-bypass-approvals-and-sandbox")
+        elif permissions:
+            argv += ["--ask-for-approval", permissions]
         if resume_session_id:
             argv += ["resume", resume_session_id]
     argv += agent.get("advanced_args", [])
@@ -60,6 +74,75 @@ def provider_environment(source=None):
     environment["FORCE_COLOR"] = "1"
     environment.setdefault("COLORTERM", "truecolor")
     return environment
+
+
+def login_shell_path(environment):
+    """Ask the user's login shell for PATH; GUI launches only get launchd's minimal one."""
+    shell = environment.get("SHELL") or pwd.getpwuid(os.getuid()).pw_shell or "/bin/zsh"
+    try:
+        result = subprocess.run([shell, "-lic", f'printf "{PATH_MARKER}%s{PATH_MARKER}" "$PATH"'],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL,
+                                errors="replace",
+                                timeout=LOGIN_SHELL_TIMEOUT,
+                                start_new_session=True)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    fields = result.stdout.split(PATH_MARKER)
+    return fields[1] if len(fields) == 3 else ""
+
+
+def provider_search_path(environment):
+    """Combine the login-shell PATH, the inherited PATH, and the usual install locations."""
+    directories = login_shell_path(environment).split(":")
+    directories += environment.get("PATH", "").split(":")
+    directories += [os.path.expanduser(directory) for directory in FALLBACK_PATH_DIRECTORIES]
+    return ":".join(dict.fromkeys(directory for directory in directories if directory))
+
+
+def trust_root(workspace):
+    """Claude keys folder trust on the repository root, or the folder outside a repository."""
+    path = Path(os.path.realpath(workspace))
+    home = Path.home()
+    for folder in (path, *path.parents):
+        if folder == home:
+            break
+        if (folder / ".git").exists():
+            return str(folder)
+    return str(path)
+
+
+def codex_trust_override(workspace):
+    """Trust the workspace for this run only. A dotted -c key cannot hold a path, so use a table."""
+    folders = dict.fromkeys((os.path.realpath(workspace), trust_root(workspace)))
+    tables = ",".join(f'{json.dumps(folder)}={{trust_level="trusted"}}' for folder in folders)
+    return f"projects={{{tables}}}"
+
+
+def ensure_claude_trust(workspace):
+    """Pre-accept Claude's folder trust, which no CLI flag can skip in an interactive run.
+
+    A scheduled agent's workspace was chosen explicitly, and nobody is there to answer the prompt.
+    An unreadable config is left alone: a prompt is better than damaging provider state.
+    """
+    config = Path(os.path.realpath(Path.home() / ".claude.json"))
+    temporary = config.with_name(f".claude.json.omni-{os.getpid()}")
+    root = trust_root(workspace)
+    try:
+        data = json.loads(config.read_text())
+        project = data.setdefault("projects", {}).setdefault(root, {})
+        if project.get("hasTrustDialogAccepted") is True:
+            return
+        project["hasTrustDialogAccepted"] = True
+        temporary.write_text(json.dumps(data, indent=2))
+        temporary.chmod(config.stat().st_mode & 0o777)
+        os.replace(temporary, config)
+    except (OSError, ValueError, AttributeError):
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
 
 
 def forward_terminal_resize(process_group):
@@ -89,6 +172,14 @@ def codex_session_id(path, workspace):
     return None
 
 
+def report_finished(run_id, state, reason, started):
+    """Record the outcome; the app closes the tab as soon as this process exits."""
+    try: request({"op": "runner_finished", "run_id": run_id, "state": state, "reason": reason})
+    except (OSError, ValueError): pass
+    runtime = int(time.monotonic() - started)
+    print(f"\n── OmniTerm run {state}: {reason} · {runtime}s ──")
+
+
 def main():
     run_id = sys.argv[1]
     response = request({"op": "run_spec", "run_id": run_id})
@@ -100,10 +191,18 @@ def main():
     argv = provider_argv(agent, run_id=run_id, resume_session_id=resume_session_id)
     previous_codex_files = codex_session_files() if agent["provider"] == "codex" and not resume_session_id else set()
     started = time.monotonic()
-    child = subprocess.Popen(argv,
-                             cwd=agent["workspace"],
-                             env=provider_environment(),
-                             start_new_session=True)
+    environment = provider_environment()
+    environment["PATH"] = provider_search_path(environment)
+    if agent["provider"] == "claude":
+        ensure_claude_trust(agent["workspace"])
+    try:
+        child = subprocess.Popen(argv,
+                                 cwd=agent["workspace"],
+                                 env=environment,
+                                 start_new_session=True)
+    except OSError as error:
+        report_finished(run_id, "failed", f"could not start {argv[0]}: {error}", started)
+        return
     signal.signal(signal.SIGWINCH,
                   lambda *_: forward_terminal_resize(child.pid))
     known_session_id = run.get("session_id") if isinstance(run.get("session_id"), str) else None
@@ -123,17 +222,7 @@ def main():
                 time.sleep(0.5)
         threading.Thread(target=find_session, daemon=True).start()
     code = child.wait()
-    state = "completed" if code == 0 else "failed"
-    reason = f"exit {code}"
-    signal.signal(signal.SIGUSR1, lambda *_: sys.exit(0))
-    try: request({"op": "runner_finished", "run_id": run_id, "state": state, "reason": reason})
-    except OSError: pass
-    runtime = int(time.monotonic() - started)
-    print(f"\n── OmniTerm run {state}: {reason} · {runtime}s ──")
-    print("This completed run is static. Close the tab when you no longer need its output.")
-    while True:
-        try: time.sleep(3600)
-        except KeyboardInterrupt: return
+    report_finished(run_id, "completed" if code == 0 else "failed", f"exit {code}", started)
 
 
 if __name__ == "__main__":

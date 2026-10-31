@@ -1,11 +1,453 @@
+diff --git a/ModernTests/OmniSchedulerTests.m b/ModernTests/OmniSchedulerTests.m
+new file mode 100644
+index 0000000000000000000000000000000000000000..a55d7501d5768cef25ee6a9e19c22f6a896e3d25
+--- /dev/null
++++ b/ModernTests/OmniSchedulerTests.m
+@@ -0,0 +1,436 @@
++//
++//  OmniSchedulerTests.m
++//  ModernTests
++//
++//  Deterministic coverage for scheduler configuration and calendar behavior.
++//
++
++#import <XCTest/XCTest.h>
++
++#import "OmniScheduler.h"
++
++@interface OmniScheduler (Tests)
++- (NSDictionary *)defaultSettings;
++- (NSDictionary *)settings;
++- (NSDictionary *)configurationForAgent:(NSDictionary *)agent;
++- (NSString *)agentPathForName:(NSString *)name;
++- (BOOL)writeAgentFile:(NSDictionary *)agent;
++- (BOOL)runSQL:(NSString *)sql bindings:(NSArray *)bindings;
++- (NSArray *)rowsForSQL:(NSString *)sql bindings:(NSArray *)bindings;
++- (void)reapAbandonedRuns;
++- (void)enforceRunRetention;
++- (NSDictionary *)responseForRequest:(id)request;
++- (id)nextRunForAgent:(NSDictionary *)agent after:(NSTimeInterval)timestamp;
++- (NSDictionary *)startAgentNamed:(NSString *)name
++                           reason:(NSString *)reason
++                  resumeSessionID:(nullable NSString *)resumeSessionID;
++@end
++
++@interface OmniSchedulerTests : XCTestCase
++@end
++
++@implementation OmniSchedulerTests {
++    OmniScheduler *_scheduler;
++    NSString *_temporaryPath;
++    NSCalendar *_calendar;
++}
++
++- (void)setUp {
++    [super setUp];
++    _temporaryPath = [NSTemporaryDirectory()
++        stringByAppendingPathComponent:[NSString stringWithFormat:@"omni-scheduler-tests-%@",
++                                                                  NSUUID.UUID.UUIDString]];
++    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:_temporaryPath
++                                            withIntermediateDirectories:YES
++                                                             attributes:nil
++                                                                  error:nil]);
++    NSString *agentsPath = [_temporaryPath stringByAppendingPathComponent:@"agents"];
++    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:agentsPath
++                                            withIntermediateDirectories:YES
++                                                             attributes:nil
++                                                                  error:nil]);
++    _scheduler = [[OmniScheduler alloc] initWithLaunchHandler:^(NSString *command,
++                                                                NSString *title) {}];
++    [_scheduler setValue:_temporaryPath forKey:@"supportPath"];
++    [_scheduler setValue:[_temporaryPath stringByAppendingPathComponent:@"scheduler.sock"]
++                  forKey:@"socketPath"];
++    [_scheduler setValue:_temporaryPath forKey:@"configPath"];
++    [_scheduler setValue:agentsPath forKey:@"agentsPath"];
++    [_scheduler setValue:[_temporaryPath stringByAppendingPathComponent:@"settings.json"]
++                  forKey:@"settingsPath"];
++
++    _calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
++    _calendar.timeZone = [NSTimeZone timeZoneWithName:@"Europe/Paris"];
++    [self writeSettings:@{ @"timezone": @"Europe/Paris" }];
++}
++
++- (void)tearDown {
++    [_scheduler stop];
++    _scheduler = nil;
++    _calendar = nil;
++    [[NSFileManager defaultManager] removeItemAtPath:_temporaryPath error:nil];
++    _temporaryPath = nil;
++    [super tearDown];
++}
++
++- (void)writeSettings:(NSDictionary *)settings {
++    NSData *data = [NSJSONSerialization dataWithJSONObject:settings options:0 error:nil];
++    XCTAssertTrue([data writeToFile:[_scheduler valueForKey:@"settingsPath"]
++                            options:NSDataWritingAtomic
++                              error:nil]);
++}
++
++- (NSTimeInterval)timestampForYear:(NSInteger)year
++                             month:(NSInteger)month
++                               day:(NSInteger)day
++                              hour:(NSInteger)hour
++                            minute:(NSInteger)minute {
++    NSDateComponents *components = [[NSDateComponents alloc] init];
++    components.year = year;
++    components.month = month;
++    components.day = day;
++    components.hour = hour;
++    components.minute = minute;
++    return [_calendar dateFromComponents:components].timeIntervalSince1970;
++}
++
++- (NSDateComponents *)componentsForTimestamp:(NSTimeInterval)timestamp {
++    return [_calendar components:(NSCalendarUnitYear |
++                                  NSCalendarUnitMonth |
++                                  NSCalendarUnitDay |
++                                  NSCalendarUnitHour |
++                                  NSCalendarUnitMinute |
++                                  NSCalendarUnitWeekday)
++                        fromDate:[NSDate dateWithTimeIntervalSince1970:timestamp]];
++}
++
++- (void)testDefaultSettingsPreserveProductInvariants {
++    NSDictionary *settings = [_scheduler defaultSettings];
++    XCTAssertEqualObjects(settings[@"schema_version"], @2);
++    XCTAssertEqualObjects(settings[@"default_timeout_seconds"], @7200);
++    XCTAssertEqualObjects(settings[@"retained_run_tabs"], @10);
++    XCTAssertEqualObjects(settings[@"double_escape_interval_ms"], @350);
++}
++
++- (void)testStoredSettingsMergeWithDefaultsAndForceCurrentSchema {
++    [self writeSettings:@{ @"schema_version": @1,
++                           @"timezone": @"UTC",
++                           @"retained_run_tabs": @25 }];
++    NSDictionary *settings = [_scheduler settings];
++    XCTAssertEqualObjects(settings[@"schema_version"], @2);
++    XCTAssertEqualObjects(settings[@"timezone"], @"UTC");
++    XCTAssertEqualObjects(settings[@"retained_run_tabs"], @25);
++    XCTAssertEqualObjects(settings[@"default_timeout_seconds"], @7200);
++}
++
++- (void)testCorruptSettingsFallBackToDefaults {
++    [@"not json" writeToFile:[_scheduler valueForKey:@"settingsPath"]
++                   atomically:YES
++                     encoding:NSUTF8StringEncoding
++                        error:nil];
++    NSDictionary *settings = [_scheduler settings];
++    XCTAssertEqualObjects(settings[@"schema_version"], @2);
++    XCTAssertEqualObjects(settings[@"default_timeout_seconds"], @7200);
++}
++
++- (void)testPersistedConfigurationOmitsComputedAndLegacyTimezoneFields {
++    NSDictionary *configuration = [_scheduler configurationForAgent:@{
++        @"name": @"Review",
++        @"next_run": @123,
++        @"last_run": @100,
++        @"timezone": @"UTC",
++        @"enabled": @YES,
++    }];
++    NSDictionary *expected = @{ @"name": @"Review", @"enabled": @YES };
++    XCTAssertEqualObjects(configuration, expected);
++}
++
++- (void)testAgentFilenameEscapesUnsafeCharacters {
++    NSString *path = [_scheduler agentPathForName:@"Review / docs"];
++    XCTAssertEqualObjects(path.lastPathComponent, @"Review%20%2F%20docs.json");
++    XCTAssertEqualObjects(path.stringByDeletingLastPathComponent,
++                          [_scheduler valueForKey:@"agentsPath"]);
++}
++
++- (void)testAgentFileWriteIsPrivateAndOmitsComputedFields {
++    NSDictionary *agent = @{
++        @"name": @"Review",
++        @"provider": @"codex",
++        @"next_run": @123,
++        @"last_run": @100,
++        @"timezone": @"UTC",
++    };
++    XCTAssertTrue([_scheduler writeAgentFile:agent]);
++    NSString *path = [_scheduler agentPathForName:@"Review"];
++    NSData *data = [NSData dataWithContentsOfFile:path];
++    NSDictionary *stored = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
++    XCTAssertEqualObjects(stored[@"name"], @"Review");
++    XCTAssertNil(stored[@"next_run"]);
++    XCTAssertNil(stored[@"last_run"]);
++    XCTAssertNil(stored[@"timezone"]);
++    NSDictionary *attributes = [[NSFileManager defaultManager]
++        attributesOfItemAtPath:path
++                         error:nil];
++    NSNumber *permissions = attributes[NSFilePosixPermissions];
++    XCTAssertEqual(permissions.unsignedShortValue & 0777, 0600);
++}
++
++- (void)testSecondarySchedulerCannotReplaceOwnersSocket {
++    NSString *socketPath = [@"/private/tmp"
++        stringByAppendingPathComponent:[NSString stringWithFormat:@"omni-scheduler-%@.sock",
++                                                                   NSUUID.UUID.UUIDString]];
++    [_scheduler setValue:socketPath forKey:@"socketPath"];
++    [_scheduler start];
++    NSDictionary *originalAttributes = [[NSFileManager defaultManager]
++        attributesOfItemAtPath:socketPath
++                         error:nil];
++    XCTAssertNotNil(originalAttributes);
++    XCTAssertGreaterThan([[_scheduler valueForKey:@"listener"] intValue], -1);
++
++    OmniScheduler *secondary = [[OmniScheduler alloc]
++        initWithLaunchHandler:^(NSString *command, NSString *title) {}];
++    [secondary setValue:_temporaryPath forKey:@"supportPath"];
++    [secondary setValue:socketPath forKey:@"socketPath"];
++    [secondary setValue:_temporaryPath forKey:@"configPath"];
++    [secondary setValue:[_temporaryPath stringByAppendingPathComponent:@"agents"]
++                 forKey:@"agentsPath"];
++    [secondary setValue:[_temporaryPath stringByAppendingPathComponent:@"settings.json"]
++                 forKey:@"settingsPath"];
++    [secondary start];
++
++    XCTAssertEqual([[secondary valueForKey:@"listener"] intValue], -1);
++    [secondary stop];
++    NSDictionary *remainingAttributes = [[NSFileManager defaultManager]
++        attributesOfItemAtPath:socketPath
++                         error:nil];
++    XCTAssertEqualObjects(remainingAttributes[NSFileSystemFileNumber],
++                          originalAttributes[NSFileSystemFileNumber]);
++}
++
++- (void)testReplacingRunToleratesNullProcessIdentifiers {
++    NSDictionary *agent = @{
++        @"name": @"Review",
++        @"provider": @"claude",
++        @"workspace": _temporaryPath,
++        @"overlap": @"replace",
++        @"enabled": @NO,
++        @"timeout_seconds": @7200,
++        @"schedule": @{ @"kind": @"daily", @"phrase": @"daily at 09:00",
++                         @"hour": @9, @"minute": @0 },
++    };
++    XCTAssertTrue([_scheduler writeAgentFile:agent]);
++    [_scheduler start];
++    XCTAssertTrue([_scheduler runSQL:
++        @"INSERT INTO runs(id,agent,state,reason,started,pid,pgid) "
++         @"VALUES('old','Review','starting','test',1,NULL,NULL)"
++                              bindings:@[]]);
++
++    NSDictionary *result = nil;
++    XCTAssertNoThrow(result = [_scheduler startAgentNamed:@"Review"
++                                                   reason:@"manual"
++                                          resumeSessionID:nil]);
++    XCTAssertEqualObjects(result[@"ok"], @YES);
++}
++
++- (void)startSchedulerWithAgentTimeout:(NSNumber *)timeout {
++    NSDictionary *agent = @{
++        @"name": @"Review",
++        @"provider": @"claude",
++        @"workspace": _temporaryPath,
++        @"overlap": @"parallel",
++        @"enabled": @NO,
++        @"timeout_seconds": timeout,
++        @"schedule": @{ @"kind": @"daily", @"phrase": @"daily at 09:00",
++                         @"hour": @9, @"minute": @0 },
++    };
++    XCTAssertTrue([_scheduler writeAgentFile:agent]);
++    [_scheduler start];
++}
++
++- (void)insertRun:(NSString *)runID
++            state:(NSString *)state
++          started:(NSTimeInterval)started
++              pid:(id)pid {
++    NSArray *bindings = @[ runID, state, @(started), pid ];
++    const BOOL inserted = [_scheduler runSQL:@"INSERT INTO runs(id,agent,state,reason,started,pid,pgid) "
++                                              @"VALUES(?,'Review',?,'test',?,?,NULL)"
++                                    bindings:bindings];
++    XCTAssertTrue(inserted);
++}
++
++- (NSString *)stateOfRun:(NSString *)runID {
++    return [[_scheduler rowsForSQL:@"SELECT state FROM runs WHERE id=?"
++                          bindings:@[ runID ]].firstObject objectForKey:@"state"];
++}
++
++- (pid_t)exitedProcessIdentifier {
++    NSTask *task = [[NSTask alloc] init];
++    task.launchPath = @"/usr/bin/true";
++    [task launch];
++    [task waitUntilExit];
++    return task.processIdentifier;
++}
++
++- (void)testListRunsTreatsNullAgentFilterAsAllRuns {
++    [self startSchedulerWithAgentTimeout:@7200];
++    [self insertRun:@"run" state:@"completed" started:1 pid:NSNull.null];
++
++    NSDictionary *response = [_scheduler responseForRequest:@{ @"op": @"list_runs",
++                                                               @"name": NSNull.null }];
++
++    XCTAssertEqualObjects(response[@"ok"], @YES);
++    XCTAssertEqual([response[@"runs"] count], 1);
++}
++
++- (void)testMalformedRequestsFailWithoutThrowing {
++    [self startSchedulerWithAgentTimeout:@7200];
++    NSArray *requests = @[ @[ @"not", @"an", @"object" ],
++                           @"text",
++                           NSNull.null,
++                           @{ @"op": @[] },
++                           @{ @"op": @"create_agent", @"agent": @"not an object" },
++                           @{ @"op": @"set_enabled" },
++                           @{ @"op": @"runner_session" } ];
++    for (id request in requests) {
++        NSDictionary *response = nil;
++        XCTAssertNoThrow(response = [_scheduler responseForRequest:request], @"%@", request);
++        XCTAssertEqualObjects(response[@"ok"], @NO, @"%@", request);
++    }
++}
++
++- (void)testRunWhoseRunnerNeverStartedFailsAfterGracePeriod {
++    [self startSchedulerWithAgentTimeout:@7200];
++    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
++    [self insertRun:@"stuck" state:@"starting" started:now - 3600 pid:NSNull.null];
++    [self insertRun:@"launching" state:@"starting" started:now pid:NSNull.null];
++
++    [_scheduler reapAbandonedRuns];
++
++    XCTAssertEqualObjects([self stateOfRun:@"stuck"], @"failed");
++    XCTAssertEqualObjects([self stateOfRun:@"launching"], @"starting");
++}
++
++- (void)testRunWhoseRunnerDiedFailsButLiveRunnerIsKept {
++    [self startSchedulerWithAgentTimeout:@7200];
++    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
++    [self insertRun:@"dead" state:@"running" started:now pid:@([self exitedProcessIdentifier])];
++    [self insertRun:@"alive" state:@"running" started:now pid:@(getpid())];
++
++    [_scheduler reapAbandonedRuns];
++
++    XCTAssertEqualObjects([self stateOfRun:@"dead"], @"failed");
++    XCTAssertEqualObjects([self stateOfRun:@"alive"], @"running");
++}
++
++- (void)testRetentionNeverSignalsOrRewritesFinishedRuns {
++    [self startSchedulerWithAgentTimeout:@1];
++    // Stale runner PIDs may have been reused. If retention signalled this one,
++    // SIGUSR1 would terminate the test process itself.
++    for (NSInteger index = 0; index < 12; index++) {
++        [self insertRun:[NSString stringWithFormat:@"finished-%ld", (long)index]
++                  state:@"completed"
++                started:index + 1
++                    pid:@(getpid())];
++    }
++
++    [_scheduler enforceRunRetention];
++
++    XCTAssertEqualObjects([self stateOfRun:@"finished-0"], @"completed");
++}
++
++- (void)testOnceAndIntervalRecurrence {
++    const NSTimeInterval after = 1000;
++    XCTAssertEqualObjects([_scheduler nextRunForAgent:@{ @"schedule": @{ @"kind": @"once" } }
++                                                after:after],
++                          NSNull.null);
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"interval", @"interval_seconds": @90 }
++    } after:after];
++    XCTAssertEqualObjects(next, @1090);
++}
++
++- (void)testDailyRecurrenceKeepsWallClockTimeAcrossSpringDST {
++    const NSTimeInterval after = [self timestampForYear:2026 month:3 day:28 hour:9 minute:0];
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"daily", @"hour": @9, @"minute": @0 }
++    } after:after];
++    NSDateComponents *components = [self componentsForTimestamp:next.doubleValue];
++    XCTAssertEqual(components.year, 2026);
++    XCTAssertEqual(components.month, 3);
++    XCTAssertEqual(components.day, 29);
++    XCTAssertEqual(components.hour, 9);
++    XCTAssertEqual(components.minute, 0);
++}
++
++- (void)testDailyRecurrenceCanRunLaterTheSameDay {
++    const NSTimeInterval after = [self timestampForYear:2026 month:8 day:2 hour:8 minute:30];
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"daily", @"hour": @9, @"minute": @0 }
++    } after:after];
++    NSDateComponents *components = [self componentsForTimestamp:next.doubleValue];
++    XCTAssertEqual(components.year, 2026);
++    XCTAssertEqual(components.month, 8);
++    XCTAssertEqual(components.day, 2);
++    XCTAssertEqual(components.hour, 9);
++    XCTAssertEqual(components.minute, 0);
++}
++
++- (void)testWeekdaysSkipTheWeekend {
++    const NSTimeInterval friday = [self timestampForYear:2026 month:7 day:31 hour:18 minute:0];
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"weekdays", @"hour": @9, @"minute": @0 }
++    } after:friday];
++    NSDateComponents *components = [self componentsForTimestamp:next.doubleValue];
++    XCTAssertEqual(components.year, 2026);
++    XCTAssertEqual(components.month, 8);
++    XCTAssertEqual(components.day, 3);
++    XCTAssertEqual(components.weekday, 2);
++    XCTAssertEqual(components.hour, 9);
++}
++
++- (void)testWeeklyRecurrenceUsesPythonWeekdayNumbering {
++    const NSTimeInterval wednesday = [self timestampForYear:2026 month:7 day:29 hour:12 minute:0];
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"weekly", @"weekday": @0, @"hour": @10, @"minute": @15 }
++    } after:wednesday];
++    NSDateComponents *components = [self componentsForTimestamp:next.doubleValue];
++    XCTAssertEqual(components.year, 2026);
++    XCTAssertEqual(components.month, 8);
++    XCTAssertEqual(components.day, 3);
++    XCTAssertEqual(components.weekday, 2);
++    XCTAssertEqual(components.hour, 10);
++    XCTAssertEqual(components.minute, 15);
++}
++
++- (void)testCalendarIntervalsKeepWeeklyAlignment {
++    const NSTimeInterval anchor = [self timestampForYear:2026 month:8 day:3 hour:10 minute:0];
++    NSNumber *next = [_scheduler nextRunForAgent:@{
++        @"schedule": @{ @"kind": @"calendar_interval", @"unit": @"week",
++                         @"interval": @2, @"anchor": @(anchor),
++                         @"weekday": @0, @"hour": @10, @"minute": @0 }
++    } after:anchor];
++    NSDateComponents *components = [self componentsForTimestamp:next.doubleValue];
++    XCTAssertEqual(components.year, 2026);
++    XCTAssertEqual(components.month, 8);
++    XCTAssertEqual(components.day, 17);
++    XCTAssertEqual(components.hour, 10);
++}
++
++- (void)testMonthlyIntervalsClampShortMonthsAndRestoreRequestedDay {
++    const NSTimeInterval july = [self timestampForYear:2026 month:7 day:31 hour:9 minute:0];
++    NSDictionary *agent = @{
++        @"schedule": @{ @"kind": @"calendar_interval", @"unit": @"month",
++                         @"interval": @1, @"anchor": @(july),
++                         @"day": @31, @"hour": @9, @"minute": @0 }
++    };
++    NSNumber *august = [_scheduler nextRunForAgent:agent after:july];
++    NSNumber *september = [_scheduler nextRunForAgent:agent after:august.doubleValue];
++    NSDateComponents *augustComponents = [self componentsForTimestamp:august.doubleValue];
++    NSDateComponents *septemberComponents = [self componentsForTimestamp:september.doubleValue];
++    XCTAssertEqual(augustComponents.month, 8);
++    XCTAssertEqual(augustComponents.day, 31);
++    XCTAssertEqual(septemberComponents.month, 9);
++    XCTAssertEqual(septemberComponents.day, 30);
++}
++
++@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 29f5ecc..7011da5 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..baabfd7c23a7868292d6547d204989c27c76c059 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -2243,3 +2243,52 @@ Bug Fixes:
-   these keys to tmux by name so tmux encodes
-   them just as it does outside control mode,
-   honoring its extended-keys-format.
+@@ -2418,3 +2418,93 @@ Bug Fixes:
+   open each time. After many coprocesses,
+   iTerm2 could run out of open files and fail
+   to create new sessions.
 +OmniTerm turns window close and quit actions into
 +hide actions while keeping terminal sessions alive.
 +OmniTerm removes the compact proxy icon and uses a teal window border so its
@@ -47,16 +489,57 @@ index 29f5ecc..7011da5 100644
 +prompt previews beside schedule and run history.
 +Dashboard prompt previews are now keyboard-focusable
 +and clickable, with a full scrollable prompt viewer.
++Workspace completion no longer exits when terminal
++cursor-visibility control is unavailable.
++The menu-bar now opens native OmniTerm settings
++for its shortcut, login, behavior, and agents.
++Settings and reopen requests never restore or show
++windows during OmniTerm background startup.
++The menu-bar icon now matches OmniTerm's O-and-
++cursor mark in the native monochrome template style.
++Secondary launches no longer replace the active
++scheduler socket or break dashboard commands.
++Wizard pickers no longer inherit dashboard polling
++timeouts and exit while waiting for user input.
 +OmniTerm now bundles and globally registers an MCP
 +agent scheduler for Claude Code and Codex.
 +The omni MCP offers agent CRUD, schedule previews,
 +run control, resume, diagnostics, and JSON results.
++Agent retention now rejects zero or negative
++durations unless retention is explicitly off.
++Agent editing now stays in one inline form.
++Left and Right move between its fields.
++Choices appear below the active field.
++Workspace Tab completion now behaves like cd.
++Tab descends folders; Enter accepts the path.
++Modified Return inserts prompt line breaks.
++Claude permission choices include auto-mode.
++Dashboard keys now bypass profile remapping.
++Left always returns to the agent list.
++Only focused Run now Enter or a click runs.
++Replacement runs now tolerate pending run rows
++whose process identifiers are not assigned yet.
++Agent schedules now use calendar-style repeat
++count, period, and contextual on/at controls.
++Aligned hourly, daily, weekly, and monthly
++recurrence is supported by the native scheduler.
++Short months clamp and later restore month days.
 +
 +OmniTerm distribution:
 +- Adds public release packaging, installer/MCP setup, licensing credits, and
 +  correct GPL-3.0-or-later bundle metadata for the modified iTerm2 distribution.
++Agent tabs now close as soon as their run ends,
++for any reason, including a failed start.
++Agents launched at login find claude and codex
++through the login shell’s PATH, and a start
++failure is recorded in the run history.
++Runs left behind by a dead runner are now failed
++instead of staying in “starting” forever.
++A malformed or null scheduler request, such as
++listing runs with no agent, no longer crashes
++OmniTerm.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index c0a8bb1..ff162ba 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..e3e6534598fd8ad7f2cfb9ed3f346d5e8dc4daf3 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
 @@ -7,6 +7,7 @@
@@ -64,19 +547,19 @@ index c0a8bb1..ff162ba 100644
  
  /* Begin PBXBuildFile section */
 +		0A0B0C0D0E0F000000000001 /* OmniScheduler.m in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000003 /* OmniScheduler.m */; };
- 		01A01787661B9E1F5177DAB7 /* iTermJobTerminationMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 677BAE3BF6167A6719904C54 /* iTermJobTerminationMonitor.swift */; };
- 		01D8567525D898E2B0DB6FF1 /* iTermWindowBorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FCEB05FACE33F5F7947261 /* iTermWindowBorderView.swift */; };
- 		01EA128CE8538B4BBFEC9BDD /* SocketConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0633ABD6E952B2E3BBF254B /* SocketConnection.swift */; };
-@@ -5838,6 +5839,8 @@
+ 		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
+ 		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
+ 		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
+@@ -5138,6 +5139,8 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
 +		0A0B0C0D0E0F000000000002 /* OmniScheduler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ../OmniTerm/OmniScheduler.h; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000003 /* OmniScheduler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ../OmniTerm/OmniScheduler.m; sourceTree = "<group>"; };
+ 		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
+ 		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
- 		00885D5646181ED6CFE9A2DE /* SetTabStatusTrigger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SetTabStatusTrigger.swift; sourceTree = "<group>"; };
- 		02CF16386D8605E6BC44ED81 /* CharacterAtomIterator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CharacterAtomIterator.swift; sourceTree = "<group>"; };
-@@ -11348,6 +11351,8 @@
+@@ -10607,6 +10610,8 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -85,7 +568,7 @@ index c0a8bb1..ff162ba 100644
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -20369,7 +20374,7 @@
+@@ -18568,7 +18573,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -94,7 +577,7 @@ index c0a8bb1..ff162ba 100644
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -20379,7 +20384,7 @@
+@@ -18578,7 +18583,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -103,7 +586,7 @@ index c0a8bb1..ff162ba 100644
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -22366,6 +22371,7 @@
+@@ -20748,6 +20753,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -111,7 +594,25 @@ index c0a8bb1..ff162ba 100644
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -22769,8 +22775,8 @@
+@@ -21559,7 +21565,7 @@
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/sources",
+ 					"$(SRCROOT)/ThirdParty",
+@@ -21592,7 +21598,7 @@
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/sources",
+ 					"$(SRCROOT)/ThirdParty",
+@@ -21729,8 +21735,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -122,7 +623,7 @@ index c0a8bb1..ff162ba 100644
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24103,8 +24109,8 @@
+@@ -22817,8 +22823,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -133,7 +634,43 @@ index c0a8bb1..ff162ba 100644
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -26886,8 +26892,8 @@
+@@ -24683,7 +24689,7 @@
+ 				SWIFT_EMIT_LOC_STRINGS = NO;
+ 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/ThirdParty",
+ 					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
+@@ -24770,7 +24776,7 @@
+ 				SWIFT_COMPILATION_MODE = wholemodule;
+ 				SWIFT_EMIT_LOC_STRINGS = NO;
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/ThirdParty",
+ 					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
+@@ -24857,7 +24863,7 @@
+ 				SWIFT_COMPILATION_MODE = wholemodule;
+ 				SWIFT_EMIT_LOC_STRINGS = NO;
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/ThirdParty",
+ 					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
+@@ -24944,7 +24950,7 @@
+ 				SWIFT_COMPILATION_MODE = wholemodule;
+ 				SWIFT_EMIT_LOC_STRINGS = NO;
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/ThirdParty",
+ 					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
+@@ -25240,8 +25246,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -144,7 +681,7 @@ index c0a8bb1..ff162ba 100644
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -26980,8 +26986,8 @@
+@@ -25335,8 +25341,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -155,8 +692,26 @@ index c0a8bb1..ff162ba 100644
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
+@@ -25540,7 +25546,7 @@
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/sources",
+ 					"$(SRCROOT)/ThirdParty",
+@@ -25573,7 +25579,7 @@
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iTerm2.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iTerm2";
++				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmniTerm.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmniTerm";
+ 				USER_HEADER_SEARCH_PATHS = (
+ 					"$(SRCROOT)/sources",
+ 					"$(SRCROOT)/ThirdParty",
 diff --git a/plists/beta-iTerm2.plist b/plists/beta-iTerm2.plist
-index dbc5b68..922e295 100644
+index 5ca35edddf7d1a3586ff3b6657328061763492ec..7ce099ff9d3dd909c3ff370d5d4bf9ae854cc3ba 100644
 --- a/plists/beta-iTerm2.plist
 +++ b/plists/beta-iTerm2.plist
 @@ -27,7 +27,7 @@
@@ -168,7 +723,7 @@ index dbc5b68..922e295 100644
          <key>CFBundleDevelopmentRegion</key>
          <string>English</string>
          <key>CFBundleDocumentTypes</key>
-@@ -242,7 +242,7 @@
+@@ -254,7 +254,7 @@
                  </dict>
          </array>
          <key>CFBundleExecutable</key>
@@ -177,7 +732,7 @@ index dbc5b68..922e295 100644
          <key>CFBundleGetInfoString</key>
          <string>unknown</string>
          <key>CFBundleHelpBookFolder</key>
-@@ -252,11 +252,11 @@
+@@ -264,11 +264,11 @@
          <key>CFBundleIconFile</key>
          <string>iTerm2.icns</string>
          <key>CFBundleIdentifier</key>
@@ -192,7 +747,7 @@ index dbc5b68..922e295 100644
          <string>APPL</string>
          <key>CFBundleShortVersionString</key>
 diff --git a/plists/dev-iTerm2.plist b/plists/dev-iTerm2.plist
-index e66a48d..dc1657d 100644
+index 38195cea477a308cd6c3413aa179440ffbe2cccf..eb0d031f5e204542fa2ae0c783273b018152400d 100644
 --- a/plists/dev-iTerm2.plist
 +++ b/plists/dev-iTerm2.plist
 @@ -27,7 +27,7 @@
@@ -204,7 +759,7 @@ index e66a48d..dc1657d 100644
          <key>CFBundleDevelopmentRegion</key>
          <string>English</string>
          <key>CFBundleDocumentTypes</key>
-@@ -230,7 +230,7 @@
+@@ -242,7 +242,7 @@
                  </dict>
          </array>
          <key>CFBundleExecutable</key>
@@ -213,7 +768,7 @@ index e66a48d..dc1657d 100644
          <key>CFBundleGetInfoString</key>
          <string>unknown</string>
          <key>CFBundleHelpBookFolder</key>
-@@ -240,11 +240,11 @@
+@@ -252,11 +252,11 @@
          <key>CFBundleIconFile</key>
          <string>iTerm2.icns</string>
          <key>CFBundleIdentifier</key>
@@ -228,7 +783,7 @@ index e66a48d..dc1657d 100644
          <string>APPL</string>
          <key>CFBundleShortVersionString</key>
 diff --git a/plists/nightly-iTerm2.plist b/plists/nightly-iTerm2.plist
-index c3dac51..c80217a 100644
+index 874233a9616a9a0837d62c279691005a6917b7d2..2468914e29828282a395bd6ed67766c289b3d98f 100644
 --- a/plists/nightly-iTerm2.plist
 +++ b/plists/nightly-iTerm2.plist
 @@ -27,7 +27,7 @@
@@ -240,7 +795,7 @@ index c3dac51..c80217a 100644
          <key>CFBundleDevelopmentRegion</key>
          <string>English</string>
          <key>CFBundleDocumentTypes</key>
-@@ -242,7 +242,7 @@
+@@ -254,7 +254,7 @@
                  </dict>
          </array>
          <key>CFBundleExecutable</key>
@@ -249,7 +804,7 @@ index c3dac51..c80217a 100644
          <key>CFBundleGetInfoString</key>
          <string>unknown</string>
          <key>CFBundleHelpBookFolder</key>
-@@ -252,11 +252,11 @@
+@@ -264,11 +264,11 @@
          <key>CFBundleIconFile</key>
          <string>iTerm2.icns</string>
          <key>CFBundleIdentifier</key>
@@ -264,7 +819,7 @@ index c3dac51..c80217a 100644
          <string>APPL</string>
          <key>CFBundleShortVersionString</key>
 diff --git a/plists/preview-iTerm2.plist b/plists/preview-iTerm2.plist
-index a88352e..0269d73 100644
+index 5a4d20532747a441159dd075036edc092d469c9f..9524e7bdefb51933bd505215621e814db65e6fdd 100644
 --- a/plists/preview-iTerm2.plist
 +++ b/plists/preview-iTerm2.plist
 @@ -23,7 +23,7 @@
@@ -276,7 +831,7 @@ index a88352e..0269d73 100644
          <key>CFBundleDevelopmentRegion</key>
          <string>English</string>
          <key>CFBundleDocumentTypes</key>
-@@ -238,7 +238,7 @@
+@@ -250,7 +250,7 @@
                  </dict>
          </array>
          <key>CFBundleExecutable</key>
@@ -285,7 +840,7 @@ index a88352e..0269d73 100644
          <key>CFBundleGetInfoString</key>
          <string>unknown</string>
          <key>CFBundleHelpBookFolder</key>
-@@ -250,11 +250,11 @@
+@@ -262,11 +262,11 @@
          <key>CFBundleIconFile</key>
          <string>iTerm2.icns</string>
          <key>CFBundleIdentifier</key>
@@ -300,7 +855,7 @@ index a88352e..0269d73 100644
          <string>APPL</string>
          <key>CFBundleShortVersionString</key>
 diff --git a/plists/release-iTerm2.plist b/plists/release-iTerm2.plist
-index 9a8ce25..262ebb2 100644
+index cf75e5da1b9c01254067c1f1fa0d1148486b83c1..305f51162a647147a14c468c287df094367b293d 100644
 --- a/plists/release-iTerm2.plist
 +++ b/plists/release-iTerm2.plist
 @@ -27,7 +27,7 @@
@@ -312,7 +867,7 @@ index 9a8ce25..262ebb2 100644
          <key>CFBundleDevelopmentRegion</key>
          <string>English</string>
          <key>CFBundleDocumentTypes</key>
-@@ -242,7 +242,7 @@
+@@ -254,7 +254,7 @@
                  </dict>
          </array>
          <key>CFBundleExecutable</key>
@@ -321,7 +876,7 @@ index 9a8ce25..262ebb2 100644
          <key>CFBundleGetInfoString</key>
          <string>unknown</string>
          <key>CFBundleHelpBookFolder</key>
-@@ -252,11 +252,11 @@
+@@ -264,11 +264,11 @@
          <key>CFBundleIconFile</key>
          <string>iTerm2.icns</string>
          <key>CFBundleIdentifier</key>
@@ -335,11 +890,67 @@ index 9a8ce25..262ebb2 100644
          <key>CFBundlePackageType</key>
          <string>APPL</string>
          <key>CFBundleShortVersionString</key>
+diff --git a/sources/AppKit/AIMenuBarStatusController.swift b/sources/AppKit/AIMenuBarStatusController.swift
+index faaa92c13093e4d309eca6be5c6f947d4c625158..3d2983a6325823e0f78b6263afa0eb0b0d27a6b6 100644
+--- a/sources/AppKit/AIMenuBarStatusController.swift
++++ b/sources/AppKit/AIMenuBarStatusController.swift
+@@ -59,9 +59,7 @@ class AIMenuBarStatusController: NSObject, NSMenuDelegate {
+     private var evaluationError: NSError?
+     private var started = false
+     private lazy var baseImage: NSImage? = {
+-        let image = NSImage(named: "StatusItem")
+-        image?.isTemplate = true
+-        return image
++        return iTermApplication.omniTermStatusItemImage()
+     }()
+ 
+     // Must be called on the main thread.
+@@ -89,16 +87,8 @@ class AIMenuBarStatusController: NSObject, NSMenuDelegate {
+     }
+ 
+     private func refreshOnMain() {
+-        // The effective UI-element state, not the raw preference: with
+-        // UIElementRequiresHotkeys set, updateProcessType turns it off while
+-        // ordinary windows are open, and then the Dock icon is available.
+-        let requiredForSettingsAccess = iTermApplication.shared().isUIElement &&
+-            iTermAdvancedSettingsModel.statusBarIcon()
+-        guard requiredForSettingsAccess || iTermPreferences.bool(forKey: kPreferenceKeyShowMenuBarItem) else {
+-            stopEvaluating()
+-            removeStatusItem()
+-            return
+-        }
++        // OmniTerm is a menu-bar app: this item is its only permanent entry point,
++        // so it ignores the iTerm2 preferences shared through the settings suite.
+         installStatusItemIfNeeded()
+         let template = Self.template
+         if template.isEmpty {
+@@ -148,6 +138,7 @@ class AIMenuBarStatusController: NSObject, NSMenuDelegate {
+         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+         item.button?.title = ""
+         item.button?.image = baseImage
++        item.button?.toolTip = "OmniTerm"
+         item.button?.imagePosition = .imageLeading
+         (item.button?.cell as? NSButtonCell)?.highlightsBy = .changeBackgroundCellMask
+         if let delegate = NSApp.delegate as? iTermApplicationDelegate {
+diff --git a/sources/AppKit/iTermApplication.h b/sources/AppKit/iTermApplication.h
+index 523711ff7af3baa9fc76521b5cec79b940659faf..a0fef6db7e0f9b17af63805042a5e3fb84c4d10f 100644
+--- a/sources/AppKit/iTermApplication.h
++++ b/sources/AppKit/iTermApplication.h
+@@ -74,6 +74,9 @@ extern NSNotificationName const iTermApplicationCharacterAccentMenuVisibilityDid
+ @property(nonatomic) BOOL it_restorableStateInvalid;
+ @property(nonatomic, readonly) NSEventModifierFlags it_modifierFlags;
+ @property(nonatomic, readonly) BOOL it_accentMenuOpen;
+++ (NSImage *)omniTermStatusItemImage;
++@property(nonatomic) BOOL omniTermDoubleEscapeEnabled;
++@property(nonatomic) NSTimeInterval omniTermDoubleEscapeInterval;
+ 
+ // In big sur, sheets aren't key windows any more. This finds the current sheet for the key window and returns it.
+ @property(nonatomic, readonly) NSWindow *it_keyWindow;
 diff --git a/sources/AppKit/iTermApplication.m b/sources/AppKit/iTermApplication.m
-index e1e2c83..7789775 100644
+index a56037c6cf057bea51441220684b06421d322893..af1ae7de23a6faf0d706eb70bf9ad4b79ab19f6d 100644
 --- a/sources/AppKit/iTermApplication.m
 +++ b/sources/AppKit/iTermApplication.m
-@@ -118,6 +118,7 @@ @implementation iTermApplication {
+@@ -115,6 +115,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      BOOL _functionPressed;
      BOOL _characterAccentWindowWasOpen;
      NSTimeInterval _lastRepeatTime;
@@ -347,16 +958,81 @@ index e1e2c83..7789775 100644
  #if DEBUG
      NSEventModifierFlags _it_modifierFlags;
  #endif
-@@ -857,6 +858,32 @@ - (void)sendEvent:(NSEvent *)event {
+@@ -129,6 +130,9 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+     assert([sharedApplication isKindOfClass:[iTermApplication class]]);
+     static dispatch_once_t onceToken;
+     dispatch_once(&onceToken, ^{
++        iTermApplication *application = (iTermApplication *)sharedApplication;
++        application.omniTermDoubleEscapeEnabled = YES;
++        application.omniTermDoubleEscapeInterval = 0.35;
+         NSSetUncaughtExceptionHandler(&iTermUncaughtExceptionHandler);
+         [sharedApplication addObserver:sharedApplication
+                             forKeyPath:@"modalWindow"
+@@ -864,11 +868,87 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+             }
+             break;
+         }
+-        case NSEventTypeKeyDown:
++        case NSEventTypeKeyDown: {
+             RLog(@"begin key-down");
  #if DEBUG
              [iTermKeyEventRecorder.instance record:event];
  #endif
-+            if (event.keyCode == kVK_Return &&
-+                (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask) == NSEventModifierFlagCommand) {
-+                PTYSession *session = [[[iTermController sharedInstance] currentTerminal] currentSession];
-+                if ([session.environment[@"OMNITERM_KIND"] isEqualToString:@"dashboard"]) {
++            const NSEventModifierFlags omniFlags =
++                event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
++            const NSEventModifierFlags omniActionFlags =
++                NSEventModifierFlagShift | NSEventModifierFlagOption |
++                NSEventModifierFlagCommand | NSEventModifierFlagControl;
++            const NSEventModifierFlags omniNewlineFlags =
++                NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
++            const BOOL omniDashboardCandidate =
++                event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter ||
++                event.keyCode == kVK_UpArrow || event.keyCode == kVK_DownArrow ||
++                event.keyCode == kVK_LeftArrow || event.keyCode == kVK_RightArrow;
++            PTYSession *session = nil;
++            if (omniDashboardCandidate && (omniFlags & omniActionFlags) == 0) {
++                session = [[[iTermController sharedInstance] currentTerminal] currentSession];
++                id controlsMarker =
++                    [session.variables valueForVariableName:@"user.omniDashboardControls"];
++                const BOOL controlsAreActive =
++                    ([controlsMarker isKindOfClass:[NSString class]] &&
++                     [controlsMarker isEqualToString:@"1"]);
++                if (controlsAreActive) {
++                    NSString *sequence = nil;
++                    switch (event.keyCode) {
++                        case kVK_Return:
++                        case kVK_ANSI_KeypadEnter:
++                            sequence = @"\x1d";
++                            break;
++                        case kVK_UpArrow:
++                            sequence = @"\033OA";
++                            break;
++                        case kVK_DownArrow:
++                            sequence = @"\033OB";
++                            break;
++                        case kVK_LeftArrow:
++                            sequence = @"\033OD";
++                            break;
++                        case kVK_RightArrow:
++                            sequence = @"\033OC";
++                            break;
++                    }
++                    [session writeTaskNoBroadcast:sequence];
++                    return;
++                }
++            }
++            if ((event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter) &&
++                (omniFlags & omniNewlineFlags) != 0 &&
++                (omniFlags & NSEventModifierFlagControl) == 0) {
++                session = session ?: [[[iTermController sharedInstance] currentTerminal] currentSession];
++                id formMarker = [session.variables valueForVariableName:@"user.omniAgentForm"];
++                const BOOL formIsActive = ([formMarker isKindOfClass:[NSString class]] &&
++                                           [formMarker isEqualToString:@"1"]);
++                if ([session.environment[@"OMNITERM_KIND"] isEqualToString:@"dashboard"] ||
++                    formIsActive) {
 +                    // The agent wizard uses Record Separator as its private
-+                    // “insert newline” key. Return alone remains form submit.
++                    // “insert newline” key for Shift-, Option-, or Command-Return.
++                    // Return alone remains form submit.
 +                    [session writeTaskNoBroadcast:@"\x1e"];
 +                    return;
 +                }
@@ -365,12 +1041,13 @@ index e1e2c83..7789775 100644
 +                _omniTermLastEscapeTime = 0;
 +            }
 +            if (event.keyCode == kVK_Escape &&
++                self.omniTermDoubleEscapeEnabled &&
 +                !event.isARepeat &&
 +                (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask) == 0 &&
 +                self.keyWindow.isTerminalWindow) {
 +                const NSTimeInterval now = event.timestamp;
 +                const BOOL isDoubleEscape = (_omniTermLastEscapeTime > 0 &&
-+                                             now - _omniTermLastEscapeTime <= 0.35);
++                                             now - _omniTermLastEscapeTime <= self.omniTermDoubleEscapeInterval);
 +                _omniTermLastEscapeTime = isDoubleEscape ? 0 : now;
 +                if (isDoubleEscape) {
 +                    [self.keyWindow orderOut:nil];
@@ -380,22 +1057,55 @@ index e1e2c83..7789775 100644
              event.it_functionModifierPressed = _functionPressed;
              event = [self eventByRemappingForSecureInput:event];
              if (!event) {
-@@ -961,7 +988,7 @@ - (void)setIsUIElement:(BOOL)uiElement {
-             [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
-         });
+@@ -883,6 +963,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+ #endif
+             RLog(@"NSKeyDown event taking the regular path");
+             break;
++        }
+         case NSEventTypeKeyUp:
+             RLog(@"begin key-up");
+ #if DEBUG
+@@ -955,6 +1036,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+     }];
+ }
  
--        if ([iTermAdvancedSettingsModel statusBarIcon]) {
-+        if (YES) {
-             NSImage *image = [NSImage it_imageNamed:@"StatusItem" forClass:self.class];
-             image.template = YES;
-             self.statusBarItem = [[NSStatusBar systemStatusBar] statusItemWithLength:image.size.width];
-@@ -1283,4 +1310,3 @@ - (BOOL)it_functionPressed {
+++ (NSImage *)omniTermStatusItemImage {
++    const NSSize size = NSMakeSize(18, 16);
++    NSImage *image = [NSImage imageWithSize:size
++                                   flipped:NO
++                            drawingHandler:^BOOL(NSRect destinationRect) {
++        [[NSColor blackColor] setFill];
++
++        NSBezierPath *ring = [NSBezierPath bezierPath];
++        ring.windingRule = NSWindingRuleEvenOdd;
++        [ring appendBezierPathWithRoundedRect:NSMakeRect(1, 0.5, 16, 15)
++                                      xRadius:5
++                                      yRadius:5];
++        [ring appendBezierPathWithRoundedRect:NSMakeRect(4.5, 4, 9, 8)
++                                      xRadius:2.5
++                                      yRadius:2.5];
++        [ring fill];
++
++        NSBezierPath *cursor = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(12, 1.5, 4, 4.5)
++                                                               xRadius:1
++                                                               yRadius:1];
++        [cursor fill];
++        return YES;
++    }];
++    image.template = YES;
++    return image;
++}
++
+ - (void)setIsUIElement:(BOOL)uiElement {
+     if (uiElement == _isUIElement) {
+         return;
+@@ -1282,4 +1390,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  }
  
  @end
 -
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 30ccb2b..ce31e5b 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..84d718949c7b2224f099f93de79d6a73947303ae 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,7 @@
@@ -406,40 +1116,135 @@ index 30ccb2b..ce31e5b 100644
  
  #import "AppearancePreferencesViewController.h"
  #import "ColorsMenuItemView.h"
-@@ -64,6 +65,8 @@
+@@ -66,6 +67,9 @@
  #import "iTerm2SharedARC-Swift.h"
  #import "iTermAPIConnectionIdentifierController.h"
  #import "iTermGraphDatabase.h"
 +#import "iTermCarbonHotKeyController.h"
 +#import "iTermShortcut.h"
++#import "iTermShortcutInputView.h"
  #import "iTermAPIHelper.h"
  #import "iTermAboutWindowController.h"
  #import "iTermAdvancedSettingsModel.h"
-@@ -208,6 +211,9 @@ @implementation iTermApplicationDelegate {
+@@ -135,6 +139,7 @@
+ #import "iTermWebSocketCookieJar.h"
+ #import <Quartz/Quartz.h>
+ #import <objc/runtime.h>
++#import <ServiceManagement/ServiceManagement.h>
+ 
+ #include "iTermFileDescriptorClient.h"
+ #include <libproc.h>
+@@ -175,17 +180,48 @@ static NSInteger gAppStateGeneration = 0;
+ static NSString *LEGACY_DEFAULT_ARRANGEMENT_NAME = @"Default";
+ static BOOL hasBecomeActive = NO;
+ 
++static NSTextField *OmniTermSettingsLabel(NSString *text, NSRect frame, BOOL emphasized) {
++    NSTextField *label = [[[NSTextField alloc] initWithFrame:frame] autorelease];
++    label.stringValue = text;
++    label.bezeled = NO;
++    label.drawsBackground = NO;
++    label.editable = NO;
++    label.selectable = NO;
++    label.font = emphasized ? [NSFont boldSystemFontOfSize:NSFont.systemFontSize] :
++                              [NSFont systemFontOfSize:NSFont.systemFontSize];
++    return label;
++}
++
++static void OmniTermConfigureCheckbox(NSButton *button, NSString *title, id target, SEL action) {
++    button.buttonType = NSButtonTypeSwitch;
++    button.title = title;
++    button.target = target;
++    button.action = action;
++}
++
+ @interface iTermApplicationDelegate () <
+     iTermGraphCodable,
+     iTermOrphanServerAdopterDelegate,
+     iTermPasswordManagerDelegate,
+     iTermRestorableStateControllerDelegate,
+     iTermUntitledWindowStateMachineDelegate,
++    iTermShortcutInputViewDelegate,
++    NSComboBoxDelegate,
++    NSControlTextEditingDelegate,
+     NSMenuDelegate,
+     NSMenuItemValidation>
+ 
+ @property(nonatomic, readwrite) BOOL workspaceSessionActive;
+ 
++- (iTermShortcut *)omniTermShortcutFromSettings:(NSDictionary *)settings;
++- (BOOL)applyOmniTermShortcut:(iTermShortcut *)shortcut;
++- (void)applyOmniTermBehaviorSettings:(NSDictionary *)settings;
++- (void)showOmniTermSettings:(id)sender;
++- (void)saveOmniTermSettings:(id)sender;
++- (void)resetOmniTermSettings:(id)sender;
++- (void)refreshOmniTermSettingsControls;
++- (BOOL)setOmniTermLaunchAtLogin:(BOOL)enabled error:(NSError **)error;
++
+ @end
+ 
+ 
+@@ -213,6 +249,20 @@ static BOOL hasBecomeActive = NO;
      IBOutlet SUUpdater * suUpdater;
      IBOutlet NSMenuItem *_showTipOfTheDay;  // Here because we must remove it for older OS versions.
      BOOL quittingBecauseLastWindowClosed_;
 +    BOOL _omniTermExplicitlyTerminating;
 +    iTermHotKey *_omniTermGlobalHotKey;
 +    OmniScheduler *_omniScheduler;
++    NSWindow *_omniSettingsWindow;
++    iTermShortcutInputView *_omniShortcutInputView;
++    NSButton *_omniLaunchAtLoginButton;
++    NSButton *_omniCenterOnOpenButton;
++    NSButton *_omniDoubleEscapeButton;
++    NSTextField *_omniDoubleEscapeIntervalField;
++    NSTextField *_omniDefaultTimeoutField;
++    NSTextField *_omniRetainedTabsField;
++    NSComboBox *_omniTimezoneComboBox;
++    NSTextField *_omniSettingsStatusLabel;
++    BOOL _omniTermCenterOnOpen;
  
      IBOutlet NSMenuItem *_splitHorizontallyWithCurrentProfile;
      IBOutlet NSMenuItem *_splitVerticallyWithCurrentProfile;
-@@ -907,6 +913,13 @@ - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
+@@ -375,6 +425,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+     [_focusFollowsMouseController release];
+     [_globalScopeController release];
+     [_untitledWindowStateMachine release];
++    [_omniSettingsWindow release];
++    [_omniShortcutInputView release];
++    [_omniLaunchAtLoginButton release];
++    [_omniCenterOnOpenButton release];
++    [_omniDoubleEscapeButton release];
++    [_omniDoubleEscapeIntervalField release];
++    [_omniDefaultTimeoutField release];
++    [_omniRetainedTabsField release];
++    [_omniTimezoneComboBox release];
++    [_omniSettingsStatusLabel release];
+ 
+     [super dealloc];
+ }
+@@ -982,10 +1042,18 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+ // User clicked on the dock icon.
  - (BOOL)applicationShouldHandleReopen:(NSApplication *)theApplication
                      hasVisibleWindows:(BOOL)flag {
-     DLog(@"Dock icon clicked");
-+    if (!flag) {
-+        for (PseudoTerminal *terminal in self.terminals) {
-+            [terminal.window makeKeyAndOrderFront:nil];
+-    DLog(@"Dock icon clicked");
+-    const BOOL result = ![[iTermHotKeyController sharedInstance] dockIconClicked];
+-    DLog(@"Return %@", @(result));
+-    return result;
++    // Reopening a running menu-bar app (including `open OmniTerm.app`) must
++    // remain a background operation. Only the status menu or configured
++    // global shortcut may reveal a window.
++    DLog(@"Ignoring reopen request so OmniTerm remains in the background");
++    [NSApp hide:nil];
++    dispatch_async(dispatch_get_main_queue(), ^{
++        for (NSWindow *window in NSApp.windows) {
++            [window orderOut:nil];
 +        }
-+        [NSApp activateIgnoringOtherApps:YES];
-+        return NO;
-+    }
-     const BOOL result = ![[iTermHotKeyController sharedInstance] dockIconClicked];
-     DLog(@"Return %@", @(result));
-     return result;
-@@ -959,6 +972,14 @@ - (NSApplicationTerminateReply)applicationShouldTerminate:(NSNotification *)theN
++        [NSApp hide:nil];
++    });
++    return NO;
+ }
+ 
+ - (void)applicationDidChangeScreenParameters:(NSNotification *)aNotification
+@@ -1042,6 +1110,14 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
          return NSTerminateCancel;
      }
  
@@ -454,7 +1259,7 @@ index 30ccb2b..ce31e5b 100644
      // Capture the option-key state for the “Quit and Close All Windows”
      // detection below. We sample it before any modal prompt so a slow user
      // releasing the key doesn’t change the answer.
-@@ -1083,6 +1104,9 @@ - (NSApplicationTerminateReply)applicationShouldTerminate:(NSNotification *)theN
+@@ -1178,6 +1254,9 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  
  - (void)applicationWillTerminate:(NSNotification *)aNotification {
      RLog(@"applicationWillTerminate called");
@@ -464,10 +1269,10 @@ index 30ccb2b..ce31e5b 100644
      [iTermController releaseSharedInstance];
      [[iTermModifierRemapper sharedInstance] setRemapModifiers:NO];
      DLog(@"applicationWillTerminate returning");
-@@ -1286,6 +1310,10 @@ void TurnOnDebugLoggingAutomatically(void) {
- 
- - (void)applicationWillFinishLaunching:(NSNotification *)aNotification {
-     DLog(@"Begin");
+@@ -1399,6 +1478,10 @@ void TurnOnDebugLoggingAutomatically(void) {
+     } else {
+         suUpdater.delegate = (id<SUUpdaterDelegate>)[iTermTestHostIsolation updaterDelegate];
+     }
 +    // OmniTerm must launch as a background menu-bar utility. Establish this
 +    // before restoration can briefly order a terminal window onscreen.
 +    [[iTermApplication sharedApplication] setIsUIElement:YES];
@@ -475,14 +1280,17 @@ index 30ccb2b..ce31e5b 100644
      [[iTermApplication sharedApplication] updateAppearance];
      [[iTermUserDefaults userDefaults] it_addObserverForKey:kPreferenceKeyTabStyle
                                                       block:^(id _Nonnull newValue) {
-@@ -1490,6 +1518,67 @@ - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
-                                     window:nil];
-     }
+@@ -1604,6 +1687,66 @@ void TurnOnDebugLoggingAutomatically(void) {
+ - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
+     [iTermMacOS13RequirementNotice maybeShow];
      DLog(@"didFinishLaunching");
 +    // OmniTerm is permanently a menu-bar utility, independently of the shared
 +    // iTerm2 preference suite.
 +    [[iTermApplication sharedApplication] setIsUIElement:YES];
 +    [NSApp hide:nil];
++    for (NSWindow *window in NSApp.windows) {
++        [window orderOut:nil];
++    }
 +    for (PseudoTerminal *terminal in self.terminals) {
 +        [terminal.window orderOut:nil];
 +    }
@@ -492,6 +1300,12 @@ index 30ccb2b..ce31e5b 100644
 +        [weakSelf launchOmniSchedulerCommand:command title:title];
 +    }];
 +    [_omniScheduler start];
++    [[NSNotificationCenter defaultCenter] addObserver:self
++                                             selector:@selector(omniTermSessionDidTerminate:)
++                                                 name:PTYSessionTerminatedNotification
++                                               object:nil];
++    NSDictionary *omniSettings = [_omniScheduler currentSettings];
++    [self applyOmniTermBehaviorSettings:omniSettings];
 +    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
 +        NSString *dashboard = [NSBundle.mainBundle pathForResource:@"omni" ofType:nil inDirectory:@"Helpers"];
 +        if (!dashboard.length) return;
@@ -529,23 +1343,13 @@ index 30ccb2b..ce31e5b 100644
 +        }
 +    });
 +
-+    iTermShortcut *omniTermShortcut = [[[iTermShortcut alloc]
-+        initWithKeyCode:kVK_Space
-+             hasKeyCode:YES
-+              modifiers:(NSEventModifierFlagControl | NSEventModifierFlagOption)
-+             characters:@" "
-+charactersIgnoringModifiers:@" "] autorelease];
-+    _omniTermGlobalHotKey = [[iTermCarbonHotKeyController sharedInstance]
-+        registerShortcut:omniTermShortcut
-+                  target:self
-+                selector:@selector(omniTermGlobalHotKeyPressed:siblings:)
-+                userData:nil];
++    [self applyOmniTermShortcut:[self omniTermShortcutFromSettings:omniSettings]];
  
-     // Test-only: if launched with the purge flag, wipe the app's data-protection
-     // keychain items and quit BEFORE any keychain read. Gated to Development builds via
-@@ -1721,6 +1810,95 @@ - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
- #endif
+     // When running an isolated instance via -suite, overlay the suite name on
+     // the dock icon so it's obvious which instance this dock icon belongs to.
+@@ -1901,6 +2044,111 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
+ #endif
  
 +- (void)cleanOmniTermStartupTabsInTerminal:(PseudoTerminal *)terminal
 +                                keepingTab:(PTYTab *)dashboardTab {
@@ -588,6 +1392,21 @@ index 30ccb2b..ce31e5b 100644
 +    }
 +}
 +
++// Agent tabs never outlive their run. This is deliberately not a profile end
++// action: run tabs share the default profile's GUID, so any change to that
++// profile (including one made by iTerm2, which shares these defaults) would
++// silently reset an override.
++- (void)omniTermSessionDidTerminate:(NSNotification *)notification {
++    PTYSession *session = notification.object;
++    if (![session.environment[@"OMNITERM_KIND"] isEqualToString:@"run"]) {
++        return;
++    }
++    // Termination is announced from inside brokenPipe; let it unwind first.
++    dispatch_async(dispatch_get_main_queue(), ^{
++        [session.delegate closeSession:session];
++    });
++}
++
 +- (void)launchOmniSchedulerCommand:(NSString *)command title:(NSString *)title {
 +    PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
 +    if (!terminal) {
@@ -608,7 +1427,8 @@ index 30ccb2b..ce31e5b 100644
 +    [terminal asyncCreateTabWithProfile:profile
 +                            withCommand:command
 +                            environment:@{ @"OMNITERM_MANAGED": @"1",
-+                                           @"OMNITERM_KIND": [title isEqualToString:@"Omni"] ? @"dashboard" : @"run" }
++                                           @"OMNITERM_KIND": [title isEqualToString:@"Omni"] ? @"dashboard" : @"run",
++                                           @"OMNITERM_DASHBOARD_KEYS": [title isEqualToString:@"Omni"] ? @"1" : @"0" }
 +                               tabIndex:[title isEqualToString:@"Omni"] ? @0 : nil
 +                         didMakeSession:^(PTYSession *session) {
 +        [session.nameController setNeedsUpdate];
@@ -639,43 +1459,394 @@ index 30ccb2b..ce31e5b 100644
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1762,15 +1940,12 @@ - (NSMenu *)statusBarMenu {
+@@ -1939,45 +2187,448 @@ static iTermKeyEventReplayer *gReplayer;
+ }
+ #endif
+ 
++- (iTermShortcut *)omniTermDefaultShortcut {
++    return [[[iTermShortcut alloc]
++        initWithKeyCode:kVK_Space
++             hasKeyCode:YES
++              modifiers:(NSEventModifierFlagControl | NSEventModifierFlagOption)
++             characters:@" "
++charactersIgnoringModifiers:@" "] autorelease];
++}
++
++- (iTermShortcut *)omniTermShortcutFromSettings:(NSDictionary *)settings {
++    id value = settings[@"global_shortcut"];
++    if (value == NSNull.null) {
++        return nil;
++    }
++    if ([value isKindOfClass:[NSDictionary class]]) {
++        NSDictionary *dictionary = value;
++        return [[[iTermShortcut alloc]
++            initWithKeyCode:[dictionary[@"keyCode"] unsignedIntegerValue]
++                 hasKeyCode:YES
++                  modifiers:[dictionary[@"modifiers"] unsignedIntegerValue]
++                 characters:[dictionary[@"characters"] isKindOfClass:[NSString class]] ? dictionary[@"characters"] : @""
++charactersIgnoringModifiers:[dictionary[@"charactersIgnoringModifiers"] isKindOfClass:[NSString class]] ? dictionary[@"charactersIgnoringModifiers"] : @""] autorelease];
++    }
++    return [self omniTermDefaultShortcut];
++}
++
++- (BOOL)applyOmniTermShortcut:(iTermShortcut *)shortcut {
++    iTermShortcut *oldShortcut = [[_omniTermGlobalHotKey.shortcut copy] autorelease];
++    if ((oldShortcut == nil && shortcut == nil) || [oldShortcut isEqualToShortcut:shortcut]) {
++        return YES;
++    }
++    if (_omniTermGlobalHotKey) {
++        [[iTermCarbonHotKeyController sharedInstance] unregisterHotKey:_omniTermGlobalHotKey];
++        _omniTermGlobalHotKey = nil;
++    }
++    if (!shortcut.isAssigned) {
++        return YES;
++    }
++    _omniTermGlobalHotKey = [[iTermCarbonHotKeyController sharedInstance]
++        registerShortcut:shortcut
++                  target:self
++                selector:@selector(omniTermGlobalHotKeyPressed:siblings:)
++                userData:nil];
++    if (_omniTermGlobalHotKey) {
++        return YES;
++    }
++    if (oldShortcut.isAssigned) {
++        _omniTermGlobalHotKey = [[iTermCarbonHotKeyController sharedInstance]
++            registerShortcut:oldShortcut
++                      target:self
++                    selector:@selector(omniTermGlobalHotKeyPressed:siblings:)
++                    userData:nil];
++    }
++    return NO;
++}
++
++- (void)applyOmniTermBehaviorSettings:(NSDictionary *)settings {
++    id centerValue = settings[@"center_window_on_open"];
++    _omniTermCenterOnOpen = centerValue ? [centerValue boolValue] : YES;
++    id doubleEscapeValue = settings[@"double_escape_to_hide"];
++    iTermApplication *application = [iTermApplication sharedApplication];
++    application.omniTermDoubleEscapeEnabled = doubleEscapeValue ? [doubleEscapeValue boolValue] : YES;
++    const NSInteger milliseconds = MAX(150, MIN(2000, [settings[@"double_escape_interval_ms"] integerValue] ?: 350));
++    application.omniTermDoubleEscapeInterval = milliseconds / 1000.0;
++}
++
++- (BOOL)omniTermLaunchAtLoginIsEnabled {
++    if (@available(macOS 13.0, *)) {
++        const SMAppServiceStatus status = SMAppService.mainAppService.status;
++        return status == SMAppServiceStatusEnabled || status == SMAppServiceStatusRequiresApproval;
++    }
++    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/LaunchAgents/com.omniterm.app.plist"];
++    return [[NSFileManager defaultManager] fileExistsAtPath:path];
++}
++
++- (BOOL)setOmniTermLaunchAtLogin:(BOOL)enabled error:(NSError **)error {
++    if (@available(macOS 13.0, *)) {
++        SMAppService *service = SMAppService.mainAppService;
++        const BOOL registered = (service.status == SMAppServiceStatusEnabled ||
++                                 service.status == SMAppServiceStatusRequiresApproval);
++        if (enabled == registered) {
++            return YES;
++        }
++        return enabled ? [service registerAndReturnError:error] : [service unregisterAndReturnError:error];
++    }
++    NSString *directory = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/LaunchAgents"];
++    NSString *path = [directory stringByAppendingPathComponent:@"com.omniterm.app.plist"];
++    if (!enabled) {
++        return [[NSFileManager defaultManager] removeItemAtPath:path error:error] ||
++               ![[NSFileManager defaultManager] fileExistsAtPath:path];
++    }
++    if (![[NSFileManager defaultManager] createDirectoryAtPath:directory
++                                   withIntermediateDirectories:YES
++                                                    attributes:nil
++                                                         error:error]) {
++        return NO;
++    }
++    NSDictionary *plist = @{ @"Label": @"com.omniterm.app",
++                             @"ProgramArguments": @[ NSBundle.mainBundle.executablePath ],
++                             @"RunAtLoad": @YES };
++    return [plist writeToFile:path atomically:YES];
++}
++
++- (void)buildOmniTermSettingsWindowIfNeeded {
++    if (_omniSettingsWindow) {
++        return;
++    }
++    const NSRect windowFrame = NSMakeRect(0, 0, 620, 510);
++    _omniSettingsWindow = [[NSWindow alloc]
++        initWithContentRect:windowFrame
++                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
++                    backing:NSBackingStoreBuffered
++                      defer:NO];
++    _omniSettingsWindow.title = @"OmniTerm Settings";
++    _omniSettingsWindow.releasedWhenClosed = NO;
++    _omniSettingsWindow.restorable = NO;
++    _omniSettingsWindow.excludedFromWindowsMenu = YES;
++    _omniSettingsWindow.movableByWindowBackground = YES;
++    _omniSettingsWindow.collectionBehavior = NSWindowCollectionBehaviorMoveToActiveSpace;
++
++    NSView *content = _omniSettingsWindow.contentView;
++    NSTextField *title = OmniTermSettingsLabel(@"OmniTerm", NSMakeRect(24, 464, 300, 28), YES);
++    title.font = [NSFont boldSystemFontOfSize:22];
++    [content addSubview:title];
++    NSTextField *subtitle = OmniTermSettingsLabel(@"Terminal behavior and agent defaults", NSMakeRect(24, 444, 400, 20), NO);
++    subtitle.textColor = NSColor.secondaryLabelColor;
++    [content addSubview:subtitle];
++
++    NSTabView *tabs = [[[NSTabView alloc] initWithFrame:NSMakeRect(18, 67, 584, 365)] autorelease];
++    [content addSubview:tabs];
++
++    NSTabViewItem *generalItem = [[[NSTabViewItem alloc] initWithIdentifier:@"general"] autorelease];
++    generalItem.label = @"General";
++    NSView *general = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 570, 335)] autorelease];
++    generalItem.view = general;
++    [tabs addTabViewItem:generalItem];
++
++    NSBox *shortcutBox = [[[NSBox alloc] initWithFrame:NSMakeRect(12, 225, 546, 96)] autorelease];
++    shortcutBox.title = @"Global Shortcut";
++    [general addSubview:shortcutBox];
++    [shortcutBox addSubview:OmniTermSettingsLabel(@"Show or hide OmniTerm", NSMakeRect(18, 40, 190, 22), NO)];
++    _omniShortcutInputView = [[iTermShortcutInputView alloc] initWithFrame:NSMakeRect(220, 39, 290, kShortcutPreferredHeight)];
++    _omniShortcutInputView.shortcutDelegate = self;
++    _omniShortcutInputView.disableKeyRemapping = YES;
++    _omniShortcutInputView.leaderAllowed = NO;
++    _omniShortcutInputView.purpose = iTermShortcutInputViewPurposeHotkey;
++    [shortcutBox addSubview:_omniShortcutInputView];
++
++    NSBox *startupBox = [[[NSBox alloc] initWithFrame:NSMakeRect(12, 151, 546, 62)] autorelease];
++    startupBox.title = @"Startup";
++    [general addSubview:startupBox];
++    _omniLaunchAtLoginButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 13, 500, 24)];
++    OmniTermConfigureCheckbox(_omniLaunchAtLoginButton, @"Launch OmniTerm automatically when I log in", self, @selector(saveOmniTermSettings:));
++    [startupBox addSubview:_omniLaunchAtLoginButton];
++
++    NSBox *behaviorBox = [[[NSBox alloc] initWithFrame:NSMakeRect(12, 12, 546, 127)] autorelease];
++    behaviorBox.title = @"Window Behavior";
++    [general addSubview:behaviorBox];
++    _omniCenterOnOpenButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 76, 500, 24)];
++    OmniTermConfigureCheckbox(_omniCenterOnOpenButton, @"Center the terminal on the active screen when opened", self, @selector(saveOmniTermSettings:));
++    [behaviorBox addSubview:_omniCenterOnOpenButton];
++    _omniDoubleEscapeButton = [[NSButton alloc] initWithFrame:NSMakeRect(16, 45, 320, 24)];
++    OmniTermConfigureCheckbox(_omniDoubleEscapeButton, @"Hide the terminal after pressing Escape twice", self, @selector(saveOmniTermSettings:));
++    [behaviorBox addSubview:_omniDoubleEscapeButton];
++    [behaviorBox addSubview:OmniTermSettingsLabel(@"Maximum delay", NSMakeRect(35, 14, 110, 22), NO)];
++    _omniDoubleEscapeIntervalField = [[NSTextField alloc] initWithFrame:NSMakeRect(145, 13, 72, 24)];
++    _omniDoubleEscapeIntervalField.delegate = self;
++    [behaviorBox addSubview:_omniDoubleEscapeIntervalField];
++    [behaviorBox addSubview:OmniTermSettingsLabel(@"milliseconds", NSMakeRect(225, 14, 100, 22), NO)];
++
++    NSTabViewItem *agentsItem = [[[NSTabViewItem alloc] initWithIdentifier:@"agents"] autorelease];
++    agentsItem.label = @"Agents";
++    NSView *agents = [[[NSView alloc] initWithFrame:NSMakeRect(0, 0, 570, 335)] autorelease];
++    agentsItem.view = agents;
++    [tabs addTabViewItem:agentsItem];
++
++    NSBox *retentionBox = [[[NSBox alloc] initWithFrame:NSMakeRect(12, 198, 546, 123)] autorelease];
++    retentionBox.title = @"Run Retention Defaults";
++    [agents addSubview:retentionBox];
++    [retentionBox addSubview:OmniTermSettingsLabel(@"Default retention", NSMakeRect(18, 65, 170, 22), NO)];
++    _omniDefaultTimeoutField = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 64, 82, 24)];
++    _omniDefaultTimeoutField.delegate = self;
++    [retentionBox addSubview:_omniDefaultTimeoutField];
++    [retentionBox addSubview:OmniTermSettingsLabel(@"minutes", NSMakeRect(280, 65, 90, 22), NO)];
++    [retentionBox addSubview:OmniTermSettingsLabel(@"Always protect newest", NSMakeRect(18, 28, 170, 22), NO)];
++    _omniRetainedTabsField = [[NSTextField alloc] initWithFrame:NSMakeRect(190, 27, 82, 24)];
++    _omniRetainedTabsField.delegate = self;
++    [retentionBox addSubview:_omniRetainedTabsField];
++    [retentionBox addSubview:OmniTermSettingsLabel(@"run tabs", NSMakeRect(280, 28, 90, 22), NO)];
++
++    NSBox *timezoneBox = [[[NSBox alloc] initWithFrame:NSMakeRect(12, 103, 546, 81)] autorelease];
++    timezoneBox.title = @"Scheduling Time Zone";
++    [agents addSubview:timezoneBox];
++    [timezoneBox addSubview:OmniTermSettingsLabel(@"Time zone", NSMakeRect(18, 28, 170, 22), NO)];
++    _omniTimezoneComboBox = [[NSComboBox alloc] initWithFrame:NSMakeRect(190, 26, 320, 26)];
++    _omniTimezoneComboBox.completes = YES;
++    _omniTimezoneComboBox.delegate = self;
++    [_omniTimezoneComboBox addItemsWithObjectValues:NSTimeZone.knownTimeZoneNames];
++    [timezoneBox addSubview:_omniTimezoneComboBox];
++
++    NSTextField *configHint = OmniTermSettingsLabel(@"These values are stored in ~/.omni/settings.json and apply to new agents.",
++                                                     NSMakeRect(20, 56, 530, 34), NO);
++    configHint.textColor = NSColor.secondaryLabelColor;
++    [agents addSubview:configHint];
++
++    _omniSettingsStatusLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 24, 330, 24)];
++    _omniSettingsStatusLabel.bezeled = NO;
++    _omniSettingsStatusLabel.drawsBackground = NO;
++    _omniSettingsStatusLabel.editable = NO;
++    _omniSettingsStatusLabel.selectable = NO;
++    _omniSettingsStatusLabel.textColor = NSColor.secondaryLabelColor;
++    [content addSubview:_omniSettingsStatusLabel];
++
++    NSButton *reset = [[[NSButton alloc] initWithFrame:NSMakeRect(370, 19, 105, 30)] autorelease];
++    reset.title = @"Reset Defaults";
++    reset.bezelStyle = NSBezelStyleRounded;
++    reset.target = self;
++    reset.action = @selector(resetOmniTermSettings:);
++    [content addSubview:reset];
++    NSButton *done = [[[NSButton alloc] initWithFrame:NSMakeRect(486, 19, 110, 30)] autorelease];
++    done.title = @"Done";
++    done.bezelStyle = NSBezelStyleRounded;
++    done.keyEquivalent = @"\r";
++    done.target = _omniSettingsWindow;
++    done.action = @selector(performClose:);
++    [content addSubview:done];
++}
++
++- (void)refreshOmniTermSettingsControls {
++    NSDictionary *settings = [_omniScheduler currentSettings];
++    _omniShortcutInputView.shortcut = [self omniTermShortcutFromSettings:settings];
++    _omniLaunchAtLoginButton.state = [self omniTermLaunchAtLoginIsEnabled] ? NSControlStateValueOn : NSControlStateValueOff;
++    _omniCenterOnOpenButton.state = [settings[@"center_window_on_open"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
++    _omniDoubleEscapeButton.state = [settings[@"double_escape_to_hide"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
++    _omniDoubleEscapeIntervalField.integerValue = [settings[@"double_escape_interval_ms"] integerValue];
++    _omniDoubleEscapeIntervalField.enabled = (_omniDoubleEscapeButton.state == NSControlStateValueOn);
++    _omniDefaultTimeoutField.integerValue = [settings[@"default_timeout_seconds"] integerValue] / 60;
++    _omniRetainedTabsField.integerValue = [settings[@"retained_run_tabs"] integerValue];
++    _omniTimezoneComboBox.stringValue = settings[@"timezone"] ?: NSTimeZone.localTimeZone.name;
++    if (@available(macOS 13.0, *)) {
++        _omniSettingsStatusLabel.stringValue = SMAppService.mainAppService.status == SMAppServiceStatusRequiresApproval ?
++            @"Login launch needs approval in System Settings." : @"Changes apply immediately.";
++    } else {
++        _omniSettingsStatusLabel.stringValue = @"Changes apply immediately.";
++    }
++}
++
++- (void)showOmniTermSettings:(id)sender {
++    [self buildOmniTermSettingsWindowIfNeeded];
++    [self refreshOmniTermSettingsControls];
++    [_omniSettingsWindow center];
++    [NSApp unhide:nil];
++    [_omniSettingsWindow makeKeyAndOrderFront:sender];
++    [NSApp activateIgnoringOtherApps:YES];
++}
++
++- (void)saveOmniTermSettings:(id)sender {
++    if (!_omniSettingsWindow) {
++        return;
++    }
++    const NSInteger interval = MAX(150, MIN(2000, _omniDoubleEscapeIntervalField.integerValue));
++    const NSInteger timeoutMinutes = MAX(1, MIN(525600, _omniDefaultTimeoutField.integerValue));
++    const NSInteger retainedTabs = MAX(1, MIN(100, _omniRetainedTabsField.integerValue));
++    NSString *timezone = _omniTimezoneComboBox.stringValue;
++    if (![NSTimeZone timeZoneWithName:timezone]) {
++        _omniSettingsStatusLabel.textColor = NSColor.systemRedColor;
++        _omniSettingsStatusLabel.stringValue = @"Choose a valid IANA time zone.";
++        return;
++    }
++    iTermShortcut *shortcut = _omniShortcutInputView.shortcut;
++    if (![self applyOmniTermShortcut:shortcut]) {
++        [self refreshOmniTermSettingsControls];
++        _omniSettingsStatusLabel.textColor = NSColor.systemRedColor;
++        _omniSettingsStatusLabel.stringValue = @"That shortcut is already used by another application.";
++        return;
++    }
++    NSError *loginError = nil;
++    const BOOL launchAtLogin = (_omniLaunchAtLoginButton.state == NSControlStateValueOn);
++    if (![self setOmniTermLaunchAtLogin:launchAtLogin error:&loginError]) {
++        [self refreshOmniTermSettingsControls];
++        _omniSettingsStatusLabel.textColor = NSColor.systemRedColor;
++        _omniSettingsStatusLabel.stringValue = loginError.localizedDescription ?: @"Could not change login startup.";
++        return;
++    }
++    NSDictionary *changes = @{
++        @"global_shortcut": shortcut ? shortcut.dictionaryValue : NSNull.null,
++        @"launch_at_login": @(launchAtLogin),
++        @"center_window_on_open": @(_omniCenterOnOpenButton.state == NSControlStateValueOn),
++        @"double_escape_to_hide": @(_omniDoubleEscapeButton.state == NSControlStateValueOn),
++        @"double_escape_interval_ms": @(interval),
++        @"default_timeout_seconds": @(timeoutMinutes * 60),
++        @"retained_run_tabs": @(retainedTabs),
++        @"timezone": timezone,
++    };
++    NSError *settingsError = nil;
++    if (![_omniScheduler updateSettings:changes error:&settingsError]) {
++        _omniSettingsStatusLabel.textColor = NSColor.systemRedColor;
++        _omniSettingsStatusLabel.stringValue = settingsError.localizedDescription ?: @"Could not save settings.";
++        return;
++    }
++    [self applyOmniTermBehaviorSettings:[_omniScheduler currentSettings]];
++    _omniDoubleEscapeIntervalField.integerValue = interval;
++    _omniDefaultTimeoutField.integerValue = timeoutMinutes;
++    _omniRetainedTabsField.integerValue = retainedTabs;
++    _omniDoubleEscapeIntervalField.enabled = (_omniDoubleEscapeButton.state == NSControlStateValueOn);
++    _omniSettingsStatusLabel.textColor = NSColor.systemGreenColor;
++    _omniSettingsStatusLabel.stringValue = @"Saved. Changes apply immediately.";
++}
++
++- (void)resetOmniTermSettings:(id)sender {
++    _omniShortcutInputView.shortcut = [self omniTermDefaultShortcut];
++    _omniLaunchAtLoginButton.state = NSControlStateValueOff;
++    _omniCenterOnOpenButton.state = NSControlStateValueOn;
++    _omniDoubleEscapeButton.state = NSControlStateValueOn;
++    _omniDoubleEscapeIntervalField.integerValue = 350;
++    _omniDefaultTimeoutField.integerValue = 120;
++    _omniRetainedTabsField.integerValue = 10;
++    _omniTimezoneComboBox.stringValue = NSTimeZone.localTimeZone.name;
++    [self saveOmniTermSettings:sender];
++}
++
++- (void)shortcutInputView:(iTermShortcutInputView *)view didReceiveKeyPressEvent:(NSEvent *)event {
++    if (view == _omniShortcutInputView) {
++        [self saveOmniTermSettings:view];
++    }
++}
++
++- (void)controlTextDidEndEditing:(NSNotification *)notification {
++    if (notification.object == _omniDoubleEscapeIntervalField ||
++        notification.object == _omniDefaultTimeoutField ||
++        notification.object == _omniRetainedTabsField ||
++        notification.object == _omniTimezoneComboBox) {
++        [self saveOmniTermSettings:notification.object];
++    }
++}
++
+ - (NSMenu *)statusBarMenu {
      NSMenu *menu = [[[NSMenu alloc] init] autorelease];
      NSMenuItem *item;
  
--    item = [[[NSMenuItem alloc] initWithTitle:@"Settings"
+-    item = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.Settings", nil, [NSBundle mainBundle], @"Settings", @"Status-icon menu item to open Settings")
 -                                       action:@selector(showAndOrderFrontRegardlessPrefWindow:)
 +    item = [[[NSMenuItem alloc] initWithTitle:@"Open OmniTerm"
 +                                       action:@selector(openOmniTerm:)
                                  keyEquivalent:@""] autorelease];
++    item.target = self;
      [menu addItem:item];
  
--    item = [[[NSMenuItem alloc] initWithTitle:@"Bring All Windows to Front"
+-    item = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.BringAllToFront", nil, [NSBundle mainBundle], @"Bring All Windows to Front", @"Status-icon menu item to bring all windows to front")
 -                                       action:@selector(arrangeInFront:)
--                                keyEquivalent:@""] autorelease];
--    [menu addItem:item];
-+    [menu addItem:[NSMenuItem separatorItem]];
++    item = [[[NSMenuItem alloc] initWithTitle:@"OmniTerm Settings…"
++                                       action:@selector(showOmniTermSettings:)
+                                 keyEquivalent:@""] autorelease];
++    item.target = self;
+     [menu addItem:item];
  
-     item = [[[NSMenuItem alloc] init] autorelease];
-     _statusIconBuriedSessions = [[[NSMenu alloc] init] autorelease];
-@@ -1780,22 +1955,89 @@ - (NSMenu *)statusBarMenu {
- 
-     [[iTermBuriedSessions sharedInstance] setMenus:[NSArray arrayWithObjects:_buriedSessions, _statusIconBuriedSessions, nil]];
- 
--    item = [[[NSMenuItem alloc] initWithTitle:@"Check For Updates"
--                                       action:@selector(checkForUpdatesFromMenu:)
--                                keyEquivalent:@""] autorelease];
+-    item = [[[NSMenuItem alloc] init] autorelease];
+-    _statusIconBuriedSessions = [[[NSMenu alloc] init] autorelease];
+-    item.submenu = _statusIconBuriedSessions;
+-    item.title = NSLocalizedStringWithDefaultValue(@"StatusMenu.BuriedSessions", nil, [NSBundle mainBundle], @"Buried Sessions", @"Status-icon submenu title for buried sessions");
 -    [menu addItem:item];
 -
-     NSMenuItem *mainMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Main Menu" action:nil keyEquivalent:@""] autorelease];
-     mainMenuItem.submenu = [[NSApp mainMenu] it_deepCopy];
-     [menu addItem:mainMenuItem];
-     
--    item = [[[NSMenuItem alloc] initWithTitle:@"Quit iTerm2"
+-    [[iTermBuriedSessions sharedInstance] setMenus:[NSArray arrayWithObjects:_buriedSessions, _statusIconBuriedSessions, nil]];
++    [menu addItem:[NSMenuItem separatorItem]];
+ 
+-    item = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.CheckForUpdates", nil, [NSBundle mainBundle], @"Check For Updates", @"Status-icon menu item to check for updates")
+-                                       action:@selector(checkForUpdatesFromMenu:)
++    item = [[[NSMenuItem alloc] initWithTitle:@"About OmniTerm"
++                                       action:@selector(orderFrontStandardAboutPanel:)
+                                 keyEquivalent:@""] autorelease];
++    item.target = NSApp;
+     [menu addItem:item];
+ 
+-    NSMenuItem *mainMenuItem = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.MainMenu", nil, [NSBundle mainBundle], @"Main Menu", @"Status-icon submenu title mirroring the main menu") action:nil keyEquivalent:@""] autorelease];
+-    mainMenuItem.identifier = @"iTermStatusMenuMainMenu";
+-    mainMenuItem.submenu = [[NSApp mainMenu] it_deepCopy];
+-    [menu addItem:mainMenuItem];
+-    
+-    item = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.QuitiTerm2", nil, [NSBundle mainBundle], @"Quit iTerm2", @"Status-icon menu item to quit iTerm2")
 -                                       action:@selector(terminate:)
 +    item = [[[NSMenuItem alloc] initWithTitle:@"Terminate OmniTerm Completely"
 +                                       action:@selector(terminateOmniTermCompletely:)
                                  keyEquivalent:@""] autorelease];
++    item.target = self;
      [menu addItem:item];
      return menu;
  }
@@ -719,18 +1890,20 @@ index 30ccb2b..ce31e5b 100644
 +
 +    NSWindow *window = terminal.window;
 +    NSScreen *screen = [self omniTermScreenAtMouseLocation];
-+    NSRect frame = window.frame;
-+    const NSRect visibleFrame = screen.visibleFrame;
-+    frame.origin.x = NSMidX(visibleFrame) - NSWidth(frame) / 2;
-+    frame.origin.y = NSMidY(visibleFrame) - NSHeight(frame) / 2;
-+    frame.origin.x = MAX(NSMinX(visibleFrame), MIN(frame.origin.x, NSMaxX(visibleFrame) - NSWidth(frame)));
-+    frame.origin.y = MAX(NSMinY(visibleFrame), MIN(frame.origin.y, NSMaxY(visibleFrame) - NSHeight(frame)));
++    if (_omniTermCenterOnOpen) {
++        NSRect frame = window.frame;
++        const NSRect visibleFrame = screen.visibleFrame;
++        frame.origin.x = NSMidX(visibleFrame) - NSWidth(frame) / 2;
++        frame.origin.y = NSMidY(visibleFrame) - NSHeight(frame) / 2;
++        frame.origin.x = MAX(NSMinX(visibleFrame), MIN(frame.origin.x, NSMaxX(visibleFrame) - NSWidth(frame)));
++        frame.origin.y = MAX(NSMinY(visibleFrame), MIN(frame.origin.y, NSMaxY(visibleFrame) - NSHeight(frame)));
++        [window setFrame:frame display:YES];
++    }
 +
 +    NSWindowCollectionBehavior behavior = window.collectionBehavior;
 +    behavior &= ~NSWindowCollectionBehaviorCanJoinAllSpaces;
 +    behavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
 +    window.collectionBehavior = behavior;
-+    [window setFrame:frame display:YES];
 +    [NSApp unhide:nil];
 +    [window makeKeyAndOrderFront:nil];
 +    [NSApp activateIgnoringOtherApps:YES];
@@ -755,7 +1928,7 @@ index 30ccb2b..ce31e5b 100644
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2270,21 +2512,7 @@ - (void)updateAddressBookMenu:(NSNotification *)aNotification {
+@@ -2544,21 +3195,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -765,8 +1938,8 @@ index 30ccb2b..ce31e5b 100644
 -    NSTimeInterval age = -[[NSBundle it_buildDate] timeIntervalSinceNow];
 -    if (age > 30 * 24 * 60 * 60) {
 -        iTermWarningSelection selection =
--        [iTermWarning showWarningWithTitle:@"This nightly build is over 30 days old. Consider updating soon: you may be suffering from awful bugs in blissful ignorance."
--                                   actions:@[ @"I’ll Take My Chances", @"Update Now" ]
+-        [iTermWarning showWarningWithTitle:NSLocalizedStringWithDefaultValue(@"NightlyBuild.OldWarning", nil, [NSBundle mainBundle], @"This nightly build is over 30 days old. Consider updating soon: you may be suffering from awful bugs in blissful ignorance.", @"Warning that the nightly build is over 30 days old")
+-                                   actions:@[ NSLocalizedStringWithDefaultValue(@"NightlyBuild.TakeMyChances", nil, [NSBundle mainBundle], @"I’ll Take My Chances", @"Button to dismiss the old-nightly-build warning without updating"), [iTermWarningAction localOnlyActionWithLabel:NSLocalizedStringWithDefaultValue(@"NightlyBuild.UpdateNow", nil, [NSBundle mainBundle], @"Update Now", @"Button to update now")] ]
 -                                identifier:@"NoSyncVeryOldNightlyBuildWarning"
 -                               silenceable:kiTermWarningTypeSilenceableForOneMonth
 -                                    window:nil];
@@ -778,7 +1951,7 @@ index 30ccb2b..ce31e5b 100644
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2430,7 +2658,7 @@ - (IBAction)copyPerformanceStats:(id)sender {
+@@ -2704,7 +3341,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -787,7 +1960,7 @@ index 30ccb2b..ce31e5b 100644
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -2857,13 +3085,11 @@ - (IBAction)newTmuxTab:(id)sender {
+@@ -3168,13 +3805,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -803,7 +1976,7 @@ index 30ccb2b..ce31e5b 100644
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3371,15 +3597,7 @@ - (IBAction)toggleAlertOnMarksInOffscreenSessions:(id)sender {
+@@ -3936,15 +4571,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -821,10 +1994,10 @@ index 30ccb2b..ce31e5b 100644
  
  - (PseudoTerminal *)terminalToOpenFileIn {
 diff --git a/sources/AppKit/main.m b/sources/AppKit/main.m
-index 7f4fbc2..20ecfb5 100644
+index 3db72502f552a9fd93503096381c5d8f0c0eea9b..5fe83bfd240e2bac1551f7b2a2d8e752e792ccae 100644
 --- a/sources/AppKit/main.m
 +++ b/sources/AppKit/main.m
-@@ -44,8 +44,10 @@ int main(int argc, const char *argv[]) {
+@@ -54,8 +54,10 @@ int main(int argc, const char *argv[]) {
      // Parse -suite argument before any UserDefaults access.
      // Uses -suite (not --suite=) so Cocoa's argument parser treats it as a
      // standard -key value pair and doesn't misparse subsequent arguments.
@@ -832,13 +2005,17 @@ index 7f4fbc2..20ecfb5 100644
      for (int i = 1; i + 1 < argc; i++) {
          if (strcmp(argv[i], "-suite") == 0) {
 +            hasCustomSuite = YES;
-             NSString *suiteName = [NSString stringWithUTF8String:argv[i + 1]];
-             [iTermUserDefaults setCustomSuiteName:suiteName];
-             // Also set the custom socket prefix for file descriptor sockets
-@@ -54,6 +56,12 @@ int main(int argc, const char *argv[]) {
+             // A unit-test host gets its own copy of the suite so parallel workers and later runs
+             // don't see each other's settings.
+             NSString *suiteName = [iTermTestHostIsolation suiteNameForBase:[NSString stringWithUTF8String:argv[i + 1]]];
+@@ -66,7 +68,16 @@ int main(int argc, const char *argv[]) {
              break;
          }
      }
++    // Taken before OmniTerm adopts iTerm2's settings suite so the lock is keyed on
++    // com.omniterm.app. OmniTerm is meant to run alongside iTerm2, which holds the
++    // lock for that suite; a conflict here would offer to quit at login.
+     [iTermInstanceLock acquire];
 +    if (!hasCustomSuite) {
 +        // OmniTerm deliberately shares iTerm2's preferences while keeping its
 +        // process and session-server namespace independent.
@@ -848,10 +2025,10 @@ index 7f4fbc2..20ecfb5 100644
      if ([[iTermUserDefaults userDefaults] boolForKey:@"MetalCaptureEnabled"]) {
          setenv("MTL_CAPTURE_ENABLED", "1", 1);
      }
-diff --git a/sources/MainMenu/MainMenu.xib b/sources/MainMenu/MainMenu.xib
-index 9c5fbf3..1f28606 100644
---- a/sources/MainMenu/MainMenu.xib
-+++ b/sources/MainMenu/MainMenu.xib
+diff --git a/sources/MainMenu/Base.lproj/MainMenu.xib b/sources/MainMenu/Base.lproj/MainMenu.xib
+index 67c90dc0b730074d575d181324d27b2d078eeb2f..66c7409f910d0eefbcaeecc251b64704df930fb8 100644
+--- a/sources/MainMenu/Base.lproj/MainMenu.xib
++++ b/sources/MainMenu/Base.lproj/MainMenu.xib
 @@ -15,10 +15,10 @@
          <customObject id="2Vu-IH-16w" customClass="ColorsMenuItemView"/>
          <menu title="MainMenu" systemMenu="main" id="29" userLabel="MainMenu">
@@ -863,15 +2040,16 @@ index 9c5fbf3..1f28606 100644
                          <items>
 -                            <menuItem title="About iTerm2" identifier="About iTerm2" id="233">
 +                            <menuItem title="About OmniTerm" identifier="About iTerm2" id="233">
+                                 <accessibility identifier="About iTerm2"/>
                                  <connections>
                                      <action selector="showAbout:" target="201" id="509"/>
-                                 </connections>
-@@ -36,14 +36,11 @@
+@@ -45,15 +45,12 @@
                              <menuItem isSeparatorItem="YES" id="Dxk-DH-qzi">
                                  <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                              </menuItem>
 -                            <menuItem title="Check for Updates…" identifier="Check For Updates…" id="880">
 +                            <menuItem title="Check for Updates…" hidden="YES" identifier="Check For Updates…" id="880">
+                                 <accessibility identifier="Check for Updates…"/>
                                  <connections>
                                      <action selector="checkForUpdatesFromMenu:" target="201" id="vmh-LD-TwW"/>
                                  </connections>
@@ -881,13 +2059,14 @@ index 9c5fbf3..1f28606 100644
 -                            </menuItem>
                              <menuItem title="Toggle Debug Logging" enabled="NO" identifier="Toggle Debug Logging" id="950">
                                  <modifierMask key="keyEquivalentModifierMask"/>
-                                 <connections>
-@@ -70,21 +67,18 @@
+                                 <accessibility identifier="Toggle Debug Logging"/>
+@@ -89,22 +86,19 @@
                              <menuItem isSeparatorItem="YES" id="199">
                                  <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                              </menuItem>
--                            <menuItem title="Preferences..." keyEquivalent="," identifier="Preferences..." id="129">
-+                            <menuItem title="Preferences..." hidden="YES" identifier="Preferences..." id="129">
+-                            <menuItem title="Preferences…" keyEquivalent="," identifier="Preferences..." id="129">
++                            <menuItem title="Preferences…" hidden="YES" identifier="Preferences..." id="129">
+                                 <accessibility identifier="Preferences..."/>
                                  <connections>
                                      <action selector="showPrefWindow:" target="201" id="574"/>
                                  </connections>
@@ -903,19 +2082,19 @@ index 9c5fbf3..1f28606 100644
                              </menuItem>
 -                            <menuItem title="Hide iTerm2" keyEquivalent="h" identifier="Hide iTerm2" id="134">
 +                            <menuItem title="Hide OmniTerm" keyEquivalent="h" identifier="Hide iTerm2" id="134">
+                                 <accessibility identifier="Hide iTerm2"/>
                                  <connections>
                                      <action selector="hide:" target="-2" id="152"/>
-                                 </connections>
-@@ -151,7 +145,7 @@
+@@ -182,7 +176,7 @@
                                  </connections>
                              </menuItem>
                              <menuItem isSeparatorItem="YES" id="1469"/>
 -                            <menuItem title="Quit iTerm2" keyEquivalent="q" identifier="Quit iTerm2" id="136">
 +                            <menuItem title="Quit OmniTerm" keyEquivalent="q" identifier="Quit iTerm2" id="136">
+                                 <accessibility identifier="Quit iTerm2"/>
                                  <connections>
                                      <action selector="terminate:" target="-1" id="532"/>
-                                 </connections>
-@@ -2099,7 +2093,6 @@ CQ
+@@ -2474,7 +2468,6 @@ DQ
                  <outlet property="maximizePane" destination="1233" id="1237"/>
                  <outlet property="selectTab" destination="847" id="863"/>
                  <outlet property="showFullScreenTabs" destination="1257" id="1260"/>
@@ -923,7 +2102,7 @@ index 9c5fbf3..1f28606 100644
                  <outlet property="toolbeltMenu" destination="1296" id="1299"/>
                  <outlet property="useTransparency" destination="1228" id="1230"/>
                  <outlet property="windowArrangementsAsTabs_" destination="z6V-EJ-Ntf" id="wse-Wc-WVw"/>
-@@ -2109,7 +2102,6 @@ CQ
+@@ -2484,7 +2477,6 @@ DQ
              </connections>
          </customObject>
          <customObject id="266" userLabel="Font Manager" customClass="NSFontManager"/>
@@ -933,10 +2112,10 @@ index 9c5fbf3..1f28606 100644
                  <outlet property="_menuItem" destination="s0f-jP-7Pk" id="Yh8-jB-GRV"/>
 diff --git a/sources/OmniTerm/OmniScheduler.h b/sources/OmniTerm/OmniScheduler.h
 new file mode 100644
-index 0000000..9a98827
+index 0000000000000000000000000000000000000000..7edacb48aa7810fd5b9c2916e25f2084ef7df58b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.h
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +#import <Foundation/Foundation.h>
 +
 +NS_ASSUME_NONNULL_BEGIN
@@ -947,19 +2126,23 @@ index 0000000..9a98827
 +- (void)start;
 +- (void)stop;
 +- (void)checkNow;
++- (NSDictionary *)currentSettings;
++- (BOOL)updateSettings:(NSDictionary *)changes error:(NSError **)error;
 +
 +@end
 +
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000..aca639a
+index 0000000000000000000000000000000000000000..bc6fcd63d532bd31b404e7eb2c7a8ee7437b30d6
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,624 @@
+@@ -0,0 +1,788 @@
 +#import "OmniScheduler.h"
 +
 +@import SQLite3;
++#import <fcntl.h>
++#import <sys/file.h>
 +#import <sys/socket.h>
 +#import <sys/stat.h>
 +#import <sys/un.h>
@@ -968,6 +2151,7 @@ index 0000000..aca639a
 +@interface OmniScheduler ()
 +@property(nonatomic, copy) void (^launchHandler)(NSString *, NSString *);
 +@property(nonatomic) sqlite3 *database;
++@property(nonatomic) int lockFile;
 +@property(nonatomic) int listener;
 +@property(nonatomic) dispatch_source_t listenerSource;
 +@property(nonatomic) dispatch_source_t timer;
@@ -978,8 +2162,11 @@ index 0000000..aca639a
 +@property(nonatomic, copy) NSString *agentsPath;
 +@property(nonatomic, copy) NSString *settingsPath;
 +@property(nonatomic, copy) NSString *agentFilesFingerprint;
++- (NSDictionary *)defaultSettings;
 +- (id)nextRunForAgent:(NSDictionary *)agent after:(NSTimeInterval)timestamp;
 +- (void)enforceRunRetention;
++- (void)reapAbandonedRuns;
++- (NSDictionary *)responseForRequest:(id)request;
 +- (void)reloadAgentFilesIfNeeded:(BOOL)force;
 +- (BOOL)writeAgentFile:(NSDictionary *)agent;
 +- (NSDictionary *)settings;
@@ -988,12 +2175,58 @@ index 0000000..aca639a
 +- (NSDictionary *)startAgentNamed:(NSString *)name reason:(NSString *)reason resumeSessionID:(nullable NSString *)resumeSessionID;
 +@end
 +
++// Comfortably longer than tab creation plus the runner's login-shell PATH lookup.
++static const NSTimeInterval OmniRunnerStartGracePeriod = 120;
++
++static NSInteger OmniIntegerValue(id value) {
++    return [value respondsToSelector:@selector(integerValue)] ? [value integerValue] : 0;
++}
++
++static double OmniDoubleValue(id value) {
++    return [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0;
++}
++
++static NSDate *OmniMonthlyOccurrence(NSCalendar *calendar,
++                                     NSDate *anchor,
++                                     NSInteger monthOffset,
++                                     NSInteger requestedDay,
++                                     NSInteger hour,
++                                     NSInteger minute) {
++    NSDateComponents *anchorComponents = [calendar components:(NSCalendarUnitYear | NSCalendarUnitMonth)
++                                                      fromDate:anchor];
++    const NSInteger monthIndex = anchorComponents.year * 12 + anchorComponents.month - 1 + monthOffset;
++    NSDateComponents *components = [[[NSDateComponents alloc] init] autorelease];
++    components.year = monthIndex / 12;
++    components.month = monthIndex % 12 + 1;
++    components.day = 1;
++    components.hour = hour;
++    components.minute = minute;
++    NSDate *first = [calendar dateFromComponents:components];
++    const NSRange days = [calendar rangeOfUnit:NSCalendarUnitDay
++                                        inUnit:NSCalendarUnitMonth
++                                       forDate:first];
++    components.day = MIN(MAX(1, requestedDay), (NSInteger)days.length);
++    return [calendar dateFromComponents:components];
++}
++
 +@implementation OmniScheduler
++
++- (NSDictionary *)defaultSettings {
++    return @{ @"schema_version": @2,
++              @"default_timeout_seconds": @7200,
++              @"retained_run_tabs": @10,
++              @"timezone": NSTimeZone.localTimeZone.name,
++              @"launch_at_login": @NO,
++              @"center_window_on_open": @YES,
++              @"double_escape_to_hide": @YES,
++              @"double_escape_interval_ms": @350 };
++}
 +
 +- (instancetype)initWithLaunchHandler:(void (^)(NSString *, NSString *))launchHandler {
 +    self = [super init];
 +    if (self) {
 +        _launchHandler = [launchHandler copy];
++        _lockFile = -1;
 +        _listener = -1;
 +        NSString *library = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,
 +                                                                 NSUserDomainMask,
@@ -1041,6 +2274,26 @@ index 0000000..aca639a
 +                                               attributes:@{ NSFilePosixPermissions: @0700 }
 +                                                    error:nil];
 +    chmod(_supportPath.fileSystemRepresentation, 0700);
++    NSString *lockPath = [_supportPath stringByAppendingPathComponent:@"scheduler.lock"];
++    _lockFile = open(lockPath.fileSystemRepresentation, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
++    if (_lockFile < 0) {
++        NSString *message = [NSString stringWithFormat:@"scheduler lock creation failed: %s", strerror(errno)];
++        [message writeToFile:[_supportPath stringByAppendingPathComponent:@"startup-error.txt"]
++                  atomically:YES
++                    encoding:NSUTF8StringEncoding
++                       error:nil];
++        return;
++    }
++    if (flock(_lockFile, LOCK_EX | LOCK_NB) != 0) {
++        // Another OmniTerm process owns the scheduler. In particular, do not
++        // unlink its socket: secondary app launches must be harmless.
++        close(_lockFile);
++        _lockFile = -1;
++        return;
++    }
++    ftruncate(_lockFile, 0);
++    dprintf(_lockFile, "%d\n", getpid());
++
 +    NSString *databasePath = [_supportPath stringByAppendingPathComponent:@"scheduler.sqlite"];
 +    const int openResult = sqlite3_open_v2(databasePath.fileSystemRepresentation,
 +                        &_database,
@@ -1053,6 +2306,9 @@ index 0000000..aca639a
 +                  atomically:YES encoding:NSUTF8StringEncoding error:nil];
 +        if (_database) sqlite3_close(_database);
 +        _database = NULL;
++        flock(_lockFile, LOCK_UN);
++        close(_lockFile);
++        _lockFile = -1;
 +        return;
 +    }
 +    [self execute:@"PRAGMA journal_mode=WAL"];
@@ -1073,27 +2329,12 @@ index 0000000..aca639a
 +                                                    error:nil];
 +    chmod(_configPath.fileSystemRepresentation, 0700);
 +    chmod(_agentsPath.fileSystemRepresentation, 0700);
-+    if (![[NSFileManager defaultManager] fileExistsAtPath:_settingsPath]) {
-+        NSDictionary *defaults = @{ @"schema_version": @1,
-+                                    @"default_timeout_seconds": @7200,
-+                                    @"retained_run_tabs": @10,
-+                                    @"timezone": NSTimeZone.localTimeZone.name };
-+        NSData *data = [NSJSONSerialization dataWithJSONObject:defaults options:NSJSONWritingPrettyPrinted error:nil];
-+        [data writeToFile:_settingsPath options:NSDataWritingAtomic error:nil];
-+        chmod(_settingsPath.fileSystemRepresentation, 0600);
-+    } else {
-+        NSData *data = [NSData dataWithContentsOfFile:_settingsPath];
-+        NSMutableDictionary *settings = data ? [[NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil] mutableCopy] : nil;
-+        if (settings && !settings[@"timezone"]) {
-+            settings[@"timezone"] = NSTimeZone.localTimeZone.name;
-+            NSData *updated = [NSJSONSerialization dataWithJSONObject:settings
-+                                                               options:(NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys)
-+                                                                 error:nil];
-+            [updated writeToFile:_settingsPath options:NSDataWritingAtomic error:nil];
-+            chmod(_settingsPath.fileSystemRepresentation, 0600);
-+        }
-+        [settings release];
-+    }
++    NSDictionary *normalizedSettings = [self settings];
++    NSData *settingsData = [NSJSONSerialization dataWithJSONObject:normalizedSettings
++                                                            options:(NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys)
++                                                              error:nil];
++    [settingsData writeToFile:_settingsPath options:NSDataWritingAtomic error:nil];
++    chmod(_settingsPath.fileSystemRepresentation, 0600);
 +    // One-time migration from database-only definitions to file-backed agents.
 +    for (NSDictionary *row in [self rowsForSQL:@"SELECT * FROM agents" bindings:@[]]) {
 +        NSDictionary *agent = [self decodedAgentRow:row];
@@ -1139,6 +2380,7 @@ index 0000000..aca639a
 +}
 +
 +- (void)stop {
++    const BOOL ownsSchedulerLock = (_lockFile >= 0);
 +    if (_timer) {
 +        dispatch_source_cancel(_timer);
 +        dispatch_release(_timer);
@@ -1153,10 +2395,17 @@ index 0000000..aca639a
 +        close(_listener);
 +        _listener = -1;
 +    }
-+    unlink(_socketPath.fileSystemRepresentation);
++    if (ownsSchedulerLock) {
++        unlink(_socketPath.fileSystemRepresentation);
++    }
 +    if (_database) {
 +        sqlite3_close(_database);
 +        _database = NULL;
++    }
++    if (_lockFile >= 0) {
++        flock(_lockFile, LOCK_UN);
++        close(_lockFile);
++        _lockFile = -1;
 +    }
 +}
 +
@@ -1180,10 +2429,10 @@ index 0000000..aca639a
 +            [data appendBytes:buffer length:(NSUInteger)count];
 +            if (memchr(buffer, '\n', (size_t)count)) break;
 +        }
-+        NSDictionary *request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
++        id request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 +        __block NSDictionary *response = nil;
 +        dispatch_sync(dispatch_get_main_queue(), ^{
-+            response = [[self handleRequest:request ?: @{}] retain];
++            response = [[self responseForRequest:request] retain];
 +        });
 +        NSData *encoded = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
 +        write(client, encoded.bytes, encoded.length);
@@ -1274,14 +2523,32 @@ index 0000000..aca639a
 +
 +- (NSDictionary *)settings {
 +    NSData *data = [NSData dataWithContentsOfFile:_settingsPath];
-+    NSDictionary *settings = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-+    if (![settings isKindOfClass:[NSDictionary class]]) {
-+        return @{ @"schema_version": @1,
-+                  @"default_timeout_seconds": @7200,
-+                  @"retained_run_tabs": @10,
-+                  @"timezone": NSTimeZone.localTimeZone.name };
++    NSDictionary *stored = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
++    NSMutableDictionary *settings = [NSMutableDictionary dictionaryWithDictionary:[self defaultSettings]];
++    if ([stored isKindOfClass:[NSDictionary class]]) {
++        [settings addEntriesFromDictionary:stored];
 +    }
++    settings[@"schema_version"] = @2;
 +    return settings;
++}
++
++- (NSDictionary *)currentSettings {
++    return [self settings];
++}
++
++- (BOOL)updateSettings:(NSDictionary *)changes error:(NSError **)error {
++    NSMutableDictionary *settings = [NSMutableDictionary dictionaryWithDictionary:[self settings]];
++    [settings addEntriesFromDictionary:changes ?: @{}];
++    settings[@"schema_version"] = @2;
++    NSData *data = [NSJSONSerialization dataWithJSONObject:settings
++                                                   options:(NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys)
++                                                     error:error];
++    if (!data || ![data writeToFile:_settingsPath options:NSDataWritingAtomic error:error]) {
++        return NO;
++    }
++    chmod(_settingsPath.fileSystemRepresentation, 0600);
++    [self checkNow];
++    return YES;
 +}
 +
 +- (void)reloadAgentFilesIfNeeded:(BOOL)force {
@@ -1335,6 +2602,23 @@ index 0000000..aca639a
 +        if (![names containsObject:row[@"name"]]) {
 +            [self runSQL:@"DELETE FROM agents WHERE name=?" bindings:@[ row[@"name"] ]];
 +        }
++    }
++}
++
++// Requests run on the main thread, so an exception here would abort the whole
++// terminal and every session in it. No client input may be able to do that.
++- (NSDictionary *)responseForRequest:(id)request {
++    if (![request isKindOfClass:[NSDictionary class]]) {
++        return @{ @"ok": @NO, @"error": @"Request must be a JSON object" };
++    }
++    // JSON null decodes to NSNull, which survives nil checks and then throws.
++    NSMutableDictionary *arguments = [[request mutableCopy] autorelease];
++    [arguments removeObjectsForKeys:[arguments allKeysForObject:[NSNull null]]];
++    @try {
++        return [self handleRequest:arguments];
++    } @catch (NSException *exception) {
++        NSLog(@"OmniScheduler rejected request %@: %@", arguments[@"op"], exception);
++        return @{ @"ok": @NO, @"error": @"Malformed request" };
 +    }
 +}
 +
@@ -1450,13 +2734,6 @@ index 0000000..aca639a
 +        if ([run[@"state"] isEqualToString:@"evicting"]) {
 +            [self runSQL:@"UPDATE runs SET state='evicted',reason='retention age',finished=? WHERE id=?"
 +                bindings:@[ @([NSDate date].timeIntervalSince1970), request[@"run_id"] ]];
-+            const pid_t runnerPID = [run[@"pid"] intValue];
-+            if (runnerPID > 1) {
-+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC),
-+                               dispatch_get_main_queue(), ^{
-+                    kill(runnerPID, SIGUSR1);
-+                });
-+            }
 +        } else {
 +            [self runSQL:@"UPDATE runs SET state=?,reason=?,finished=? WHERE id=?"
 +                bindings:@[ request[@"state"] ?: @"completed", request[@"reason"] ?: @"exited", @([NSDate date].timeIntervalSince1970), request[@"run_id"] ]];
@@ -1466,7 +2743,7 @@ index 0000000..aca639a
 +    }
 +    if ([operation isEqualToString:@"stop_run"]) {
 +        NSArray *rows = [self rowsForSQL:@"SELECT pgid FROM runs WHERE id=? AND state IN ('starting','running')" bindings:@[ request[@"run_id"] ?: @"" ]];
-+        const pid_t processGroup = (pid_t)[[rows.firstObject objectForKey:@"pgid"] intValue];
++        const pid_t processGroup = (pid_t)OmniIntegerValue([rows.firstObject objectForKey:@"pgid"]);
 +        if (processGroup > 1) kill(-processGroup, SIGTERM);
 +        return @{ @"ok": @(rows.count > 0) };
 +    }
@@ -1480,7 +2757,7 @@ index 0000000..aca639a
 +    NSArray *active = [self rowsForSQL:@"SELECT id,pgid FROM runs WHERE agent=? AND state IN ('starting','running')" bindings:@[ name ]];
 +    if ([agent[@"overlap"] isEqualToString:@"replace"]) {
 +        for (NSDictionary *run in active) {
-+            const pid_t processGroup = [run[@"pgid"] intValue];
++            const pid_t processGroup = (pid_t)OmniIntegerValue(run[@"pgid"]);
 +            if (processGroup > 1) {
 +                kill(-processGroup, SIGTERM);
 +                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
@@ -1505,9 +2782,12 @@ index 0000000..aca639a
 +}
 +
 +- (void)enforceRunRetention {
-+    NSArray *rows = [self rowsForSQL:@"SELECT runs.id,runs.pid,runs.pgid,runs.state,runs.started,agents.definition FROM runs JOIN agents ON agents.name=runs.agent WHERE runs.state!='evicted' ORDER BY runs.started DESC"
++    // Only live runs have tabs. A finished run's tab closed when its runner
++    // exited, so its recorded PID may already belong to another process.
++    NSArray *rows = [self rowsForSQL:@"SELECT runs.id,runs.pgid,runs.started,agents.definition FROM runs JOIN agents ON agents.name=runs.agent WHERE runs.state IN ('starting','running') ORDER BY runs.started DESC"
 +                             bindings:@[]];
-+    const NSUInteger retainedCount = MAX(1, MIN(100, [[self settings][@"retained_run_tabs"] unsignedIntegerValue] ?: 10));
++    const NSInteger configuredRetention = OmniIntegerValue([self settings][@"retained_run_tabs"]);
++    const NSUInteger retainedCount = MAX(1, MIN(100, configuredRetention > 0 ? configuredRetention : 10));
 +    if (rows.count <= retainedCount) return;
 +    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
 +    for (NSUInteger index = retainedCount; index < rows.count; index++) {
@@ -1516,30 +2796,44 @@ index 0000000..aca639a
 +                                                               options:0
 +                                                                 error:nil];
 +        NSNumber *timeout = agent[@"timeout_seconds"];
-+        if (![timeout isKindOfClass:[NSNumber class]] || now - [run[@"started"] doubleValue] < timeout.doubleValue) {
++        if (![timeout isKindOfClass:[NSNumber class]] ||
++            now - OmniDoubleValue(run[@"started"]) < timeout.doubleValue) {
 +            continue;
 +        }
-+        if ([run[@"state"] isEqualToString:@"running"] || [run[@"state"] isEqualToString:@"starting"]) {
-+            const pid_t processGroup = [run[@"pgid"] intValue];
-+            if (processGroup <= 1) continue;
-+            kill(-processGroup, SIGTERM);
-+            [self runSQL:@"UPDATE runs SET state='evicting',reason='retention age' WHERE id=?"
-+                bindings:@[ run[@"id"] ]];
-+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
-+                           dispatch_get_main_queue(), ^{
-+                if (kill(-processGroup, 0) == 0) kill(-processGroup, SIGKILL);
-+            });
-+            continue;
-+        }
-+        const pid_t runnerPID = [run[@"pid"] intValue];
-+        if (runnerPID > 1) kill(runnerPID, SIGUSR1);
-+        [self runSQL:@"UPDATE runs SET state='evicted',reason='retention age' WHERE id=?"
++        const pid_t processGroup = (pid_t)OmniIntegerValue(run[@"pgid"]);
++        if (processGroup <= 1) continue;
++        kill(-processGroup, SIGTERM);
++        [self runSQL:@"UPDATE runs SET state='evicting',reason='retention age' WHERE id=?"
 +            bindings:@[ run[@"id"] ]];
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
++                       dispatch_get_main_queue(), ^{
++            if (kill(-processGroup, 0) == 0) kill(-processGroup, SIGKILL);
++        });
++    }
++}
++
++- (void)reapAbandonedRuns {
++    NSArray *rows = [self rowsForSQL:@"SELECT id,pid,started FROM runs WHERE state IN ('starting','running','evicting')"
++                             bindings:@[]];
++    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
++    for (NSDictionary *run in rows) {
++        const pid_t runnerPID = (pid_t)OmniIntegerValue(run[@"pid"]);
++        NSString *reason = nil;
++        if (runnerPID > 1) {
++            if (kill(runnerPID, 0) != 0 && errno == ESRCH) reason = @"runner exited without reporting";
++        } else if (now - OmniDoubleValue(run[@"started"]) > OmniRunnerStartGracePeriod) {
++            reason = @"runner never started";
++        }
++        if (reason) {
++            [self runSQL:@"UPDATE runs SET state='failed',reason=?,finished=? WHERE id=?"
++                bindings:@[ reason, @(now), run[@"id"] ]];
++        }
 +    }
 +}
 +
 +- (void)checkNow {
 +    [self reloadAgentFilesIfNeeded:NO];
++    [self reapAbandonedRuns];
 +    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
 +    NSArray *due = [self rowsForSQL:@"SELECT name,definition FROM agents WHERE enabled=1 AND next_run IS NOT NULL AND next_run<=?" bindings:@[ @(now) ]];
 +    for (NSDictionary *row in due) {
@@ -1555,17 +2849,68 @@ index 0000000..aca639a
 +    NSDictionary *schedule = agent[@"schedule"];
 +    NSString *kind = schedule[@"kind"];
 +    if ([kind isEqualToString:@"once"]) return (id)[NSNull null];
-+    if ([kind isEqualToString:@"interval"]) return @(timestamp + [schedule[@"interval_seconds"] doubleValue]);
++    if ([kind isEqualToString:@"interval"]) return @(timestamp + OmniDoubleValue(schedule[@"interval_seconds"]));
 +    NSTimeZone *zone = [NSTimeZone timeZoneWithName:[self settings][@"timezone"]] ?: NSTimeZone.localTimeZone;
 +    NSCalendar *calendar = [[[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian] autorelease];
 +    calendar.timeZone = zone;
 +    NSDate *date = [NSDate dateWithTimeIntervalSince1970:timestamp];
++    if ([kind isEqualToString:@"calendar_interval"]) {
++        const NSTimeInterval anchorTimestamp = OmniDoubleValue(schedule[@"anchor"]);
++        if (timestamp < anchorTimestamp) return @(anchorTimestamp);
++        const NSInteger interval = MAX(1, OmniIntegerValue(schedule[@"interval"]));
++        NSString *unit = schedule[@"unit"];
++        if ([unit isEqualToString:@"hour"]) {
++            const NSTimeInterval step = interval * 3600;
++            const NSInteger multiples = (NSInteger)((timestamp - anchorTimestamp) / step) + 1;
++            return @(anchorTimestamp + multiples * step);
++        }
++        NSDate *anchor = [NSDate dateWithTimeIntervalSince1970:anchorTimestamp];
++        if ([unit isEqualToString:@"day"] || [unit isEqualToString:@"week"]) {
++            const NSInteger stepDays = interval * ([unit isEqualToString:@"week"] ? 7 : 1);
++            NSDateComponents *difference = [calendar components:NSCalendarUnitDay
++                                                        fromDate:anchor
++                                                          toDate:date
++                                                         options:0];
++            NSInteger multiples = MAX(0, difference.day / stepDays);
++            NSDate *candidate = [calendar dateByAddingUnit:NSCalendarUnitDay
++                                                     value:multiples * stepDays
++                                                    toDate:anchor
++                                                   options:0];
++            if (candidate.timeIntervalSince1970 <= timestamp) {
++                candidate = [calendar dateByAddingUnit:NSCalendarUnitDay
++                                                 value:stepDays
++                                                toDate:candidate
++                                               options:0];
++            }
++            return @(candidate.timeIntervalSince1970);
++        }
++        NSDateComponents *difference = [calendar components:NSCalendarUnitMonth
++                                                    fromDate:anchor
++                                                      toDate:date
++                                                     options:0];
++        NSInteger multiples = MAX(0, difference.month / interval);
++        NSDate *candidate = OmniMonthlyOccurrence(calendar,
++                                                  anchor,
++                                                  multiples * interval,
++                                                  OmniIntegerValue(schedule[@"day"]),
++                                                  OmniIntegerValue(schedule[@"hour"]),
++                                                  OmniIntegerValue(schedule[@"minute"]));
++        if (candidate.timeIntervalSince1970 <= timestamp) {
++            candidate = OmniMonthlyOccurrence(calendar,
++                                              anchor,
++                                              (multiples + 1) * interval,
++                                              OmniIntegerValue(schedule[@"day"]),
++                                              OmniIntegerValue(schedule[@"hour"]),
++                                              OmniIntegerValue(schedule[@"minute"]));
++        }
++        return @(candidate.timeIntervalSince1970);
++    }
 +    NSDateComponents *components = [[[NSDateComponents alloc] init] autorelease];
-+    components.hour = [schedule[@"hour"] integerValue];
-+    components.minute = [schedule[@"minute"] integerValue];
++    components.hour = OmniIntegerValue(schedule[@"hour"]);
++    components.minute = OmniIntegerValue(schedule[@"minute"]);
 +    if ([kind isEqualToString:@"weekly"]) {
 +        // Python uses Monday=0; NSCalendar uses Sunday=1.
-+        components.weekday = (([schedule[@"weekday"] integerValue] + 1) % 7) + 1;
++        components.weekday = ((OmniIntegerValue(schedule[@"weekday"]) + 1) % 7) + 1;
 +    }
 +    NSDate *next = [calendar nextDateAfterDate:date
 +                               matchingComponents:components
@@ -1582,10 +2927,10 @@ index 0000000..aca639a
 +
 +@end
 diff --git a/sources/SessionCreation/iTermSessionLauncher.m b/sources/SessionCreation/iTermSessionLauncher.m
-index 252559f..593e0cf 100644
+index 436ad48e9a870fd736573e1b64b377ab7a417811..b07201c55433de955d93e2eb5db52e915fbb94a7 100644
 --- a/sources/SessionCreation/iTermSessionLauncher.m
 +++ b/sources/SessionCreation/iTermSessionLauncher.m
-@@ -705,9 +705,19 @@ - (iTermObjectType)objectType {
+@@ -879,9 +879,19 @@
  
  - (PseudoTerminal *)possiblyNewWindowControllerForProfile:(Profile *)profile
                                           toggleFullScreen:(BOOL *)togglePtr {
@@ -1609,10 +2954,10 @@ index 252559f..593e0cf 100644
      if (windowController != nil && [windowController windowInitialized]) {
          if (windowController.layoutLocked && windowController.numberOfTabs > 0 && _makeSession == nil) {
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index f547865..d889d31 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..81e097ae6af093dc28dcedb01e16b404cc85eca8 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
-@@ -2155,6 +2155,13 @@ - (BOOL)willShowTmuxWarningWhenClosingTab:(PTYTab *)aTab {
+@@ -2482,6 +2482,13 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
  }
  
  - (void)closeTab:(PTYTab *)aTab soft:(BOOL)soft {
@@ -1626,7 +2971,7 @@ index f547865..d889d31 100644
      if (!soft &&
          [self tabIsAttachedTmuxTabWithSessions:aTab]) {
          if ([self numberOfTabsWithTmuxController:aTab.tmuxController] == 1) {
-@@ -4397,34 +4404,8 @@ - (int)numRunningSessions
+@@ -4855,34 +4862,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (BOOL)windowShouldClose:(NSNotification *)aNotification {
      RLog(@"windowShouldClose %@", self);
@@ -1663,7 +3008,7 @@ index f547865..d889d31 100644
  }
  
  // If controller is nil, then do all of them.
-@@ -5320,7 +5301,7 @@ - (NSEdgeInsets)tabBarInsetsForCompactWindow NS_AVAILABLE_MAC(10_14) {
+@@ -5814,7 +5795,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)tabBarAlwaysVisible {
@@ -1672,7 +3017,7 @@ index f547865..d889d31 100644
  }
  
  - (BOOL)anyFullScreen {
-@@ -7020,7 +7001,10 @@ - (void)updateUseMetalInAllTabs {
+@@ -7588,7 +7569,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -1684,7 +3029,7 @@ index f547865..d889d31 100644
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -10773,10 +10757,11 @@ - (BOOL)rootTerminalViewWindowNumberLabelShouldBeVisible {
+@@ -13260,10 +13244,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -1701,10 +3046,10 @@ index f547865..d889d31 100644
  
  - (NSColor *)windowDecorationColor {
 diff --git a/sources/TerminalView/iTermRootTerminalView.m b/sources/TerminalView/iTermRootTerminalView.m
-index ab6f5a9..5b67859 100644
+index e325adabcb21c93cbbb1fffbd27fba0974e07634..e0c6953b769d80f858906ba908fcec02cffb4e9f 100644
 --- a/sources/TerminalView/iTermRootTerminalView.m
 +++ b/sources/TerminalView/iTermRootTerminalView.m
-@@ -798,49 +798,12 @@ - (void)updateTitleAndBorderViews NS_AVAILABLE_MAC(10_14) {
+@@ -1049,49 +1049,12 @@ typedef struct {
      [self updateTextColors];
  }
  
@@ -1743,7 +3088,7 @@ index ab6f5a9..5b67859 100644
 -    return [color colorWithAlphaComponent:alpha];
 -}
 -
- - (NSColor *)resolvedWindowBorderColor NS_AVAILABLE_MAC(10_14) {
+-- (NSColor *)resolvedWindowBorderColor {
 -    NSColor *focused = iTermWindowBorderColorFromSetting([iTermAdvancedSettingsModel windowBorderColor]);
 -    NSColor *unfocused = iTermWindowBorderColorFromSetting([iTermAdvancedSettingsModel windowBorderColorUnfocused]);
 -    NSColor *base = self.window.isKeyWindow ? (focused ?: unfocused) : (unfocused ?: focused);
@@ -1751,6 +3096,7 @@ index ab6f5a9..5b67859 100644
 -        return [NSColor colorWithWhite:0.5 alpha:0.75];
 -    }
 -    return base;
++- (NSColor *)resolvedWindowBorderColor NS_AVAILABLE_MAC(10_14) {
 +    const CGFloat alpha = self.window.isKeyWindow ? 0.9 : 0.45;
 +    return [NSColor colorWithSRGBRed:(247.0 / 255.0)
 +                               green:(177.0 / 255.0)
@@ -1759,7 +3105,7 @@ index ab6f5a9..5b67859 100644
  }
  
  // Returns the window's outer corner radius (concentric with the system mask).
-@@ -899,14 +862,14 @@ - (void)updateBorderViews NS_AVAILABLE_MAC(10_14) {
+@@ -1150,14 +1113,14 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      // inset by half the border width, so its corner radius is the window's
      // outer radius minus that inset to keep the outer edge concentric with the
      // window corner.
@@ -1779,12 +3125,28 @@ index ab6f5a9..5b67859 100644
      _windowBorderView.borderColor = [self resolvedWindowBorderColor];
  }
  
-@@ -960,7 +923,8 @@ - (void)setSubtitle:(NSString *)subtitle {
+@@ -1292,6 +1255,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
+ }
  
  - (void)setWindowTitleLabelToString:(NSString *)title subtitle:(NSString *)subtitle icon:(NSImage *)icon {
-     _windowTitleLabel.puaFontProvider = [self.delegate rootTerminalViewPUAFontProvider];
--    [_windowTitleLabel setTitle:title subtitle:subtitle icon:icon alignmentProvider:
 +    NSString *omniTitle = [NSString stringWithFormat:@"OMNI  ·  %@", title ?: @""];
+     id<PSMPUAFontProvider> puaFontProvider = [self.delegate rootTerminalViewPUAFontProvider];
+     _windowTitleLabel.puaFontProvider = puaFontProvider;
+ 
+@@ -1309,7 +1273,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
+         leftAlignTitleBarMinimalTahoe = [iTermAdvancedSettingsModel leftAlignTitleBarMinimalTahoe];
+     }
+     iTermWindowTitleLabelInputs *inputs =
+-        [[iTermWindowTitleLabelInputs alloc] initWithTitle:title
++        [[iTermWindowTitleLabelInputs alloc] initWithTitle:omniTitle
+                                                   subtitle:subtitle
+                                                       icon:icon
+                                                  textColor:_windowTitleLabel.textColor
+@@ -1327,7 +1291,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
+     }
+     _lastRenderedWindowTitleLabelInputs = inputs;
+ 
+-    [_windowTitleLabel setTitle:title subtitle:subtitle icon:icon alignmentProvider:
 +    [_windowTitleLabel setTitle:omniTitle subtitle:subtitle icon:icon alignmentProvider:
       ^NSTextAlignment(NSTextField * _Nonnull scratch) {
           BOOL leftAligned = NO;

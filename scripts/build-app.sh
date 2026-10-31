@@ -7,6 +7,8 @@ app_dir="$project_dir/dist/OmniTerm.app"
 configuration="${OMNITERM_CONFIGURATION:-Development}"
 build_dir="${OMNITERM_BUILD_DIR:-}"
 
+"$project_dir/scripts/iterm2-fork.sh" export
+
 cd "$fork_dir"
 if [[ "$configuration" == Deployment ]]; then
     cp plists/release-iTerm2.plist plists/iTerm2.plist

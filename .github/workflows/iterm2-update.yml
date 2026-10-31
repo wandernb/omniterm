@@ -1,0 +1,77 @@
+name: Update iTerm2
+
+# OmniTerm is a source fork, so an upstream release can only reach it through a
+# rebase and a rebuild. This keeps the rebase current: each week it moves the
+# submodule to the newest upstream nightly and opens a pull request, or opens an
+# issue when the patch needs a person.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the pinned iTerm2 revision
+        run: git submodule update --init --depth 1 Vendor/iTerm2
+      - name: Find the newest upstream nightly
+        id: upstream
+        run: |
+          echo "current=$(git -C Vendor/iTerm2 rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(scripts/iterm2-fork.sh latest)" >> "$GITHUB_OUTPUT"
+      - name: Stop if a pull request or issue already covers this tag
+        id: open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          pull_requests="$(gh pr list --head "iterm2/$TAG" --state open --json number --jq length)"
+          issues="$(gh issue list --search "in:title \"iTerm2 $TAG\"" --state open --json number --jq length)"
+          echo "covered=$(( pull_requests + issues ))" >> "$GITHUB_OUTPUT"
+      - name: Reapply OmniTerm's patch
+        id: update
+        if: steps.open.outputs.covered == '0'
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          status=0
+          scripts/iterm2-fork.sh update "$TAG" 2> update.log || status=$?
+          cat update.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          [ "$status" = 0 ] || [ "$status" = 3 ]
+      - name: Open a pull request
+        if: steps.open.outputs.covered == '0' && steps.update.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          [ "$(git -C Vendor/iTerm2 rev-parse HEAD)" != "${{ steps.upstream.outputs.current }}" ] || exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "iterm2/$TAG"
+          git add Vendor/iTerm2 patches/iterm2-omniterm.patch
+          git commit --message "Update iTerm2 to $TAG"
+          git push --set-upstream origin "iterm2/$TAG"
+          gh pr create --title "Update iTerm2 to $TAG" --body \
+            "OmniTerm's patch reapplied cleanly to \`$TAG\`. CI has not compiled this: run \`make paranoid-deps\` in \`Vendor/iTerm2\` and \`scripts/build-app.sh\` locally, then follow the verification list in \`AGENTS.md\` before merging."
+      - name: Open an issue for manual conflicts
+        if: steps.open.outputs.covered == '0' && steps.update.outputs.status == '3'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          gh issue create --title "iTerm2 $TAG needs a manual rebase" --body \
+            "OmniTerm's patch does not apply cleanly to \`$TAG\`. Resolve it with \`scripts/iterm2-fork.sh update $TAG\` from a clean checkout.
+
+          \`\`\`
+          $(cat update.log)
+          \`\`\`"

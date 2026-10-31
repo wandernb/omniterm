@@ -34,6 +34,15 @@ GREEN = "\033[38;2;105;219;124m"
 BLUE = "\033[38;2;125;170;255m"
 MUTED = "\033[38;2;145;145;145m"
 DASHBOARD_ACTIVATE_KEY = 0x1D
+DASHBOARD_STATE = Path.home() / ".omni/dashboard.json"
+AGENT_CARD_ROWS = 4
+DANGEROUS_PERMISSIONS = {"claude": "bypassPermissions", "codex": "dangerous"}
+RESERVED_ADVANCED_ARGS = {
+    "-C", "--cd", "--cwd", "--system-prompt", "--model", "-m", "--permission-mode",
+    "--ask-for-approval", "-a", "--sandbox", "-s", "--dangerously-skip-permissions",
+    "--allow-dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox",
+    "--yolo",
+}
 
 
 def styled(text, *styles):
@@ -260,7 +269,10 @@ def request(payload):
         except OSError as exc:
             raise SystemExit(f"OmniTerm scheduler is unavailable: {exc}")
         client.sendall(json.dumps(payload).encode() + b"\n")
-        client.shutdown(socket.SHUT_WR)
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass  # The scheduler may already have answered and closed.
         chunks = []
         while True:
             chunk = client.recv(65536)
@@ -519,7 +531,8 @@ def wizard_header(index, fields, values):
         "schedule_phrase": "Human-friendly cadence; raw cron syntax is unnecessary.",
         "overlap": "Replace the previous run, or allow runs to execute in parallel.",
         "timeout": "Retention window for older run tabs; the newest ten stay protected.",
-        "permission_mode": "Provider permission policy. Blank uses its normal default.",
+        "permission_mode": "Provider permission policy. Blank uses its normal default. "
+                           "bypassPermissions (Claude) and dangerous (Codex) remove all safety checks.",
         "advanced_args": "Optional provider flags not already managed by OmniTerm.",
     }
     print()
@@ -611,8 +624,7 @@ def normalized_agent(values, old, global_timezone):
     if permissions == "auto-mode":
         permissions = "auto"
     advanced = shlex.split(values["advanced_args"])
-    reserved = {"-C", "--cd", "--cwd", "--system-prompt", "--model", "-m", "--permission-mode", "--ask-for-approval", "-a", "--sandbox"}
-    if any(value.split("=", 1)[0] in reserved for value in advanced):
+    if any(value.split("=", 1)[0] in RESERVED_ADVANCED_ARGS for value in advanced):
         raise ValueError("Advanced arguments contain an OmniTerm-owned flag")
     return {"name": name, "provider": provider, "workspace": workspace,
             "system_prompt": system_prompt, "startup_prompt": startup_prompt,
@@ -747,7 +759,7 @@ AGENT_FORM_DESCRIPTIONS = {
     "schedule_phrase": "Live human-readable preview generated from the recurrence controls.",
     "overlap": "Replace the preceding run, or allow parallel sessions.",
     "timeout": "How long older run tabs remain interactive; the newest ten are protected.",
-    "permission_mode": "Optional provider permission policy.",
+    "permission_mode": "Optional provider permission policy. bypassPermissions and dangerous remove all safety checks.",
     "advanced_args": "Optional provider flags not already managed by OmniTerm.",
     "__save__": "Validate and save this agent. Errors remain here without losing the form.",
 }
@@ -767,7 +779,7 @@ def agent_form_choices(key, values):
         if values.get("provider") == "claude":
             return ["", "default", "auto-mode", "acceptEdits", "bypassPermissions",
                     "manual", "dontAsk", "plan"]
-        return ["", "default", "untrusted", "on-request", "never"]
+        return ["", "default", "untrusted", "on-request", "never", DANGEROUS_PERMISSIONS["codex"]]
     if key == "repeat_on":
         unit = values.get("repeat_unit")
         if unit == "hours":
@@ -1612,6 +1624,97 @@ def tui_suspend(window, callback):
         set_dashboard_terminal_mode(True)
 
 
+def has_dangerous_permissions(agent):
+    return agent.get("permission_mode") == DANGEROUS_PERMISSIONS.get(agent.get("provider"))
+
+
+def workspace_repo(workspace):
+    """Return the repository holding a workspace, or the workspace outside any repository."""
+    path = Path(workspace)
+    home = Path.home()
+    for folder in (path, *path.parents):
+        if folder == home:
+            break
+        if (folder / ".git").exists():
+            # Worktree layouts keep each checkout in an @branch folder inside the repository.
+            return str(folder.parent if folder.name.startswith("@") else folder)
+    return str(workspace)
+
+
+def repo_labels(repos):
+    """Name repositories by what distinguishes them: their path below the shared folder."""
+    unique = sorted(set(repos))
+    if len(unique) < 2:
+        return {repo: Path(repo).name or repo for repo in unique}
+    shared = os.path.commonpath(unique)
+    return {repo: os.path.relpath(repo, shared) if repo != shared else Path(repo).name or repo
+            for repo in unique}
+
+
+def group_agents(agents, by_repo):
+    """Return [(label, agents)] in display order; a flat list has one unlabelled group."""
+    if not by_repo:
+        return [(None, list(agents))]
+    repos = {agent["name"]: workspace_repo(agent["workspace"]) for agent in agents}
+    labels = repo_labels(repos.values())
+    groups = {}
+    for agent in agents:
+        groups.setdefault(labels[repos[agent["name"]]], []).append(agent)
+    return [(label, sorted(groups[label], key=lambda agent: agent["name"].lower()))
+            for label in sorted(groups, key=str.lower)]
+
+
+def agent_list_rows(groups, selected, capacity):
+    """Lay out the visible part of the list, keeping the selection and its group in view.
+
+    Returns ("header", label, count) and ("agent", index) rows from top to bottom.
+    """
+    entries, owners, selected_entry, index = [], [], 0, 0
+    for label, members in groups:
+        header = ("header", label, len(members)) if label is not None else None
+        if header:
+            entries.append(header)
+            owners.append(header)
+        for _ in members:
+            if index == selected:
+                selected_entry = len(entries)
+            entries.append(("agent", index))
+            owners.append(header)
+            index += 1
+
+    def height(entry):
+        return 1 if entry[0] == "header" else AGENT_CARD_ROWS
+
+    def pinned(start):
+        return [owners[start]] if owners[start] and entries[start][0] == "agent" else []
+
+    start = 0
+    while start < selected_entry and (
+            sum(height(entry) for entry in pinned(start) + entries[start:selected_entry + 1]) > capacity):
+        start += 1
+    rows, used = pinned(start), len(pinned(start))
+    for entry in entries[start:]:
+        used += height(entry)
+        if used > capacity and entry is not entries[selected_entry]:
+            break
+        rows.append(entry)
+    return rows[:-1] if rows and rows[-1][0] == "header" else rows
+
+
+def load_repo_grouping():
+    try:
+        return json.loads(DASHBOARD_STATE.read_text()).get("group_by_repo") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def save_repo_grouping(enabled):
+    try:
+        DASHBOARD_STATE.write_text(json.dumps({"group_by_repo": enabled}) + "\n")
+    except OSError:
+        pass
+
+
 def dashboard_screen(window):
     palette = tui_palette()
     tui_cursor(0)
@@ -1629,16 +1732,18 @@ def dashboard_screen(window):
     selected_prompt = 0
     focus = "agents"
     message = "Ready"
-    agents, runs = [], []
+    agents, runs, groups = [], [], []
+    group_by_repo = load_repo_grouping()
     hitboxes = []
     last_refresh = None
 
     def reload_data(force=False):
-        nonlocal agents, runs, selected, last_refresh, message
+        nonlocal agents, runs, groups, selected, last_refresh, message
         if not force and last_refresh is not None and time.monotonic() - last_refresh < 1:
             return
         try:
-            agents = request({"op": "list_agents"})["agents"]
+            groups = group_agents(request({"op": "list_agents"})["agents"], group_by_repo)
+            agents = [agent for _, members in groups for agent in members]
             runs = request({"op": "list_runs"})["runs"]
             selected = max(0, min(selected, len(agents) - 1))
             last_refresh = time.monotonic()
@@ -1647,6 +1752,17 @@ def dashboard_screen(window):
 
     def selected_agent():
         return agents[selected] if agents else None
+
+    def toggle_repo_grouping():
+        nonlocal agents, groups, group_by_repo, selected, message
+        current = selected_agent()
+        group_by_repo = not group_by_repo
+        save_repo_grouping(group_by_repo)
+        groups = group_agents(agents, group_by_repo)
+        agents = [agent for _, members in groups for agent in members]
+        if current:
+            selected = agents.index(current)
+        message = "Agents grouped by repository" if group_by_repo else "Showing all agents"
 
     def selected_agent_runs():
         agent = selected_agent()
@@ -1767,17 +1883,30 @@ def dashboard_screen(window):
         tui_box(window, body_y, 1, body_height, left_width, palette["peach"], "AGENTS")
         tui_box(window, body_y, right_x, body_height, right_width, palette["blue"], "DETAILS")
 
-        visible_cards = max(1, (body_height - 3) // 4)
-        first = max(0, min(selected - visible_cards + 1, max(0, len(agents) - visible_cards)))
+        group_button = "[ ≡ All agents ]" if group_by_repo else "[ ▤ By repo ]"
+        group_x = left_width - len(group_button) - 1
+        tui_text(window, body_y, group_x, group_button, palette["blue"] | curses.A_BOLD, len(group_button))
+        hitboxes.append((body_y, body_y, group_x, group_x + len(group_button) - 1, "group", None))
+
         if not agents:
             tui_text(window, body_y + 3, 4, "◇ No agents yet", palette["muted"] | curses.A_BOLD)
             tui_text(window, body_y + 5, 4, "Click ＋ Add agent to create one.", palette["muted"])
-        for position, agent in enumerate(agents[first:first + visible_cards]):
-            index = first + position
-            y = body_y + 2 + position * 4
+        next_y = body_y + 2
+        for row in agent_list_rows(groups, selected, body_height - 3):
+            y = next_y
+            if row[0] == "header":
+                tui_text(window, y, 3, f"▤ {row[1]}  ·  {row[2]}",
+                         palette["blue"] | curses.A_BOLD, left_width - 6)
+                next_y += 1
+                continue
+            next_y += AGENT_CARD_ROWS
+            index = row[1]
+            agent = agents[index]
             chosen = index == selected
             card_style = palette["peach"] | (curses.A_BOLD if chosen and focus == "agents" else 0)
             marker = "▶" if chosen and focus == "agents" else "◆" if chosen else " "
+            if has_dangerous_permissions(agent):
+                tui_text(window, y, left_width - 13, "⚠", palette["red"] | curses.A_BOLD, 2)
             state = "● ON" if agent["enabled"] else "○ OFF"
             state_style = palette["green"] if agent["enabled"] else palette["muted"]
             tui_text(window, y, 3, f"{marker} {agent['name']}", card_style, left_width - 18)
@@ -1804,16 +1933,19 @@ def dashboard_screen(window):
             tui_text(window, y + 1, x, f"{agent['provider'].upper()}  ·  {'enabled' if agent['enabled'] else 'paused'}", palette["green"] if agent["enabled"] else palette["muted"], right_width - 6)
             details = [
                 ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
+                ("Access", "⚠ DANGEROUS · no safety checks" if has_dangerous_permissions(agent)
+                 else agent.get("permission_mode") or "provider default"),
                 ("Schedule", agent["schedule"]["phrase"]), ("Overlap", agent["overlap"]),
                 ("Retention", "off" if agent.get("timeout_seconds") is None else f"{agent['timeout_seconds'] // 60} minutes"),
             ]
             for offset, (label, value) in enumerate(details):
                 tui_text(window, y + 3 + offset, x, f"{label:10}", palette["muted"] | curses.A_BOLD, 10)
-                tui_text(window, y + 3 + offset, x + 11, value, 0, right_width - 18)
+                value_style = (palette["red"] | curses.A_BOLD) if value.startswith("⚠") else 0
+                tui_text(window, y + 3 + offset, x + 11, value, value_style, right_width - 18)
             if body_height >= 19:
                 prompt_width = right_width - 6
                 line_limit = 2 if body_height >= 24 else 1
-                prompt_y = y + 9
+                prompt_y = y + 3 + len(details) + 1
                 for prompt_index, (prompt_label, prompt_value) in enumerate(prompt_items()):
                     block_y = prompt_y
                     chosen_prompt = focus == "prompts" and prompt_index == selected_prompt
@@ -1869,7 +2001,7 @@ def dashboard_screen(window):
             cursor_x += len(button) + 4
         tui_text(window, height - 2, 2, "● " + message, palette["green"] if not message.startswith("Error") else palette["red"], width - 4)
         tui_text(window, height - 1, 2,
-                 "↑↓ navigate · ← agents · →/Enter details · Enter activates · a add · e edit",
+                 "↑↓ navigate · ←→ focus · Enter activates · g by repo · a add · e edit",
                  palette["muted"], width - 4)
         window.refresh()
 
@@ -1911,6 +2043,8 @@ def dashboard_screen(window):
                     view_prompt()
                 else:
                     perform("resume")
+            elif key == ord("g"):
+                toggle_repo_grouping()
             elif key == ord("a"):
                 perform("add")
             elif key == ord("e"):
@@ -1945,6 +2079,8 @@ def dashboard_screen(window):
                                 elif action == "run_now":
                                     focus = "run_now"
                                     perform("run")
+                                elif action == "group":
+                                    toggle_repo_grouping()
                                 else:
                                     perform(action)
                                 break

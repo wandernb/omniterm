@@ -54,6 +54,7 @@ its own tab—not as captured batch output.
   monthly schedules.
 - Claude and Codex agents with workspace, model, system prompt, startup prompt,
   `replace`/`parallel` overlap, and configurable retention.
+- Agent list that can be grouped by repository with `g` or the **By repo** button.
 - Responsive mouse-and-keyboard TUI with system/startup prompt previews and
   resumable run history.
 - JSON configuration under `~/.omni`, with live reload.
@@ -193,9 +194,10 @@ Monthly schedules clamp day 29–31 to the end of shorter months and return to
 the requested day when a later month supports it.
 
 `replace` gracefully stops a preceding run before starting the new one;
-`parallel` allows both. The ten newest run tabs remain interactive regardless
-of age. Older tabs are eligible for eviction only after their configured
-retention timeout expires.
+`parallel` allows both. A run's tab closes as soon as its provider exits, for
+any reason, and the outcome stays in run history, where the session can be
+resumed. The ten newest active runs stay interactive regardless of age; older
+ones are stopped only after their configured retention timeout expires.
 
 ## MCP for Claude Code and Codex
 

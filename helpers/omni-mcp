@@ -2,6 +2,7 @@
 """MCP stdio adapter for OmniTerm's native agent scheduler."""
 
 import importlib.machinery
+import importlib.util
 import json
 import os
 import socket
@@ -13,7 +14,9 @@ from pathlib import Path
 SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
 SUPPORTED_PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 HELPER_DIR = Path(__file__).resolve().parent
-OMNI = importlib.machinery.SourceFileLoader("omni_cli_for_mcp", str(HELPER_DIR / "omni")).load_module()
+_OMNI_LOADER = importlib.machinery.SourceFileLoader("omni_cli_for_mcp", str(HELPER_DIR / "omni"))
+OMNI = importlib.util.module_from_spec(importlib.util.spec_from_loader("omni_cli_for_mcp", _OMNI_LOADER))
+_OMNI_LOADER.exec_module(OMNI)
 
 
 def scheduler_request(payload, launch=True):
@@ -25,7 +28,10 @@ def scheduler_request(payload, launch=True):
         try:
             client.connect(str(SOCKET))
             client.sendall(json.dumps(payload, separators=(",", ":")).encode() + b"\n")
-            client.shutdown(socket.SHUT_WR)
+            try:
+                client.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass  # The scheduler may already have answered and closed.
             chunks = []
             while True:
                 chunk = client.recv(65536)
@@ -133,8 +139,10 @@ TOOLS = [
 ]
 
 
-RESERVED = {"-C", "--cd", "--cwd", "--system-prompt", "--model", "-m",
-            "--permission-mode", "--ask-for-approval", "-a", "--sandbox"}
+PERMISSION_MODES = {
+    "claude": {"", "auto", "acceptEdits", "bypassPermissions", "manual", "dontAsk", "plan"},
+    "codex": {"", "untrusted", "on-request", "never", OMNI.DANGEROUS_PERMISSIONS["codex"]},
+}
 
 
 def clean_agent(agent):
@@ -157,8 +165,10 @@ def validate_agent(agent):
     advanced = agent.get("advanced_args", [])
     if not isinstance(advanced, list) or not all(isinstance(item, str) for item in advanced):
         raise ValueError("advanced_args must be an array of strings")
-    if any(item.split("=", 1)[0] in RESERVED for item in advanced):
+    if any(item.split("=", 1)[0] in OMNI.RESERVED_ADVANCED_ARGS for item in advanced):
         raise ValueError("Advanced arguments contain an OmniTerm-owned flag")
+    if agent.get("permission_mode", "") not in PERMISSION_MODES[provider]:
+        raise ValueError(f"Invalid permission mode for {provider}")
     agent.update(name=name, provider=provider, workspace=str(workspace), overlap=overlap,
                  advanced_args=advanced)
     return agent
@@ -193,6 +203,10 @@ def build_agent(arguments, existing=None):
         current["next_run"] = next_run
     elif existing:
         current["next_run"] = existing.get("next_run")
+    was_dangerous = bool(existing) and OMNI.has_dangerous_permissions(existing)
+    if OMNI.has_dangerous_permissions(current) and not was_dangerous:
+        # Agents use these tools, so one must not be able to lift its own or another's limits.
+        raise ValueError("Dangerous permissions can only be set in the OmniTerm editor or agent file")
     return validate_agent(current)
 
 

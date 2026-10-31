@@ -1,4 +1,5 @@
 import importlib.machinery
+import importlib.util
 import io
 import json
 import tempfile
@@ -7,9 +8,11 @@ from pathlib import Path
 from unittest import mock
 
 
-MCP = importlib.machinery.SourceFileLoader(
+_LOADER = importlib.machinery.SourceFileLoader(
     "omni_mcp", str(Path(__file__).parents[1] / "helpers/omni-mcp")
-).load_module()
+)
+MCP = importlib.util.module_from_spec(importlib.util.spec_from_loader("omni_mcp", _LOADER))
+_LOADER.exec_module(MCP)
 
 
 class MCPProtocolTests(unittest.TestCase):
@@ -217,6 +220,51 @@ class AgentValidationTests(unittest.TestCase):
         self.assertIsNone(agent["timeout_seconds"])
         self.assertEqual(agent["next_run"], 123)
         self.assertNotIn("last_run", agent)
+
+    def dangerous_agent(self, root, provider="claude", permission_mode="bypassPermissions"):
+        return {"name": "A", "provider": provider, "workspace": root, "system_prompt": "",
+                "startup_prompt": "", "model": "", "permission_mode": permission_mode,
+                "advanced_args": [], "overlap": "replace", "timeout_seconds": 7200,
+                "enabled": True, "schedule": {"kind": "daily", "hour": 9, "minute": 0}}
+
+    def build(self, arguments, existing=None):
+        with mock.patch.object(MCP, "scheduler_request", return_value={"settings": {"timezone": "UTC"}}):
+            return MCP.build_agent(arguments, existing)
+
+    def test_mcp_cannot_grant_dangerous_permissions(self):
+        with tempfile.TemporaryDirectory() as root:
+            for provider, mode in (("claude", "bypassPermissions"), ("codex", "dangerous")):
+                safe = self.dangerous_agent(root, provider, "")
+                with self.subTest(provider=provider), \
+                        self.assertRaisesRegex(ValueError, "Dangerous permissions"):
+                    self.build({"name": "A", "permission_mode": mode}, safe)
+                with self.subTest(provider=provider, create=True), \
+                        self.assertRaisesRegex(ValueError, "Dangerous permissions"):
+                    self.build({"name": "New", "provider": provider, "workspace": root,
+                                "schedule": "daily at 09:00", "permission_mode": mode})
+
+    def test_mcp_can_still_edit_an_agent_a_person_made_dangerous(self):
+        with tempfile.TemporaryDirectory() as root:
+            agent = self.build({"name": "A", "startup_prompt": "new"}, self.dangerous_agent(root))
+            self.assertEqual(agent["permission_mode"], "bypassPermissions")
+            self.assertEqual(agent["startup_prompt"], "new")
+
+    def test_mcp_can_lower_a_dangerous_agent(self):
+        with tempfile.TemporaryDirectory() as root:
+            agent = self.build({"name": "A", "permission_mode": "auto"}, self.dangerous_agent(root))
+            self.assertEqual(agent["permission_mode"], "auto")
+
+    def test_raw_dangerous_flags_cannot_go_around_the_permission_setting(self):
+        with tempfile.TemporaryDirectory() as root:
+            for flag in ("--dangerously-skip-permissions", "--allow-dangerously-skip-permissions",
+                         "--dangerously-bypass-approvals-and-sandbox", "--yolo", "-s"):
+                with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "owned flag"):
+                    self.build({"name": "A", "advanced_args": [flag]}, self.dangerous_agent(root, "codex", ""))
+
+    def test_permission_mode_must_match_the_provider(self):
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(ValueError, "Invalid permission mode"):
+                MCP.validate_agent(self.dangerous_agent(root, "codex", "auto"))
 
     def test_build_agent_uses_detected_timezone_and_workspace_defaults(self):
         with tempfile.TemporaryDirectory() as root, \

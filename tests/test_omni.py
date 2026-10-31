@@ -1,5 +1,6 @@
 import datetime as dt
 import importlib.machinery
+import importlib.util
 import io
 import json
 import tempfile
@@ -9,9 +10,11 @@ from pathlib import Path
 from unittest import mock
 
 
-OMNI = importlib.machinery.SourceFileLoader(
+_LOADER = importlib.machinery.SourceFileLoader(
     "omni", str(Path(__file__).parents[1] / "helpers/omni")
-).load_module()
+)
+OMNI = importlib.util.module_from_spec(importlib.util.spec_from_loader("omni", _LOADER))
+_LOADER.exec_module(OMNI)
 
 
 class ScheduleTests(unittest.TestCase):
@@ -412,8 +415,15 @@ class DashboardTests(unittest.TestCase):
             "startup_prompt": "Start",
         }
 
-    def run_dashboard(self, keys, mouse=None):
-        agents = [self.agent("A"), self.agent("B")]
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        patcher = mock.patch.object(OMNI, "DASHBOARD_STATE", Path(directory.name) / "dashboard.json")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_dashboard(self, keys, mouse=None, agents=None):
+        agents = agents or [self.agent("A"), self.agent("B")]
         requests = []
 
         def request(payload):
@@ -483,6 +493,151 @@ class DashboardTests(unittest.TestCase):
             [payload for payload in requests if payload["op"] == "run_agent"],
             [{"op": "run_agent", "name": "A"}],
         )
+
+
+    def repo_agents(self, root):
+        agents = []
+        for name, workspace in (("Zed", "api/@head"), ("Beta", "web"), ("Alpha", "api/@head/sub")):
+            folder = Path(root) / workspace
+            folder.mkdir(parents=True, exist_ok=True)
+            agent = self.agent(name)
+            agent["workspace"] = str(folder)
+            agents.append(agent)
+        (Path(root) / "api/@head/.git").write_text("gitdir: elsewhere\n")
+        (Path(root) / "web/.git").mkdir()
+        return agents
+
+    def drawn(self, draw):
+        return [call.args[3] for call in draw.call_args_list]
+
+    def test_dangerous_agent_is_marked_in_the_list_and_details(self):
+        agent = self.agent("A")
+        agent.update(provider="claude", permission_mode="bypassPermissions")
+        _, draw = self.run_dashboard([], agents=[agent])
+        text = self.drawn(draw)
+        self.assertIn("⚠", text)
+        self.assertIn("⚠ DANGEROUS · no safety checks", text)
+
+    def test_normal_agent_shows_no_danger_marker(self):
+        _, draw = self.run_dashboard([])
+        self.assertFalse([value for value in self.drawn(draw) if "⚠" in str(value)])
+
+    def test_grouping_key_lists_agents_under_their_repository_and_is_remembered(self):
+        with tempfile.TemporaryDirectory() as root:
+            agents = self.repo_agents(root)
+            _, draw = self.run_dashboard([ord("g")], agents=agents)
+            text = self.drawn(draw)
+            self.assertIn("▤ api  ·  2", text)
+            self.assertIn("▤ web  ·  1", text)
+            listed = ["▤ api  ·  2", "  Alpha", "▶ Zed", "▤ web  ·  1", "  Beta"]
+            self.assertEqual([value for value in text if value in listed][-5:], listed)
+            self.assertTrue(json.loads(OMNI.DASHBOARD_STATE.read_text())["group_by_repo"])
+
+            _, draw = self.run_dashboard([], agents=agents)
+            self.assertIn("▤ web  ·  1", self.drawn(draw))
+
+    def test_grouping_button_is_clickable_and_toggles_back_to_the_flat_list(self):
+        with tempfile.TemporaryDirectory() as root:
+            agents = self.repo_agents(root)
+            click = (0, 50, 6, 0, OMNI.curses.BUTTON1_CLICKED)
+            _, draw = self.run_dashboard([OMNI.curses.KEY_MOUSE], mouse=click, agents=agents)
+            self.assertIn("[ ≡ All agents ]", self.drawn(draw))
+
+            _, draw = self.run_dashboard([ord("g")], agents=agents)
+            self.assertIn("[ ▤ By repo ]", self.drawn(draw))
+            self.assertFalse(json.loads(OMNI.DASHBOARD_STATE.read_text())["group_by_repo"])
+
+    def test_grouping_keeps_the_same_agent_selected(self):
+        with tempfile.TemporaryDirectory() as root:
+            agents = self.repo_agents(root)
+            _, draw = self.run_dashboard([OMNI.curses.KEY_DOWN, ord("g")], agents=agents)
+            self.assertEqual(self.drawn(draw).count("▶ Beta"), 2)
+
+
+class DangerousPermissionTests(unittest.TestCase):
+    def test_each_provider_has_exactly_one_dangerous_mode(self):
+        self.assertTrue(OMNI.has_dangerous_permissions(
+            {"provider": "claude", "permission_mode": "bypassPermissions"}))
+        self.assertTrue(OMNI.has_dangerous_permissions(
+            {"provider": "codex", "permission_mode": "dangerous"}))
+        for agent in ({"provider": "claude", "permission_mode": "auto"},
+                      {"provider": "codex", "permission_mode": "never"},
+                      {"provider": "codex", "permission_mode": "bypassPermissions"},
+                      {"provider": "claude"}):
+            self.assertFalse(OMNI.has_dangerous_permissions(agent))
+
+    def test_editor_offers_the_mode_for_each_provider(self):
+        self.assertIn("bypassPermissions",
+                      OMNI.agent_form_choices("permission_mode", {"provider": "claude"}))
+        self.assertIn("dangerous", OMNI.agent_form_choices("permission_mode", {"provider": "codex"}))
+
+
+class AgentGroupingTests(unittest.TestCase):
+    def test_workspace_repo_finds_enclosing_repository_and_folds_worktrees(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            nested = root / "plain/src/deep"
+            nested.mkdir(parents=True)
+            (root / "plain/.git").mkdir()
+            worktree = root / "repo/@main"
+            worktree.mkdir(parents=True)
+            (worktree / ".git").write_text("gitdir: elsewhere\n")
+            loose = root / "loose"
+            loose.mkdir()
+            self.assertEqual(OMNI.workspace_repo(str(nested)), str(root / "plain"))
+            self.assertEqual(OMNI.workspace_repo(str(worktree)), str(root / "repo"))
+            self.assertEqual(OMNI.workspace_repo(str(loose)), str(loose))
+            self.assertEqual(OMNI.workspace_repo(str(root / "missing/folder")),
+                             str(root / "missing/folder"))
+
+    def test_workspace_repo_does_not_treat_a_home_repository_as_the_project(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root).resolve()
+            (home / ".git").mkdir()
+            project = home / "Projects/app"
+            project.mkdir(parents=True)
+            with mock.patch.object(OMNI.Path, "home", return_value=home):
+                self.assertEqual(OMNI.workspace_repo(str(project)), str(project))
+
+    def test_labels_keep_only_the_distinguishing_path(self):
+        self.assertEqual(OMNI.repo_labels(["/p/a/one", "/p/a/two", "/p/b"]),
+                         {"/p/a/one": "a/one", "/p/a/two": "a/two", "/p/b": "b"})
+        self.assertEqual(OMNI.repo_labels(["/p/app"]), {"/p/app": "app"})
+        self.assertEqual(OMNI.repo_labels(["/p/app", "/p/app/nested"]),
+                         {"/p/app": "app", "/p/app/nested": "nested"})
+
+    def groups(self):
+        return [("a", ["1", "2", "3"]), ("b", ["4", "5"])]
+
+    def test_layout_shows_everything_that_fits_from_the_top(self):
+        rows = OMNI.agent_list_rows(self.groups(), 0, 14)
+        self.assertEqual(rows, [("header", "a", 3), ("agent", 0), ("agent", 1), ("agent", 2)])
+        rows = OMNI.agent_list_rows(self.groups(), 0, 18)
+        self.assertEqual(rows[-2:], [("header", "b", 2), ("agent", 3)])
+
+    def test_layout_keeps_selection_visible_and_pins_its_group(self):
+        rows = OMNI.agent_list_rows(self.groups(), 2, 9)
+        self.assertEqual(rows, [("header", "a", 3), ("agent", 1), ("agent", 2)])
+        rows = OMNI.agent_list_rows(self.groups(), 4, 9)
+        self.assertEqual(rows, [("header", "b", 2), ("agent", 3), ("agent", 4)])
+
+    def test_flat_layout_has_no_headers_and_scrolls_by_card(self):
+        rows = OMNI.agent_list_rows([(None, ["1", "2", "3", "4"])], 3, 8)
+        self.assertEqual(rows, [("agent", 2), ("agent", 3)])
+
+    def test_layout_always_shows_the_selection_in_a_tiny_panel(self):
+        self.assertIn(("agent", 4), OMNI.agent_list_rows(self.groups(), 4, 2))
+
+    def test_missing_or_corrupt_preference_defaults_to_the_flat_list(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root) / "dashboard.json"
+            with mock.patch.object(OMNI, "DASHBOARD_STATE", state):
+                self.assertFalse(OMNI.load_repo_grouping())
+                for corrupt in ("not json", "[]"):
+                    state.write_text(corrupt)
+                    self.assertFalse(OMNI.load_repo_grouping())
+                OMNI.save_repo_grouping(True)
+                self.assertTrue(OMNI.load_repo_grouping())
 
 
 class AgentWizardTests(unittest.TestCase):
