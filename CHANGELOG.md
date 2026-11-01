@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-01
+
 ### Added
 
 - GitHub Release assets for measurable DMG and ZIP download counts.
@@ -44,6 +46,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Runs left behind by a dead runner no longer stay in `starting` forever.
 - An agent file with an invalid schedule no longer crashes OmniTerm at launch.
 - A client that stalls mid-request can no longer hold a scheduler thread.
+- Ad-hoc-signed release builds could be refused by macOS at launch, because they
+  claimed entitlements that require a Developer ID. Packaging now removes them
+  from ad-hoc builds, and signs the app's executable after its nested code.
 - Builds could ship interface files from an older build, which crashed OmniTerm
   at launch. Each build now starts from an empty product, and `build-app.sh`
   fails if a stale resource remains.
@@ -88,6 +93,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wandernb/omniterm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wandernb/omniterm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wandernb/omniterm/releases/tag/v0.1.0

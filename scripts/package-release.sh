@@ -31,29 +31,41 @@ while IFS= read -r license; do
 done < <(find "$project_dir/Vendor/iTerm2/ThirdParty" "$project_dir/Vendor/iTerm2/submodules" \
   -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print)
 
+work=$(mktemp -d "${TMPDIR:-/tmp}/omniterm-release.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
 identity="${OMNITERM_SIGN_IDENTITY:--}"
+entitlements="$project_dir/Vendor/iTerm2/iTerm2.entitlements"
+if [[ "$identity" == - ]]; then
+  # macOS refuses to launch ad-hoc code that claims restricted entitlements.
+  mkdir -p "$work/signing"
+  cp "$entitlements" "$work/signing/OmniTerm.entitlements"
+  entitlements="$work/signing/OmniTerm.entitlements"
+  /usr/libexec/PlistBuddy -c 'Delete :keychain-access-groups' "$entitlements"
+  /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.application-groups' "$entitlements"
+fi
 sign_args=(--force --sign "$identity")
 if [[ "$identity" != - ]]; then
   sign_args+=(--options runtime --timestamp)
 fi
 # Sign nested code from the inside out. Apple explicitly discourages using
-# --deep for distribution signing.
+# --deep for distribution signing. The app's own executable is signed last, with
+# the bundle: signing it here would fail on any nested code not yet reached.
 while IFS= read -r -d '' item; do
   if file -b "$item" | grep -q 'Mach-O'; then
     codesign "${sign_args[@]}" "$item"
   fi
-done < <(find "$app/Contents" -type f -perm -111 -print0)
+done < <(find "$app/Contents" -type f -perm -111 ! -path "$app/Contents/MacOS/OmniTerm" -print0)
 while IFS= read -r item; do
   codesign "${sign_args[@]}" "$item"
 done < <(find "$app/Contents" -depth \
   \( -name '*.framework' -o -name '*.dylib' -o -name '*.xpc' -o -name '*.app' \) \
   ! -path "$app" -print)
-codesign "${sign_args[@]}" --entitlements "$project_dir/Vendor/iTerm2/iTerm2.entitlements" "$app"
+codesign "${sign_args[@]}" --entitlements "$entitlements" "$app"
 codesign --verify --deep --strict "$app"
 
 mkdir -p "$release_dir"
-work=$(mktemp -d "${TMPDIR:-/tmp}/omniterm-release.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+rm -rf "$work/signing"
 ditto "$app" "$work/OmniTerm.app"
 ln -s /Applications "$work/Applications"
 install -m 0755 "$project_dir/scripts/install.sh" "$work/Install OmniTerm.command"

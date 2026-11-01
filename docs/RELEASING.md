@@ -20,7 +20,7 @@ location and must contain binaries and corresponding source for the same tag.
 ```sh
 export OMNITERM_SIGN_IDENTITY='Developer ID Application: Example (TEAMID)'
 export OMNITERM_NOTARY_PROFILE='omniterm-notary'
-./scripts/package-release.sh 0.2.0
+./scripts/package-release.sh 0.3.0
 ```
 
 The default artifact targets the build machine's architecture. For a universal
