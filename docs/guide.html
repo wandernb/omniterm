@@ -38,8 +38,8 @@
       <p class="section-copy">Download the DMG and run <strong>Install OmniTerm.command</strong>. The installer copies the app to Applications, creates the CLI launchers, starts OmniTerm in the background, and registers MCP with installed providers.</p>
       <div class="command">$ omni mcp doctor<br>$ omni agents add .<br>$ omni</div>
       <div class="actions">
-        <a class="button" href="https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.dmg">Latest · Download DMG · 0.3.0</a>
-        <a class="button secondary" href="https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.zip">Download ZIP</a>
+        <a class="button" href="https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.dmg">Latest · Download DMG · 0.3.1</a>
+        <a class="button secondary" href="https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.zip">Download ZIP</a>
         <a class="button secondary" href="https://github.com/wandernb/omniterm/blob/main/docs/INSTALLATION.md">Complete installation guide ↗</a>
         <a class="button secondary" href="https://github.com/wandernb/omniterm#quick-start">Build from source ↗</a>
       </div>
@@ -67,6 +67,16 @@
         <article class="card"><span class="icon">↻</span><h3>Resume</h3><p><code>omni resume RUN-ID</code> opens the exact Claude or Codex session in a new tab.</p></article>
       </div>
       <div class="command">$ omni --help<br>$ omni agents<br>$ omni agent my-agent<br>$ omni runs</div>
+    </section>
+
+    <section id="dashboard" class="wrap">
+      <span class="eyebrow">Dashboard and runs</span>
+      <h2>See what ran, and why it ended.</h2>
+      <div class="grid">
+        <article class="card"><span class="icon">▤</span><h3>Group by repository</h3><p>Press <code>g</code> or use <strong>By repo</strong> to group agents under their repository, folding <code>@branch</code> worktrees into one entry. OmniTerm remembers the choice.</p></article>
+        <article class="card"><span class="icon">⚠</span><h3>Dangerous permissions</h3><p>Each agent can use <code>bypassPermissions</code> on Claude or <code>dangerous</code> on Codex, marked ⚠ on the dashboard. Only you can set them, in the editor or agent file. MCP refuses to enable them.</p></article>
+        <article class="card"><span class="icon">◉</span><h3>Run outcomes</h3><p>A run ends as <strong>completed</strong>, <strong>failed</strong>, <strong>stopped</strong>, or <strong>closed</strong> when you close its tab. A failed run shows the provider’s last error, and the output is kept in <code>~/Library/Application Support/OmniTerm/run-logs</code>.</p></article>
+      </div>
     </section>
 
     <section id="mcp" class="wrap split">

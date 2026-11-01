@@ -35,15 +35,10 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/omniterm-release.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
 identity="${OMNITERM_SIGN_IDENTITY:--}"
-entitlements="$project_dir/Vendor/iTerm2/iTerm2.entitlements"
-if [[ "$identity" == - ]]; then
-  # macOS refuses to launch ad-hoc code that claims restricted entitlements.
-  mkdir -p "$work/signing"
-  cp "$entitlements" "$work/signing/OmniTerm.entitlements"
-  entitlements="$work/signing/OmniTerm.entitlements"
-  /usr/libexec/PlistBuddy -c 'Delete :keychain-access-groups' "$entitlements"
-  /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.application-groups' "$entitlements"
-fi
+mkdir -p "$work/signing"
+entitlements="$work/signing/OmniTerm.entitlements"
+"$project_dir/scripts/signing-entitlements.sh" \
+  "$project_dir/Vendor/iTerm2/iTerm2.entitlements" "$entitlements" "$identity"
 sign_args=(--force --sign "$identity")
 if [[ "$identity" != - ]]; then
   sign_args+=(--options runtime --timestamp)

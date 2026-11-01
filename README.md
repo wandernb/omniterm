@@ -22,11 +22,11 @@ its own tab—not as captured batch output.
 [![OmniTerm agent dashboard](docs/assets/screenshots/omni-dashboard-detail.png)](docs/assets/screenshots/omni-dashboard-detail.png)
 
 <p align="center">
-  <a href="https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.dmg"><strong>Download latest · OmniTerm 0.3.0 DMG</strong></a>
+  <a href="https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.dmg"><strong>Download latest · OmniTerm 0.3.1 DMG</strong></a>
   ·
-  <a href="https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.zip">ZIP</a>
+  <a href="https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.zip">ZIP</a>
   ·
-  <a href="releases/0.3.0/SHA256SUMS">Checksums</a>
+  <a href="releases/0.3.1/SHA256SUMS">Checksums</a>
   <br>
   <a href="https://wandernb.github.io/omniterm/">Documentation website</a>
   ·
@@ -64,10 +64,10 @@ its own tab—not as captured batch output.
 
 ## Install
 
-Download the latest [OmniTerm 0.3.0 DMG](https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.dmg)
+Download the latest [OmniTerm 0.3.1 DMG](https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.dmg)
 and run **Install OmniTerm.command**. It installs the app, stable CLI launchers,
-and provider MCP registrations. A [ZIP archive](https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.zip)
-and [SHA-256 manifest](https://github.com/wandernb/omniterm/releases/download/v0.3.0/SHA256SUMS)
+and provider MCP registrations. A [ZIP archive](https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.zip)
+and [SHA-256 manifest](https://github.com/wandernb/omniterm/releases/download/v0.3.1/SHA256SUMS)
 are also stored in this repository. Download counts are tracked on the
 [GitHub release page](https://github.com/wandernb/omniterm/releases/latest). See
 [Installation](docs/INSTALLATION.md) for checksums, verification, upgrades, and
@@ -196,7 +196,9 @@ the requested day when a later month supports it.
 `replace` gracefully stops a preceding run before starting the new one;
 `parallel` allows both. A run's tab closes as soon as its provider exits, for
 any reason, and the outcome stays in run history, where the session can be
-resumed. The ten newest active runs stay interactive regardless of age; older
+resumed. A run ends as `completed`, `failed`, `stopped`, or `closed` if you close
+its tab. A failed run shows the provider's last error, and the output is kept in
+`~/Library/Application Support/OmniTerm/run-logs`. The ten newest active runs stay interactive regardless of age; older
 ones are stopped only after their configured retention timeout expires.
 
 ## MCP for Claude Code and Codex

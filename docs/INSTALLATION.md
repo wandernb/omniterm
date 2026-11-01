@@ -2,8 +2,8 @@
 
 ## Release DMG
 
-1. Download the latest [OmniTerm 0.3.0 DMG](https://github.com/wandernb/omniterm/releases/download/v0.3.0/OmniTerm-0.3.0.dmg)
-   and [SHA256SUMS](https://github.com/wandernb/omniterm/releases/download/v0.3.0/SHA256SUMS), then verify the checksum.
+1. Download the latest [OmniTerm 0.3.1 DMG](https://github.com/wandernb/omniterm/releases/download/v0.3.1/OmniTerm-0.3.1.dmg)
+   and [SHA256SUMS](https://github.com/wandernb/omniterm/releases/download/v0.3.1/SHA256SUMS), then verify the checksum.
 2. Open the DMG.
 3. Run **Install OmniTerm.command**. This copies the signed app to
    `/Applications`, installs `omni` and `omni-mcp` into `~/.local/bin`, starts
@@ -16,9 +16,17 @@ registrations.
 
 Add `~/.local/bin` to `PATH` if your shell does not already include it.
 
-The current build is ad-hoc signed but not Apple-notarized. If Gatekeeper
-blocks the first launch, Control-click OmniTerm in Applications, choose
-**Open**, and confirm once. Future Developer ID releases will remove this step.
+The current build is ad-hoc signed but not Apple-notarized, so Gatekeeper blocks
+it on first use. Try to open it once, then go to **System Settings → Privacy &
+Security** and choose **Open Anyway**. On macOS 14 and earlier, Control-click it
+and choose **Open** instead. Alternatively, after verifying the checksum, clear
+the download's quarantine flag before opening the DMG:
+
+```sh
+xattr -d com.apple.quarantine ~/Downloads/OmniTerm-*.dmg
+```
+
+Future Developer ID releases will remove this step.
 
 ## Background startup and settings
 
@@ -54,6 +62,9 @@ unrelated MCP server already named `omni`.
 Running a newer installer replaces only an app whose bundle identifier is
 `com.omniterm.app`; the prior app is retained as
 `/Applications/OmniTerm.previous.app`. Agent definitions and history survive.
+
+Uninstalling removes the app, its previous version, the launchers, and the MCP
+registrations. Quit OmniTerm first with **Terminate OmniTerm Completely**.
 
 ```sh
 ./scripts/uninstall.sh          # preserve data

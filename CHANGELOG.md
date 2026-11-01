@@ -7,6 +7,31 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-01
+
+### Added
+
+- A failed run now shows the provider's last error, and its output is kept in
+  `run-logs`, because the tab closes with the run. The 50 newest logs are kept.
+- `stopped` and `closed` run outcomes.
+
+### Changed
+
+- Native dependencies are rebuilt from source, including `librailroad_dsl`.
+- Provider starts are spaced two seconds apart across runs.
+- Uninstalling also removes `OmniTerm.previous.app`, says if OmniTerm is still
+  running, and accepts `--destination` and `--bin-dir`.
+
+### Fixed
+
+- Runs starting at the same moment could fail within seconds with exit 1, because
+  Claude could not store its login in the macOS Keychain.
+- Closing a run's tab was recorded as `runner exited without reporting`, a
+  failure. It is now recorded as `closed`, and the provider is ended cleanly.
+- Stopping a run was recorded as a failure with `exit 143`.
+- Developer ID builds would have carried a literal `$(TeamIdentifierPrefix)` in
+  their entitlements.
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
@@ -93,7 +118,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/wandernb/omniterm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wandernb/omniterm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wandernb/omniterm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wandernb/omniterm/releases/tag/v0.1.0

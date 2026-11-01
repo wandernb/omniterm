@@ -288,9 +288,133 @@ class SocketAndSessionTests(unittest.TestCase):
             self.assertIsNone(RUNNER.codex_session_id(Path(root) / "missing", "/tmp"))
 
 
+class ErrorCaptureTests(unittest.TestCase):
+    def capture(self, script):
+        errors = RUNNER.ErrorTail()
+        self.addCleanup(os.close, errors.read_end)
+        child = RUNNER.subprocess.Popen(["/bin/sh", "-c", script], stderr=errors.write_end)
+        errors.close_write_end()
+        with mock.patch.object(RUNNER.os, "write"):
+            child.wait()
+            return errors.text()
+
+    def test_real_provider_error_is_kept_without_terminal_styling(self):
+        text = self.capture(r"printf '\033[31mNo conversation found\033[0m\n' >&2; exit 1")
+        self.assertEqual(text, "No conversation found")
+
+    def test_only_the_end_of_long_error_output_is_kept(self):
+        text = self.capture("yes 0123456789 | head -c 100000 >&2; echo last line >&2")
+        self.assertLessEqual(len(text), RUNNER.RUN_LOG_BYTES)
+        self.assertTrue(text.endswith("last line"))
+
+    def test_run_logs_are_private_and_pruned_to_the_newest(self):
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(RUNNER, "RUN_LOG_DIRECTORY", Path(root) / "logs"), \
+                mock.patch.object(RUNNER, "RUN_LOGS_KEPT", 2):
+            for number in range(3):
+                RUNNER.save_run_log(f"run-{number}", "boom")
+                os.utime(RUNNER.RUN_LOG_DIRECTORY / f"run-{number}.log", (number + 1, number + 1))
+            RUNNER.save_run_log("run-3", "boom")
+            logs = sorted(path.name for path in RUNNER.RUN_LOG_DIRECTORY.iterdir())
+            self.assertEqual(logs, ["run-2.log", "run-3.log"])
+            self.assertEqual((RUNNER.RUN_LOG_DIRECTORY / "run-3.log").stat().st_mode & 0o777, 0o600)
+
+    def test_unwritable_log_never_changes_the_outcome(self):
+        with mock.patch.object(RUNNER, "RUN_LOG_DIRECTORY", Path("/dev/null/logs")):
+            RUNNER.save_run_log("run", "boom")
+
+
+class RunOutcomeTests(unittest.TestCase):
+    def test_a_closed_tab_is_not_a_failure_whatever_the_exit_code(self):
+        for code in (0, 1, -1, -9, 143):
+            self.assertEqual(RUNNER.run_outcome(code, True), ("closed", "tab closed"))
+
+    def test_a_requested_stop_is_not_a_failure(self):
+        for code in (143, -15):
+            self.assertEqual(RUNNER.run_outcome(code, False), ("stopped", "stopped"))
+
+    def test_failure_reason_names_the_last_error_line(self):
+        state, reason = RUNNER.run_outcome(1, False, "starting\nNo conversation found")
+        self.assertEqual((state, reason), ("failed", "exit 1: No conversation found"))
+        self.assertEqual(RUNNER.run_outcome(7, False), ("failed", "exit 7"))
+        long_reason = RUNNER.run_outcome(1, False, "x" * 500)[1]
+        self.assertEqual(len(long_reason), len("exit 1: ") + RUNNER.REASON_CHARACTERS)
+
+
+class StartSlotTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        patcher = mock.patch.object(RUNNER, "START_SLOT", Path(directory.name) / "start.lock")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_second_start_waits_until_the_slot_is_released(self):
+        first = RUNNER.acquire_start_slot()
+        order = []
+
+        def second():
+            slot = RUNNER.acquire_start_slot()
+            order.append("second")
+            os.close(slot)
+
+        with mock.patch.object(RUNNER, "START_SLOT_POLL", 0.01):
+            waiter = RUNNER.threading.Thread(target=second)
+            waiter.start()
+            RUNNER.time.sleep(0.1)
+            order.append("released")
+            os.close(first)
+            waiter.join(5)
+        self.assertEqual(order, ["released", "second"])
+
+    def test_a_stuck_holder_delays_a_run_but_never_loses_it(self):
+        first = RUNNER.acquire_start_slot()
+        self.addCleanup(os.close, first)
+        with mock.patch.object(RUNNER, "START_SLOT_ATTEMPTS", 2), \
+                mock.patch.object(RUNNER, "START_SLOT_POLL", 0):
+            self.assertIsNone(RUNNER.acquire_start_slot())
+
+    def test_unwritable_slot_does_not_stop_the_run(self):
+        with mock.patch.object(RUNNER, "START_SLOT", Path("/dev/null/start.lock")):
+            self.assertIsNone(RUNNER.acquire_start_slot())
+        RUNNER.release_start_slot(None)
+
+    def test_slot_stays_held_for_the_spacing_after_start(self):
+        slot = RUNNER.acquire_start_slot()
+        RUNNER.release_start_slot(slot, 0.2)
+        with mock.patch.object(RUNNER, "START_SLOT_ATTEMPTS", 1), \
+                mock.patch.object(RUNNER, "START_SLOT_POLL", 0):
+            self.assertIsNone(RUNNER.acquire_start_slot())
+        RUNNER.time.sleep(0.3)
+        next_slot = RUNNER.acquire_start_slot()
+        self.assertIsNotNone(next_slot)
+        os.close(next_slot)
+
+
+class ProviderCloseTests(unittest.TestCase):
+    def test_provider_that_ignores_hangup_is_killed_after_the_grace_period(self):
+        child = RUNNER.subprocess.Popen(
+            ["/usr/bin/python3", "-c",
+             "import signal,time;signal.signal(signal.SIGHUP,signal.SIG_IGN);print('ready',flush=True);time.sleep(30)"],
+            stdout=RUNNER.subprocess.PIPE, start_new_session=True)
+        self.addCleanup(child.stdout.close)
+        self.addCleanup(child.wait)
+        self.addCleanup(RUNNER.signal_group, child.pid, RUNNER.signal.SIGKILL)
+        child.stdout.readline()
+        with mock.patch.object(RUNNER, "PROVIDER_CLOSE_GRACE", 0.1):
+            RUNNER.end_provider(child.pid)
+        self.assertEqual(child.wait(timeout=5), -RUNNER.signal.SIGKILL)
+
+    def test_ending_a_provider_that_already_exited_is_harmless(self):
+        with mock.patch.object(RUNNER.os, "killpg", side_effect=ProcessLookupError), \
+                mock.patch.object(RUNNER, "PROVIDER_CLOSE_GRACE", 0):
+            RUNNER.end_provider(4321)
+
+
 class RunnerLifecycleTests(unittest.TestCase):
     def setUp(self):
-        for name, value in (("login_shell_path", ""), ("ensure_claude_trust", None)):
+        for name, value in (("login_shell_path", ""), ("ensure_claude_trust", None),
+                            ("acquire_start_slot", None)):
             patcher = mock.patch.object(RUNNER, name, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -365,6 +489,56 @@ class RunnerLifecycleTests(unittest.TestCase):
         self.assertIn({"op": "runner_finished", "run_id": "run-2", "state": "failed",
                        "reason": "exit 7"}, requests)
         self.assertIn("failed: exit 7 · 3s", output.getvalue())
+
+    def test_closing_the_tab_ends_the_provider_and_records_closed(self):
+        response, child = self.base_response(code=-1)
+        requests, handlers = [], {}
+
+        def request(payload):
+            requests.append(payload)
+            return response if payload["op"] == "run_spec" else {"ok": True}
+
+        def wait():
+            handlers[RUNNER.signal.SIGHUP](RUNNER.signal.SIGHUP, None)
+            return -1
+
+        child.wait.side_effect = wait
+        with mock.patch.object(RUNNER.sys, "argv", ["omni-runner", "run-3"]), \
+                mock.patch.object(RUNNER, "request", side_effect=request), \
+                mock.patch.object(RUNNER.subprocess, "Popen", return_value=child), \
+                mock.patch.object(RUNNER.signal, "signal",
+                                  side_effect=lambda number, handler: handlers.update({number: handler})), \
+                mock.patch.object(RUNNER, "end_provider") as end_provider, \
+                mock.patch.object(RUNNER, "save_run_log") as save_run_log, \
+                mock.patch("builtins.print", side_effect=OSError("no terminal")):
+            RUNNER.main()
+
+        end_provider.assert_called_once_with(4321)
+        save_run_log.assert_not_called()
+        self.assertIn(RUNNER.signal.SIGTERM, handlers)
+        self.assertIn({"op": "runner_finished", "run_id": "run-3", "state": "closed",
+                       "reason": "tab closed"}, requests)
+
+    def test_failed_run_keeps_the_provider_error(self):
+        response, child = self.base_response(code=1)
+        requests = []
+
+        def request(payload):
+            requests.append(payload)
+            return response if payload["op"] == "run_spec" else {"ok": True}
+
+        with mock.patch.object(RUNNER.sys, "argv", ["omni-runner", "run-4"]), \
+                mock.patch.object(RUNNER, "request", side_effect=request), \
+                mock.patch.object(RUNNER.subprocess, "Popen", return_value=child), \
+                mock.patch.object(RUNNER.signal, "signal"), \
+                mock.patch.object(RUNNER.ErrorTail, "text", return_value="Session ID in use"), \
+                mock.patch.object(RUNNER, "save_run_log") as save_run_log, \
+                redirect_stdout(io.StringIO()):
+            RUNNER.main()
+
+        save_run_log.assert_called_once_with("run-4", "Session ID in use")
+        self.assertIn({"op": "runner_finished", "run_id": "run-4", "state": "failed",
+                       "reason": "exit 1: Session ID in use"}, requests)
 
     def test_unstartable_provider_is_reported_instead_of_crashing_the_runner(self):
         failures = (FileNotFoundError(2, "No such file or directory", "claude"),
@@ -468,7 +642,8 @@ class RunnerLifecycleTests(unittest.TestCase):
                                       side_effect=[{old}, {old, new}]), \
                     mock.patch.object(RUNNER, "codex_session_id",
                                       return_value="provider-session"), \
-                    mock.patch.object(RUNNER.threading, "Thread", ImmediateThread), \
+                    mock.patch.object(RUNNER, "ErrorTail", return_value=mock.Mock(text=mock.Mock(return_value=""))), \
+                mock.patch.object(RUNNER.threading, "Thread", ImmediateThread), \
                     mock.patch.object(RUNNER.time, "monotonic", side_effect=[30, 31]), \
                         redirect_stdout(io.StringIO()):
                 RUNNER.main()
