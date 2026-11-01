@@ -66,9 +66,34 @@ def provider_argv(agent, run_id=None, resume_session_id=None):
     return argv
 
 
+# Set by a parent agent session. OmniTerm inherits them when it is launched from
+# one, and they make Claude treat a run as a child session with no transcript.
+PARENT_SESSION_ENVIRONMENT = (
+    "ANTHROPIC_MODEL",
+    "CLAUDECODE",
+    "CLAUDE_ACCOUNT_ACTIVE",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "CLAUDE_PLUGIN_DATA",
+    "CODEX_COMPANION_SESSION_ID",
+    "CODEX_COMPANION_TRANSCRIPT_PATH",
+)
+
+
 def provider_environment(source=None):
-    """Keep managed interactive agents colorful even if OmniTerm inherited NO_COLOR."""
+    """Keep managed interactive agents colorful and independent of any parent session."""
     environment = dict(os.environ if source is None else source)
+    for name in PARENT_SESSION_ENVIRONMENT:
+        environment.pop(name, None)
     environment.pop("NO_COLOR", None)
     environment["CLICOLOR"] = "1"
     environment["FORCE_COLOR"] = "1"

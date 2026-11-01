@@ -14,9 +14,18 @@ from pathlib import Path
 SOCKET = Path.home() / "Library/Application Support/OmniTerm/scheduler.sock"
 SUPPORTED_PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 HELPER_DIR = Path(__file__).resolve().parent
+APP_BUNDLE = HELPER_DIR.parents[2]
 _OMNI_LOADER = importlib.machinery.SourceFileLoader("omni_cli_for_mcp", str(HELPER_DIR / "omni"))
 OMNI = importlib.util.module_from_spec(importlib.util.spec_from_loader("omni_cli_for_mcp", _OMNI_LOADER))
 _OMNI_LOADER.exec_module(OMNI)
+
+
+def launch_command():
+    # LaunchServices also knows every build product, so the bundle ID can open
+    # a copy that has no helpers. Prefer the app these helpers belong to.
+    if APP_BUNDLE.suffix == ".app":
+        return ["open", "-g", str(APP_BUNDLE)]
+    return ["open", "-g", "-b", "com.omniterm.app"]
 
 
 def scheduler_request(payload, launch=True):
@@ -45,7 +54,8 @@ def scheduler_request(payload, launch=True):
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             last_error = exc
             if attempt == 0 and launch:
-                subprocess.run(["open", "-g", "-b", "com.omniterm.app"],
+                subprocess.run(launch_command(),
+                               env={"HOME": str(Path.home()), "PATH": "/usr/bin:/bin"},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if attempt + 1 < attempts:
                 time.sleep(0.4)

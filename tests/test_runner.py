@@ -129,6 +129,20 @@ class ProviderArgumentTests(unittest.TestCase):
         self.assertEqual(environment["CLICOLOR"], "1")
         self.assertEqual(environment["COLORTERM"], "truecolor")
 
+    def test_environment_drops_the_parent_session(self):
+        environment = RUNNER.provider_environment({
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE_CHILD_SESSION": "1",
+            "CLAUDE_CODE_MESSAGING_TOKEN": "secret",
+            "CLAUDE_CONFIG_DIR": "/config",
+            "CLAUDE_CODE_USE_BEDROCK": "1",
+        })
+        self.assertNotIn("CLAUDECODE", environment)
+        self.assertNotIn("CLAUDE_CODE_CHILD_SESSION", environment)
+        self.assertNotIn("CLAUDE_CODE_MESSAGING_TOKEN", environment)
+        self.assertEqual(environment["CLAUDE_CONFIG_DIR"], "/config")
+        self.assertEqual(environment["CLAUDE_CODE_USE_BEDROCK"], "1")
+
     def test_managed_agent_environment_preserves_existing_truecolor_hint(self):
         environment = RUNNER.provider_environment({"COLORTERM": "24bit", "KEEP": "yes"})
         self.assertEqual(environment["COLORTERM"], "24bit")

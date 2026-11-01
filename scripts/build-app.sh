@@ -13,6 +13,18 @@ cd "$fork_dir"
 if [[ "$configuration" == Deployment ]]; then
     cp plists/release-iTerm2.plist plists/iTerm2.plist
 fi
+
+# Xcode never removes files from an existing product, so start from an empty
+# one. Compiled objects stay in Intermediates and are still reused.
+if [[ -n "$build_dir" ]]; then
+    previous_products=("$build_dir/$configuration/OmniTerm.app"(N))
+else
+    previous_products=("$HOME"/Library/Developer/Xcode/DerivedData/iTerm2-*/Build/Products/$configuration/OmniTerm.app(N))
+fi
+if (( ${#previous_products} > 0 )); then
+    rm -rf "${previous_products[@]}"
+fi
+
 if [[ -n "$build_dir" ]]; then
     BUILD_DIR="$build_dir" tools/build.sh "$configuration"
 else
@@ -31,6 +43,7 @@ fi
 
 rm -rf "$app_dir"
 ditto "$products[1]" "$app_dir"
+"$project_dir/scripts/check-bundle.sh" "$app_dir"
 mkdir -p "$app_dir/Contents/Resources/Helpers"
 install -m 0755 "$project_dir/helpers/omni" "$app_dir/Contents/Resources/Helpers/omni"
 install -m 0755 "$project_dir/helpers/omni-runner" "$app_dir/Contents/Resources/Helpers/omni-runner"

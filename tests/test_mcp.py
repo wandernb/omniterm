@@ -112,15 +112,26 @@ class SchedulerTransportTests(unittest.TestCase):
         second.recv.side_effect = [b'{"ok":true}', b""]
         with mock.patch.object(MCP.socket, "socket", side_effect=[first, second]), \
                 mock.patch.object(MCP.subprocess, "run") as launch, \
+                mock.patch.object(MCP, "launch_command", return_value=["open", "app"]), \
                 mock.patch.object(MCP.time, "sleep") as sleep:
             result = MCP.scheduler_request({"op": "ping"})
         self.assertTrue(result["ok"])
-        launch.assert_called_once_with(["open", "-g", "-b", "com.omniterm.app"],
+        launch.assert_called_once_with(["open", "app"],
+                                       env={"HOME": str(Path.home()), "PATH": "/usr/bin:/bin"},
                                        stdout=MCP.subprocess.DEVNULL,
                                        stderr=MCP.subprocess.DEVNULL)
         sleep.assert_called_once_with(0.4)
         first.close.assert_called_once_with()
         second.close.assert_called_once_with()
+
+    def test_launch_opens_the_bundle_that_holds_the_helpers(self):
+        bundle = Path("/Applications/OmniTerm.app")
+        with mock.patch.object(MCP, "APP_BUNDLE", bundle):
+            self.assertEqual(MCP.launch_command(), ["open", "-g", str(bundle)])
+
+    def test_launch_uses_the_bundle_id_when_run_from_a_checkout(self):
+        with mock.patch.object(MCP, "APP_BUNDLE", Path("/src/OmniTerm")):
+            self.assertEqual(MCP.launch_command(), ["open", "-g", "-b", "com.omniterm.app"])
 
     def test_request_without_launch_fails_once_with_context(self):
         client = mock.Mock()

@@ -493,10 +493,10 @@ index 0000000000000000000000000000000000000000..306b1633a5bf55b345d4ac037e2ac3d3
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..6ac0256c965c576313a92aed32e6286e3d231fc1 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..a93ea0c751141a12dd844d1a7b72c7c4c296d4a1 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -2418,3 +2418,98 @@ Bug Fixes:
+@@ -2418,3 +2418,101 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -595,6 +595,9 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..6ac0256c965c576313a92aed32e6286e
 +down drawing.
 +An agent file with an invalid schedule is now
 +skipped instead of crashing OmniTerm at launch.
++Launching no longer waits on a prompt, so the
++scheduler always starts. A second copy now exits
++quietly.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
 index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..e3e6534598fd8ad7f2cfb9ed3f346d5e8dc4daf3 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
@@ -2050,6 +2053,62 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..84d718949c7b2224f099f93de79d6a73
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
+diff --git a/sources/AppKit/iTermInstanceLock.swift b/sources/AppKit/iTermInstanceLock.swift
+index 23f62b1bf0755645f409677039058b30d190b229..0afb36353f27e62e81675384f3bd039981fe48ff 100644
+--- a/sources/AppKit/iTermInstanceLock.swift
++++ b/sources/AppKit/iTermInstanceLock.swift
+@@ -54,8 +54,9 @@ class InstanceLock: NSObject {
+         return "RESULT: ERROR: another copy of iTerm2 (pid \(pid)) is running\(suite), so -compare-rendering cannot run. Use a different -suite.\n"
+     }
+ 
+-    // Call once NSApp exists. If another instance holds the lock, ask the user what to do. Quitting
+-    // activates the other instance and exits.
++    // Call once NSApp exists. If another instance holds the lock, this copy exits. OmniTerm is
++    // started by login items and MCP clients, so nobody may be there to answer an alert, and the
++    // running copy already does everything this one would.
+     @objc static func resolveConflictIfNeeded() {
+         guard let pid = conflictingPID else {
+             return
+@@ -66,38 +67,7 @@ class InstanceLock: NSObject {
+             FileHandle.standardError.write(Data(compareRenderingConflictMessage(pid: pid).utf8))
+             exit(1)
+         }
+-        let message: String
+-        if let suiteName = iTermUserDefaults.customSuiteName() {
+-            message = String(format: String(localized: "InstanceLock.SuiteMessage",
+-                                            defaultValue: "Another copy of iTerm2 (process ID %1$d) is already running with the settings suite “%2$@”. If two copies use the same settings at once, they can overwrite each other’s preferences and saved windows.",
+-                                            comment: "Shown at launch when another instance uses the same -suite. %1$d is a process ID; %2$@ is the suite name."),
+-                             Int32(pid), suiteName)
+-        } else {
+-            message = String(format: String(localized: "InstanceLock.Message",
+-                                            defaultValue: "Another copy of iTerm2 (process ID %d) is already running. If two copies use the same settings at once, they can overwrite each other’s preferences and saved windows.",
+-                                            comment: "Shown at launch when another instance of iTerm2 is already running. %d is a process ID."),
+-                             Int32(pid))
+-        }
+-        let quit = String(localized: "InstanceLock.Quit",
+-                          defaultValue: "Quit",
+-                          comment: "Button that quits this copy of iTerm2 and switches to the one already running")
+-        let launchAnyway = String(localized: "InstanceLock.LaunchAnyway",
+-                                  defaultValue: "Launch Anyway",
+-                                  comment: "Button that keeps launching a second copy of iTerm2 despite the risk")
+-        let selection = iTermWarning.show(withTitle: message,
+-                                          actions: [quit, launchAnyway],
+-                                          accessory: nil,
+-                                          identifier: nil,
+-                                          silenceable: .kiTermWarningTypePersistent,
+-                                          heading: String(localized: "InstanceLock.Heading",
+-                                                          defaultValue: "iTerm2 Is Already Running",
+-                                                          comment: "Heading of the warning shown when launching a second copy of iTerm2"),
+-                                          window: nil)
+-        if selection == .kiTermWarningSelection1 {
+-            RLog("User chose to launch anyway despite pid \(pid) holding the instance lock")
+-            return
+-        }
+-        NSRunningApplication(processIdentifier: pid)?.activate(options: [])
++        RLog("Exiting because pid \(pid) already holds the instance lock")
+         exit(0)
+     }
+ }
 diff --git a/sources/AppKit/main.m b/sources/AppKit/main.m
 index 3db72502f552a9fd93503096381c5d8f0c0eea9b..5fe83bfd240e2bac1551f7b2a2d8e752e792ccae 100644
 --- a/sources/AppKit/main.m
@@ -2082,6 +2141,23 @@ index 3db72502f552a9fd93503096381c5d8f0c0eea9b..5fe83bfd240e2bac1551f7b2a2d8e752
      if ([[iTermUserDefaults userDefaults] boolForKey:@"MetalCaptureEnabled"]) {
          setenv("MTL_CAPTURE_ENABLED", "1", 1);
      }
+diff --git a/sources/AppLaunch/iTermLaunchExperienceController.m b/sources/AppLaunch/iTermLaunchExperienceController.m
+index 22a5f7394a1afc20001fc8811b1d6559ee9e9251..bcd9b44808f08c75e5dda61ef401d3aa6b4515a9 100644
+--- a/sources/AppLaunch/iTermLaunchExperienceController.m
++++ b/sources/AppLaunch/iTermLaunchExperienceController.m
+@@ -158,10 +158,8 @@ typedef NS_ENUM(NSUInteger, iTermLaunchExperienceChoice) {
+ }
+ 
+ - (void)applicationWillFinishLaunching {
+-#if !DEBUG
+-    // This is unconditional because it is so important. It enable software update.
+-    PFMoveToApplicationsFolderIfNecessary();
+-#endif
++    // OmniTerm is a background utility and is not updated by Sparkle, so it must not hold up
++    // launching to offer a move to /Applications.
+ }
+ 
+ - (void)applicationDidFinishLaunching {
 diff --git a/sources/MainMenu/Base.lproj/MainMenu.xib b/sources/MainMenu/Base.lproj/MainMenu.xib
 index 67c90dc0b730074d575d181324d27b2d078eeb2f..66c7409f910d0eefbcaeecc251b64704df930fb8 100644
 --- a/sources/MainMenu/Base.lproj/MainMenu.xib
@@ -3249,3 +3325,20 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..e0c6953b769d80f858906ba908fcec02
       ^NSTextAlignment(NSTextField * _Nonnull scratch) {
           BOOL leftAligned = NO;
           [self frameForWindowTitleLabel:scratch
+diff --git a/sources/iTermController/iTermController.m b/sources/iTermController/iTermController.m
+index fcee462da8768f15d6e759a234a355cd273d6c99..7016f968d48abf4fa30dd859fb18384c437f5427 100644
+--- a/sources/iTermController/iTermController.m
++++ b/sources/iTermController/iTermController.m
+@@ -138,12 +138,6 @@ static iTermController *gSharedInstance;
+     self = [super init];
+ 
+     if (self) {
+-        // A test host would offer to report any recent iTerm2 crash in a modal window, which
+-        // blocks button and menu actions in the tests that follow.
+-        if (![NSApp isRunningUnitTests]) {
+-            UKCrashReporterCheckForCrash();
+-        }
+-
+         // create the "~/Library/Application Support/iTerm2" directory if it does not exist
+         [[NSFileManager defaultManager] applicationSupportDirectory];
+ 

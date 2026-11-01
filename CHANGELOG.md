@@ -44,6 +44,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Runs left behind by a dead runner no longer stay in `starting` forever.
 - An agent file with an invalid schedule no longer crashes OmniTerm at launch.
 - A client that stalls mid-request can no longer hold a scheduler thread.
+- Builds could ship interface files from an older build, which crashed OmniTerm
+  at launch. Each build now starts from an empty product, and `build-app.sh`
+  fails if a stale resource remains.
+- Release builds could stop before starting the scheduler, waiting on a
+  move-to-Applications prompt, the inherited iTerm2 crash reporter, or a
+  second-copy warning. OmniTerm no longer shows these at launch: a second copy
+  exits quietly, and iTerm2's crash reporter is gone.
+- MCP relaunches the app its helpers belong to, not another build with the same
+  bundle ID.
+- Runs no longer inherit a parent agent session when OmniTerm was started from
+  one, which turned off Claude's transcripts and so broke resuming.
 - `patches/iterm2-omniterm.patch` had drifted from the fork; it is now rewritten
   on every build.
 - The helper test suite and `omni-mcp` load on Python 3.15.
