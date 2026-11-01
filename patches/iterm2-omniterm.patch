@@ -493,10 +493,10 @@ index 0000000000000000000000000000000000000000..306b1633a5bf55b345d4ac037e2ac3d3
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..a93ea0c751141a12dd844d1a7b72c7c4c296d4a1 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..05635fb87258b22c848d40b98677fd4ff0bfb58e 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -2418,3 +2418,101 @@ Bug Fixes:
+@@ -2418,3 +2418,105 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -598,6 +598,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..a93ea0c751141a12dd844d1a7b72c7c4
 +Launching no longer waits on a prompt, so the
 +scheduler always starts. A second copy now exits
 +quietly.
++A run is now completed once its agent finishes
++its turn, however its idle session later ends.
++A run lost before that is shown as interrupted
++rather than failed.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
 index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..e3e6534598fd8ad7f2cfb9ed3f346d5e8dc4daf3 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
@@ -2267,10 +2271,10 @@ index 0000000000000000000000000000000000000000..7edacb48aa7810fd5b9c2916e25f2084
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..e7bf96b333ddbbd53aa59a214851825ef1a92e0a
+index 0000000000000000000000000000000000000000..c3b5ad5dcc06d64dbda26c6afa6a3490cce030fe
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,829 @@
+@@ -0,0 +1,849 @@
 +#import "OmniScheduler.h"
 +
 +@import SQLite3;
@@ -2465,6 +2469,7 @@ index 0000000000000000000000000000000000000000..e7bf96b333ddbbd53aa59a214851825e
 +    [self execute:@"CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, agent TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, started REAL NOT NULL, finished REAL, pid INTEGER, pgid INTEGER, session_id TEXT, resume_session_id TEXT, FOREIGN KEY(agent) REFERENCES agents(name) ON DELETE CASCADE)"];
 +    sqlite3_exec(_database, "ALTER TABLE runs ADD COLUMN session_id TEXT", NULL, NULL, NULL);
 +    sqlite3_exec(_database, "ALTER TABLE runs ADD COLUMN resume_session_id TEXT", NULL, NULL, NULL);
++    sqlite3_exec(_database, "ALTER TABLE runs ADD COLUMN turn_finished INTEGER", NULL, NULL, NULL);
 +    [self execute:@"INSERT OR REPLACE INTO metadata(key,value) VALUES('schema_version','2')"];
 +
 +    [[NSFileManager defaultManager] createDirectoryAtPath:_agentsPath
@@ -2889,6 +2894,11 @@ index 0000000000000000000000000000000000000000..e7bf96b333ddbbd53aa59a214851825e
 +            bindings:@[ request[@"session_id"], request[@"run_id"] ]];
 +        return @{ @"ok": @YES };
 +    }
++    if ([operation isEqualToString:@"runner_turn"]) {
++        [self runSQL:@"UPDATE runs SET turn_finished=? WHERE id=?"
++            bindings:@[ @([request[@"finished"] isEqual:@YES]), request[@"run_id"] ?: @"" ]];
++        return @{ @"ok": @YES };
++    }
 +    if ([operation isEqualToString:@"runner_finished"]) {
 +        NSArray *existing = [self rowsForSQL:@"SELECT state,pid FROM runs WHERE id=?"
 +                                     bindings:@[ request[@"run_id"] ]];
@@ -2977,20 +2987,34 @@ index 0000000000000000000000000000000000000000..e7bf96b333ddbbd53aa59a214851825e
 +}
 +
 +- (void)reapAbandonedRuns {
-+    NSArray *rows = [self rowsForSQL:@"SELECT id,pid,started FROM runs WHERE state IN ('starting','running','evicting')"
++    NSArray *rows = [self rowsForSQL:@"SELECT id,pid,started,state,turn_finished FROM runs WHERE state IN ('starting','running','evicting')"
 +                             bindings:@[]];
 +    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
 +    for (NSDictionary *run in rows) {
 +        const pid_t runnerPID = (pid_t)OmniIntegerValue(run[@"pid"]);
++        NSString *state = nil;
 +        NSString *reason = nil;
 +        if (runnerPID > 1) {
-+            if (kill(runnerPID, 0) != 0 && errno == ESRCH) reason = @"runner exited without reporting";
++            if (kill(runnerPID, 0) == 0 || errno != ESRCH) continue;
++            // The runner cannot report through a reboot or a killed app, and an
++            // interactive provider idles after finishing. Losing it is not a failure.
++            if ([run[@"state"] isEqualToString:@"evicting"]) {
++                state = @"evicted";
++                reason = @"retention age";
++            } else if (OmniIntegerValue(run[@"turn_finished"]) == 1) {
++                state = @"completed";
++                reason = @"agent finished, then its session was lost";
++            } else {
++                state = @"interrupted";
++                reason = @"runner exited without reporting";
++            }
 +        } else if (now - OmniDoubleValue(run[@"started"]) > OmniRunnerStartGracePeriod) {
++            state = @"failed";
 +            reason = @"runner never started";
 +        }
-+        if (reason) {
-+            [self runSQL:@"UPDATE runs SET state='failed',reason=?,finished=? WHERE id=?"
-+                bindings:@[ reason, @(now), run[@"id"] ]];
++        if (state) {
++            [self runSQL:@"UPDATE runs SET state=?,reason=?,finished=? WHERE id=?"
++                bindings:@[ state, reason, @(now), run[@"id"] ]];
 +        }
 +    }
 +}

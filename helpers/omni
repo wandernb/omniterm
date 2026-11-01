@@ -726,6 +726,10 @@ def tui_palette():
     return {name: curses.color_pair(index) for index, name in enumerate(colors, 1)}
 
 
+RUN_STATE_COLORS = {"running": "green", "completed": "green", "interrupted": "peach",
+                    "failed": "red", "timed_out": "red"}
+
+
 AGENT_FORM_FIELDS = [
     ("name", "Name"),
     ("provider", "Provider"),
@@ -1979,11 +1983,11 @@ def dashboard_screen(window):
             max_run_rows = max(0, panel_bottom - run_y - 1)
             agent_runs = [run for run in runs if run["agent"] == agent["name"]][:max_run_rows]
             for offset, run in enumerate(agent_runs):
-                state_style = palette["green"] if run["state"] == "running" else palette["red"] if run["state"] in {"failed", "timed_out"} else palette["muted"]
+                state_style = palette[RUN_STATE_COLORS.get(run["state"], "muted")]
                 chosen_run = focus == "runs" and offset == selected_run
                 symbol = "▶" if chosen_run else "●" if run["state"] == "running" else "◆"
                 style = state_style | (curses.A_BOLD | curses.A_REVERSE if chosen_run else 0)
-                tui_text(window, run_y + 1 + offset, x, f"{symbol} {run['state']:<10} {fmt_time(run['started'])[5:]}  {run['id'][:8]}", style, right_width - 6)
+                tui_text(window, run_y + 1 + offset, x, f"{symbol} {run['state']:<11} {fmt_time(run['started'])[5:]}  {run['id'][:8]}", style, right_width - 6)
                 hitboxes.append((run_y + 1 + offset, run_y + 1 + offset, x, x + right_width - 7, "resume_run", offset))
 
         actions = [("add", "＋ Add"), ("edit", "✎ Edit"),

@@ -861,6 +861,12 @@ class CommandOutputTests(unittest.TestCase):
         self.assertIn("run-1", runs)
         self.assertIn("failed", runs)
 
+    def test_only_real_failures_are_red(self):
+        self.assertEqual(OMNI.RUN_STATE_COLORS["failed"], "red")
+        self.assertEqual(OMNI.RUN_STATE_COLORS["completed"], "green")
+        self.assertEqual(OMNI.RUN_STATE_COLORS["interrupted"], "peach")
+        self.assertNotIn("closed", OMNI.RUN_STATE_COLORS)
+
     def test_preview_schedule_prints_five_recurring_occurrences(self):
         start = dt.datetime(2026, 8, 2, 9, 0,
                             tzinfo=OMNI.ZoneInfo("UTC")).timestamp()

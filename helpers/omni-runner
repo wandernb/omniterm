@@ -29,6 +29,8 @@ START_SLOT = SOCKET.parent / "provider-start.lock"
 START_SLOT_ATTEMPTS = 240
 START_SLOT_POLL = 0.25
 START_SPACING = 2
+TURN_POLL_SECONDS = 5
+TURN_TAIL_BYTES = 1048576
 TERMINAL_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\^_])")
 
 
@@ -259,16 +261,118 @@ def save_run_log(run_id, text):
         pass  # A log is a diagnostic; it must never change the run's outcome.
 
 
-def run_outcome(code, closed, error_text=""):
-    """Separate what a person or the scheduler ended from what actually failed."""
+def claude_turn_event(event):
+    """Whether one Claude transcript event ends a turn, starts one, or says nothing about it."""
+    if event.get("isSidechain") or event.get("isMeta"):
+        return None
+    if event.get("type") == "user":
+        return False
+    if event.get("type") != "assistant":
+        return None
+    message = event.get("message")
+    stop_reason = message.get("stop_reason") if isinstance(message, dict) else None
+    return stop_reason == "end_turn" and not event.get("isApiErrorMessage")
+
+
+def codex_turn_event(event):
+    """Whether one Codex session event ends a turn, starts one, or says nothing about it."""
+    payload = event.get("payload")
+    kind = payload.get("type") if event.get("type") == "event_msg" and isinstance(payload, dict) else None
+    if kind == "task_complete":
+        return True
+    return False if kind in ("task_started", "turn_aborted") else None
+
+
+def last_turn_state(path, classify):
+    """Read a transcript's end, newest event first. None means nothing there settles it."""
+    try:
+        with path.open("rb") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, size - TURN_TAIL_BYTES))
+            lines = handle.read().splitlines()
+    except OSError:
+        return None
+    if size > TURN_TAIL_BYTES:
+        lines = lines[1:]  # The tail starts mid-line.
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue  # The provider may still be writing the last line.
+        state = classify(event) if isinstance(event, dict) else None
+        if state is not None:
+            return state
+    return None
+
+
+class TurnTracker:
+    """Follow whether the agent finished its turn.
+
+    An interactive provider stays open at its prompt after finishing, so how the
+    process ends says nothing about the work. Its transcript does.
+    """
+
+    def __init__(self, provider, session_id):
+        self.provider = provider
+        self.session_id = session_id
+        self.path = None
+        self.modified = None
+        self.finished = False
+
+    def transcript(self):
+        if not self.path and self.session_id:
+            if self.provider == "claude":
+                matches = (Path.home() / ".claude/projects").glob(f"*/{self.session_id}.jsonl")
+            else:
+                matches = (Path.home() / ".codex/sessions").rglob(f"*{self.session_id}.jsonl")
+            self.path = next(iter(matches), None)
+        return self.path
+
+    def check(self):
+        path = self.transcript()
+        if not path:
+            return self.finished
+        try:
+            modified = path.stat().st_mtime_ns
+        except OSError:
+            return self.finished
+        if modified != self.modified:
+            self.modified = modified
+            state = last_turn_state(path, claude_turn_event if self.provider == "claude" else codex_turn_event)
+            if state is not None:
+                self.finished = state
+        return self.finished
+
+
+def watch_turn(run_id, tracker, stop):
+    """Tell the scheduler as it changes: a reboot leaves the runner no chance to report."""
+    reported = False
+    while not stop.wait(TURN_POLL_SECONDS):
+        finished = tracker.check()
+        if finished == reported:
+            continue
+        try:
+            request({"op": "runner_turn", "run_id": run_id, "finished": finished})
+            reported = finished
+        except (OSError, ValueError):
+            pass  # Try again on the next pass.
+
+
+def run_outcome(code, closed, error_text="", turn_finished=False):
+    """Separate what a person or the scheduler ended from what actually failed.
+
+    A finished turn is a completed run, whatever ended the idle session afterwards.
+    """
     if closed:
-        return "closed", "tab closed"
-    if code == 0:
+        state, reason = "closed", "tab closed"
+    elif code == 0:
         return "completed", "exit 0"
-    if code in (-signal.SIGTERM, 128 + signal.SIGTERM):
-        return "stopped", "stopped"
-    lines = error_text.splitlines()
-    return "failed", f"exit {code}: {lines[-1][:REASON_CHARACTERS]}" if lines else f"exit {code}"
+    elif code in (-signal.SIGTERM, 128 + signal.SIGTERM):
+        state, reason = "stopped", "stopped"
+    else:
+        lines = error_text.splitlines()
+        state, reason = "failed", f"exit {code}: {lines[-1][:REASON_CHARACTERS]}" if lines else f"exit {code}"
+    return ("completed", f"agent finished, then {reason}") if turn_finished else (state, reason)
 
 
 def signal_group(process_group, number):
@@ -367,6 +471,9 @@ def main():
     known_session_id = run.get("session_id") if isinstance(run.get("session_id"), str) else None
     request({"op": "runner_started", "run_id": run_id, "pid": os.getpid(), "pgid": child.pid,
              "session_id": known_session_id})
+    tracker = TurnTracker(agent["provider"], known_session_id)
+    stop_watching = threading.Event()
+    threading.Thread(target=watch_turn, args=(run_id, tracker, stop_watching), daemon=True).start()
     if agent["provider"] == "codex" and not resume_session_id:
         def find_session():
             for _ in range(60):
@@ -375,14 +482,16 @@ def main():
                 for path in candidates:
                     session_id = codex_session_id(path, agent["workspace"])
                     if session_id:
+                        tracker.session_id = session_id
                         try: request({"op": "runner_session", "run_id": run_id, "session_id": session_id})
                         except OSError: pass
                         return
                 time.sleep(0.5)
         threading.Thread(target=find_session, daemon=True).start()
     code = child.wait()
+    stop_watching.set()
     error_text = errors.text()
-    state, reason = run_outcome(code, closed.is_set(), error_text)
+    state, reason = run_outcome(code, closed.is_set(), error_text, tracker.check())
     if state == "failed" and error_text:
         save_run_log(run_id, error_text)
     report_finished(run_id, state, reason, started)

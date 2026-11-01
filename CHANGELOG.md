@@ -7,6 +7,25 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- An `interrupted` run outcome, for a run whose runner disappeared before the
+  agent finished its turn, such as during a restart.
+
+### Changed
+
+- The dashboard shows `completed` runs in green and `interrupted` runs in peach.
+
+### Fixed
+
+- Runs were marked `failed` after finishing their work. Claude and Codex stay
+  open at their prompts when they finish, so a run that finished was only ever
+  ended by a reboot, a closed tab or the next schedule. OmniTerm now follows the
+  provider's transcript, and a run whose agent finished its turn is `completed`
+  however its idle session ends.
+- A run being evicted whose runner disappeared was marked `failed` instead of
+  `evicted`.
+
 ## [0.3.1] - 2026-11-01
 
 ### Added

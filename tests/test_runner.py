@@ -340,6 +340,124 @@ class RunOutcomeTests(unittest.TestCase):
         long_reason = RUNNER.run_outcome(1, False, "x" * 500)[1]
         self.assertEqual(len(long_reason), len("exit 1: ") + RUNNER.REASON_CHARACTERS)
 
+    def test_a_finished_turn_completes_the_run_whatever_ended_it(self):
+        cases = ((-1, True, "agent finished, then tab closed"),
+                 (143, False, "agent finished, then stopped"),
+                 (137, False, "agent finished, then exit 137"))
+        for code, closed, reason in cases:
+            with self.subTest(code=code):
+                self.assertEqual(RUNNER.run_outcome(code, closed, turn_finished=True), ("completed", reason))
+
+    def test_an_unfinished_turn_keeps_the_real_ending(self):
+        self.assertEqual(RUNNER.run_outcome(137, False, turn_finished=False), ("failed", "exit 137"))
+        self.assertEqual(RUNNER.run_outcome(0, False, turn_finished=False), ("completed", "exit 0"))
+
+
+def claude_event(kind, stop_reason=None, **fields):
+    return {"type": kind, "message": {"stop_reason": stop_reason}, **fields}
+
+
+def codex_event(kind):
+    return {"type": "event_msg", "payload": {"type": kind}}
+
+
+class TurnStateTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "session.jsonl"
+
+    def write(self, *lines):
+        self.path.write_text("".join(
+            (line if isinstance(line, str) else json.dumps(line)) + "\n" for line in lines))
+
+    def claude_state(self, *lines):
+        self.write(*lines)
+        return RUNNER.last_turn_state(self.path, RUNNER.claude_turn_event)
+
+    def test_claude_end_turn_is_finished_despite_trailing_bookkeeping(self):
+        self.assertIs(self.claude_state(claude_event("user"), claude_event("assistant", "end_turn"),
+                                        {"type": "last-prompt"}, {"type": "summary"}), True)
+
+    def test_claude_mid_turn_states_are_not_finished(self):
+        cases = ((claude_event("assistant", "tool_use"),),
+                 (claude_event("assistant", "end_turn"), claude_event("user")),
+                 (claude_event("assistant", "max_tokens"),),
+                 (claude_event("assistant", "end_turn", isApiErrorMessage=True),))
+        for lines in cases:
+            with self.subTest(lines=lines):
+                self.assertIs(self.claude_state(*lines), False)
+
+    def test_claude_subagent_and_meta_events_say_nothing_about_the_turn(self):
+        self.assertIs(self.claude_state(claude_event("assistant", "end_turn"),
+                                        claude_event("user", isSidechain=True),
+                                        claude_event("user", isMeta=True)), True)
+
+    def test_codex_turn_follows_task_events(self):
+        cases = (("task_complete", True), ("task_started", False), ("turn_aborted", False))
+        for kind, expected in cases:
+            with self.subTest(kind=kind):
+                self.write(codex_event("task_started"), codex_event(kind), codex_event("token_count"))
+                self.assertIs(RUNNER.last_turn_state(self.path, RUNNER.codex_turn_event), expected)
+
+    def test_a_half_written_last_line_is_skipped(self):
+        self.assertIs(self.claude_state(claude_event("assistant", "end_turn"), '{"type": "us'), True)
+
+    def test_an_unsettled_transcript_is_unknown(self):
+        self.assertIsNone(self.claude_state({"type": "summary"}))
+        self.assertIsNone(RUNNER.last_turn_state(self.path.with_name("missing"), RUNNER.claude_turn_event))
+
+    def test_only_the_tail_of_a_large_transcript_is_read(self):
+        with mock.patch.object(RUNNER, "TURN_TAIL_BYTES", 200):
+            self.assertIs(self.claude_state(claude_event("user"), "x" * 500,
+                                            claude_event("assistant", "end_turn")), True)
+
+    def tracker(self, provider="claude", session_id="run-1"):
+        tracker = RUNNER.TurnTracker(provider, session_id)
+        tracker.path = self.path
+        return tracker
+
+    def test_tracker_follows_new_turns_and_keeps_the_last_answer(self):
+        tracker = self.tracker()
+        self.assertIs(tracker.check(), False)
+        self.write(claude_event("assistant", "end_turn"))
+        self.assertIs(tracker.check(), True)
+        self.write({"type": "summary"})
+        os.utime(self.path, ns=(1, 1))
+        self.assertIs(tracker.check(), True)
+        self.write(claude_event("user"))
+        os.utime(self.path, ns=(2, 2))
+        self.assertIs(tracker.check(), False)
+
+    def test_tracker_finds_each_provider_transcript(self):
+        home = Path(self.directory.name)
+        claude = home / ".claude/projects/-tmp/abc.jsonl"
+        codex = home / ".codex/sessions/2026/11/01/rollout-2026-11-01T01-26-22-abc.jsonl"
+        for path in (claude, codex):
+            path.parent.mkdir(parents=True)
+            path.write_text("")
+        with mock.patch.object(RUNNER.Path, "home", return_value=home):
+            self.assertEqual(RUNNER.TurnTracker("claude", "abc").transcript(), claude)
+            self.assertEqual(RUNNER.TurnTracker("codex", "abc").transcript(), codex)
+            self.assertIsNone(RUNNER.TurnTracker("claude", "other").transcript())
+            self.assertIsNone(RUNNER.TurnTracker("codex", None).transcript())
+
+    def test_watcher_reports_changes_once_and_retries_a_failed_report(self):
+        tracker = mock.Mock()
+        tracker.check.side_effect = [False, True, True, True, False]
+        stop = mock.Mock()
+        stop.wait.side_effect = [False] * 5 + [True]
+        sent = []
+
+        def request(payload):
+            sent.append(payload["finished"])
+            if len(sent) == 1:
+                raise OSError("scheduler restarted")
+
+        with mock.patch.object(RUNNER, "request", side_effect=request):
+            RUNNER.watch_turn("run-1", tracker, stop)
+        self.assertEqual(sent, [True, True, False])
+
 
 class StartSlotTests(unittest.TestCase):
     def setUp(self):
@@ -519,6 +637,32 @@ class RunnerLifecycleTests(unittest.TestCase):
         self.assertIn({"op": "runner_finished", "run_id": "run-3", "state": "closed",
                        "reason": "tab closed"}, requests)
 
+    def test_closing_the_tab_after_the_agent_finished_is_a_completed_run(self):
+        response, child = self.base_response(code=-1)
+        requests, handlers = [], {}
+
+        def request(payload):
+            requests.append(payload)
+            return response if payload["op"] == "run_spec" else {"ok": True}
+
+        def wait():
+            handlers[RUNNER.signal.SIGHUP](RUNNER.signal.SIGHUP, None)
+            return -1
+
+        child.wait.side_effect = wait
+        with mock.patch.object(RUNNER.sys, "argv", ["omni-runner", "run-5"]), \
+                mock.patch.object(RUNNER, "request", side_effect=request), \
+                mock.patch.object(RUNNER.subprocess, "Popen", return_value=child), \
+                mock.patch.object(RUNNER.signal, "signal",
+                                  side_effect=lambda number, handler: handlers.update({number: handler})), \
+                mock.patch.object(RUNNER, "end_provider"), \
+                mock.patch.object(RUNNER.TurnTracker, "check", return_value=True), \
+                redirect_stdout(io.StringIO()):
+            RUNNER.main()
+
+        self.assertIn({"op": "runner_finished", "run_id": "run-5", "state": "completed",
+                       "reason": "agent finished, then tab closed"}, requests)
+
     def test_failed_run_keeps_the_provider_error(self):
         response, child = self.base_response(code=1)
         requests = []
@@ -625,13 +769,19 @@ class RunnerLifecycleTests(unittest.TestCase):
                 requests.append(payload)
                 return response if payload["op"] == "run_spec" else {"ok": True}
 
+            trackers = []
+
             class ImmediateThread:
-                def __init__(self, target, daemon):
+                def __init__(self, target, daemon, args=()):
                     self.target = target
                     self.daemon = daemon
+                    self.args = args
 
                 def start(self):
-                    self.target()
+                    if self.target is RUNNER.watch_turn:
+                        trackers.append(self.args[1])
+                    else:
+                        self.target()
 
             with mock.patch.object(RUNNER.sys, "argv", ["omni-runner", "run-3"]), \
                     mock.patch.object(RUNNER, "request", side_effect=request), \
@@ -650,6 +800,7 @@ class RunnerLifecycleTests(unittest.TestCase):
 
         self.assertIn({"op": "runner_session", "run_id": "run-3",
                        "session_id": "provider-session"}, requests)
+        self.assertEqual(trackers[0].session_id, "provider-session")
 
 
 if __name__ == "__main__":

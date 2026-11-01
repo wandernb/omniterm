@@ -196,8 +196,10 @@ the requested day when a later month supports it.
 `replace` gracefully stops a preceding run before starting the new one;
 `parallel` allows both. A run's tab closes as soon as its provider exits, for
 any reason, and the outcome stays in run history, where the session can be
-resumed. A run ends as `completed`, `failed`, `stopped`, or `closed` if you close
-its tab. A failed run shows the provider's last error, and the output is kept in
+resumed. A run ends as `completed`, `failed`, `stopped`, `closed` if you close
+its tab, or `interrupted` if OmniTerm or your Mac stops mid-work. Claude and Codex
+stay open after finishing, so a run whose agent finished its turn counts as
+`completed` however its idle session later ends. A failed run shows the provider's last error, and the output is kept in
 `~/Library/Application Support/OmniTerm/run-logs`. The ten newest active runs stay interactive regardless of age; older
 ones are stopped only after their configured retention timeout expires.
 
