@@ -9,15 +9,615 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Sidebar modes. A switch at the top of the sidebar flips between Agents (the
+  existing agents, runs and terminals) and Sessions, which lists every Claude
+  Code and Codex session on the Mac, live or past, most recent first. Picking a
+  session opens its transcript; Resume reopens it in an OmniTerm tab with the
+  provider's own resume command, or shows its tab if it is already open there.
+  Inbox, Memory and Settings appear in both modes. The window no longer starts
+  the curses dashboard at launch and shows the sidebar's start page instead.
+- Model fallback on usage limits. When a scheduled run's model or harness runs
+  out of usage, the runner continues the task in the same tab on an equivalent
+  model: the other harness first (Fable/Opus ↔ Astra, Sonnet ↔ Sol,
+  Haiku ↔ Luna), then a same-tier model on the same harness when only one
+  model family was limited. The run's reason names the fallback; a run with no
+  equivalent left fails with the provider's limit message. A Codex turn refused
+  for usage no longer counts as a finished turn.
+- Settings page in the sidebar. It covers notifications, the global shortcut,
+  login startup, window behaviour, defaults for new agents (provider, model and
+  permission mode per provider, overlap), retention, time zone and run
+  summaries. It replaces the separate OmniTerm Settings window, and the status
+  menu's Settings item, `omniterm://settings`, now opens it. Changes save at
+  once through the new `set_settings` scheduler operation, which validates
+  every key and stores nothing if one is invalid.
+- Configurable notifications. Mute OmniTerm for an hour, until tomorrow morning
+  or until you unmute: from Settings, the status menu's Mute Notifications, or
+  `omni mute [30m|2h|tomorrow]` / `omni unmute`. Choose, for each level (urgent,
+  attention, info), whether it shows a banner, plays a sound and raises the
+  menu-bar count. Each kind of notification can follow its level, stay in the
+  Inbox only, or always banner; each agent can follow the rules, notify only
+  when urgent, or stay in the Inbox. Everything still reaches the Inbox. While
+  muted, the menu-bar icon is crossed out, and the terminal's own notifications
+  (bell, idle and new-output alerts, triggers, and the notifications Claude and
+  Codex ask for) are silenced too.
+- Notifications record their kind: `agent`, `compaction`, `wrap_up`,
+  `loop_continuation`, `storage` or `run_limit`. Existing notifications get
+  one from their dedupe key. The Inbox shows the kind and can filter by it, and
+  `notifications` takes a `kind` filter.
+- `omni settings set KEY VALUE` changes one setting, using dots for nested
+  keys (for example `notifications.levels.info.banner true`).
+- `explain_memory` (MCP): why a memory exists and weighs what it does — its
+  weight history from the journal with the expiry projection and the archival
+  step due, evidence grouped by session, who formed it and why, UPDATE lineage
+  both ways, stable topics and concepts, linked memories with a reason per link,
+  and the weekly summaries that cite it. Read-only: explaining is not a use.
+- Weekly project summaries, first slice: `weekly_summary_candidates` lists
+  project weeks due a summary (that week's daily episodes and memories, with the
+  memory IDs and evidence a summary cites), and `write_weekly_summary` stores
+  the summary as an episodic memory tagged `weekly-summary`, with store-chosen
+  evidence and a cap of six a day. The Omni Memory agent does not call them yet.
+- Memory graph exploration: search a memory to focus its one- or two-hop
+  neighbourhood (`memory_graph` `focus` and `hops`, at most 120 nodes), expand a
+  node on double-click, a filter bar (type, workspace, time, minimum weight),
+  tinted community regions in the overview, and a collapsible mind map whose
+  open branches survive refreshes.
+- Search query grammar for transcripts and memories: `type:`, `ws:`,
+  `provider:`, `role:`, `concept:`, `session:`, `after:`/`before:`/`since:`,
+  `archived:`, quoted phrases and `-exclusions`, with «»-marked snippets and
+  "more like this" (`like`). The Search tab shows filters as removable chips
+  and keeps recent searches.
+- Semantic coverage: the embedder walks the person's own turns first, then the
+  last 14 days, then the rest; it takes a larger budget when the Mac is idle on
+  power. `knowledge_status` reports coverage, counted on a thread of its own.
+- Memory archival and a storage report: memories fading and unused for 30 days
+  are archived (restorable), and deleted 90 days later unless pinned or backed
+  by three or more sources. A daily report sizes the knowledge database against
+  a 30 GB budget (`configure_storage`); over budget, vectors of old, uncited
+  assistant messages are dropped. Transcript text is never deleted.
+- Knowledge compaction, owner-run: `scripts/compact-knowledge.py` migrates the
+  database to schema v2 (one copy of message text, vectors as float32 blobs,
+  incremental vacuum) after a backup is confirmed; `scripts/compact-rehearsal.py`
+  rehearses it on a copy with integrity, row-count and search-parity checks.
+  It also merges the full-text index segments and clears the filter sidecar of
+  rows for deleted messages, and is safe to rerun on a version-2 index (14.7 GB
+  to 12.7 GB on a live index). The app now sweeps those stale sidecar rows
+  itself, so the sidecar no longer grows past the index.
+- Knowledge schema v3 (same script): each message is stored once, in
+  `messages`, with no `records` row kept beside it; a removed message travels
+  as a `{"_deleted": true}` marker the worker sends only to a v3 index. A live
+  index went from 12.0 GB to 10.0 GB (10.8 GB with the filter sidecar, from
+  14.7 GB before the compaction work).
+- Background topic naming and merges: stable memory topics, recomputed daily
+  with ids carried over by overlap, and near-duplicate memory pairs (cosine
+  ≥ 0.85) offered to the Omni Memory agent through `memory_topics`,
+  `name_topic`, `merge_candidates` and `decide_merge`; a merge keeps both
+  memories' evidence and archives the dropped one. Consolidation prompt v8.
+- Memory eval abilities: `scripts/memory-eval.py` labels each golden query with
+  a LongMemEval ability and reports nDCG@10 and recall@20 per ability, abstention
+  precision and recall both in-sample and held out (the threshold is fitted on one
+  half of the queries, split by a stable hash of the query id, and scored on the
+  other), the judged share of each top 10 and
+  failure tags (coverage, ranking, stemming, synonym). Headline quality averages
+  answerable queries only; results that quote two or more golden queries (the
+  eval's own output, once indexed) and sessions in `exclude_sessions` are left
+  out before judging and when re-scoring. `--frozen` scores against
+  stored grades only; `--rescore` re-scores earlier reports against today's grades.
+
+- Brainstorm memo: semantic data layers and long-term memory research applied to Omni memory
+  (knowledge/brainstorms/@2026-11-11-02-brainstorm-semantic-layers-and-long-memory.md)
+- Brainstorm memo: explorable memory graph, richer querying, background LLM and compact storage
+  (knowledge/brainstorms/@2026-11-11-01-brainstorm-memory-graph-query-llm-storage.md)
+- Brainstorm memo: semantic search and memory quality
+  (knowledge/brainstorms/@2026-11-10-01-brainstorm-semantic-search-and-memory-quality.md)
+- Memory retrieval eval: `scripts/memory-eval.py` grades search results against
+  a private golden set with a cheap Codex judge (cached), and reports nDCG@10,
+  pooled recall@20, MRR and latency per corpus and mode.
+- Memory graph concept map: memories link through shared concepts (files,
+  packages, commands, error codes, symbols, plan slugs), shown as diamond hubs
+  with a Concepts toggle. The mind map gains a Topics branch built from concept
+  communities.
+- The memory consolidator now receives the owner's corrections, decisions and
+  preferences as candidates. Secrets are masked and text capped. Each candidate
+  carries its most similar existing memories (semantic neighbours first), and the
+  consolidator answers it with ADD, UPDATE or NOOP. An UPDATE keeps the memory's
+  evidence (`upsert_memory` `keep_sources`), so repeated statements reinforce it.
+- The memory digest opens with a Topics section built from concept communities.
+- Knowledge-base memory: every project's `knowledge/` folder (all of
+  `~/Projects`, `@head` worktrees only, plus the shared Claude knowledge
+  and any folders listed in `knowledge-roots`) is indexed as `kb:` sessions of searchable heading sections, and
+  each file becomes one source-linked memory tagged with its project, revised
+  on change and deleted with the file. Live: 30 knowledge bases, 2,436 files.
+
+- Daily session episodes: each project's day of sessions becomes one episodic
+  memory listing every session's request and outcome, linked to both records.
+
+- The Memory page has an Ingest tab listing the background memory agent's
+  runs (result, summary, schedule) with Open Run and Run Now. Those runs no
+  longer appear in the sidebar's Runs, its Terminals or the Overview; the
+  agent itself stays under Agents.
+
+- The Memory page's graph groups memories by project: workspace hubs are on by
+  default and a worktree checkout is named after its repository.
+
+- Stable-identity deduplication for Codex histories indexed from both the
+  JSONL rollout and the provider database: `get_session`, lexical and
+  semantic search and memory candidates show a record once, keyed by session,
+  rollout position, part, kind and text; `get_session` takes
+  `include_mirrors: true` for both copies' provenance. An additive
+  `message_positions` index serves the lookup; no data is rewritten.
+
+- `knowledge_status` reports corpus identity: `mirrored_sessions` (sessions
+  with both a JSONL and a provider-database source), `stale_native_sources`
+  (native projections waiting to be revisited) and `orphan_threads` (provider
+  history with no catalog row, never resurrected; counted read-only, cached
+  for half an hour, retried after a minute on failure). The Memory page's
+  Process tab shows them as an Identity stage. Memory candidates skip a
+  message mirrored by another source of the same session, so the consolidator
+  never sees one conclusion twice.
+
+- A Memory page in the sidebar, modelled on a hippocampus. Browse lists
+  durable memories by type and decayed weight with their evidence excerpts,
+  revisions, related memories and journal, and can pin, reinforce or retype
+  one; Search spans memories and transcripts (lexical, semantic, hybrid);
+  Process shows the transcript → embedding → candidate → memory pipeline with
+  live counts and the consolidation journal; Digest renders a per-workspace
+  mid-term summary; Graph draws memories as a force-directed network (links
+  by shared session, tag, lineage, similarity, workspace) or a radial mind
+  map (type → tag → memory), highlighting what consolidation just touched.
+- Hippocampus memory model: seven memory types with base weights and daily
+  decay, evidence counts, lineage and pinning; weight decays from the last
+  reinforcement and memories below 0.5 become expiry candidates, never silent
+  deletions. A bounded journal (`metadata:memory_event:`) records candidates
+  offered, memories created, revised, adjusted or deleted, dismissals, digest
+  regenerations and ten-minute ingestion snapshots, with the run and agent
+  that made each change. New knowledge operations and MCP tools:
+  `list_memories`, `get_memory`, `memory_events`, `memory_overview`,
+  `memory_graph`, `memory_digest`, `update_memory` and
+  `dismiss_memory_candidates`; the all-workspaces digest regenerates itself at
+  most hourly when memories change; `upsert_memory` accepts `memory_type`,
+  `weight`, `lineage`, `pinned` and `reason`.
+
+- `omni folders set PATH… [--json]` replaces the configured sidebar folder
+  list, including empty folders, while preserving agent memberships.
+- An offline outcome-review HTML prototype with three explicitly synthetic
+  outcomes. It has no native integration, execution or persistence; browser,
+  mobile keyboard and assistive-technology acceptance remain unverified.
+- Source implementation of unified local Claude/Codex session discovery,
+  paginated transcript and tool-output retrieval, lexical/semantic/hybrid
+  search, provider-channel messaging with idempotent durable receipts, and
+  revisioned memories with validated source references. Current native Codex
+  database history (`native` and `paginated` modes), JSONL, subagents and archived
+  sessions are indexed. Database-backed file diffs, collaboration results and
+  MCP errors are included; mirrored JSONL/database records retain their distinct
+  source references pending stable-identity deduplication. Codex transcript
+  pages interleave those sources by rollout position without dropping repeated
+  messages or separating a record's chunks.
+  Native web-search results and hook output are searchable. Generated images
+  retain their revised prompt, failure text and artifact path while encoded
+  image bytes stay out of transcript and vector indexes. Existing native
+  projections refresh incrementally without changing provider histories.
+  Delivery evidence requires the exact attributed request and UUID recorded as
+  user input in the recipient's transcript; it does not claim model processing.
+- An app-supervised knowledge worker with native-only SQLite persistence,
+  continuous ingestion, read-only persistent projections and local macOS
+  embeddings with an explicit English word-vector fallback. Model identity
+  and inference availability are reported; no model download is introduced.
+  Bounded streaming supports records above 8 MiB across restarts, and source
+  audits reconcile interior rewrites and deleted provider items. Active
+  transcripts and pending message receipts receive bounded indexing priority
+  while older history continues; transcript pages flag incomplete indexing.
+  Metadata discovery advances independently of transcript parsing, so large
+  earlier files no longer delay cataloging later sessions.
+  JSONL discovery, normal ingestion and native catalog traversal also keep
+  durable positions. Worker restarts no longer put later histories behind
+  the same earlier files; queued append work survives and backlog counts
+  include pending histories outside the bounded in-memory queue.
+  Native background catch-up visits multiple histories within shared byte,
+  item and source limits, so tiny or empty histories do not consume whole
+  scan cycles. Requested-session priority and restart checkpoints remain bounded.
+  Native streams reserve publication and cleanup capacity so sustained JSONL
+  work cannot consume their entire allowance. Status counts use identity indexes
+  while preserving pending additions, replacements and deletions.
+  Native-history and vector scan positions survive worker restarts. Vector
+  catch-up inspects already indexed records separately from its inference
+  budget, while unfinished records remain eligible for processing.
+  Reading an incomplete session requests a bounded indexing pass. Requested
+  history, live delivery evidence and ordinary history share fair scan slots;
+  database-only recipients also receive delivery-evidence priority.
+- Opt-in memory consolidation through the owned 15-minute **Omni Memory**
+  agent, configured with MCP `configure_memory` or
+  `omni knowledge memory install`. Intake is bounded, source-linked, deduplicated
+  and excludes the consolidator's own sessions. The canonical local app has
+  passed build, packaging, activation and ad-hoc signature verification;
+  helper coverage and all five opt-in IPC cases passed. Disposable provider
+  exchanges, durable receipt recovery and replay safety passed. Local synthetic
+  memory revision, retrieval and deletion passed; scheduled memory inference
+  remains under verification.
+
+- Loop agent configuration for one persistent run/session, idle prompt
+  repetition, coalesced busy ticks, soft work budgets, and idle-only compaction.
+  Native editor, CLI and MCP controls and provider-channel wrap-up reminders
+  are implemented. Human follow-ups remain visible after compaction, and
+  Claude compaction output does not interrupt loop continuation. Live lifecycle
+  verification remains partial, including Codex compaction compatibility.
+
+- A sidebar on the left of the terminal window replaces the tab bar. It lists
+  the dashboard, your agents, live runs by agent and every other terminal tab;
+  click a row to show its terminal, or `+` to open a new terminal.
+
+- Agent notifications. Agents call the new `notify_user` MCP tool, and scripts
+  run `omni notify`, to raise a notification. The menu-bar item shows the number
+  of unread notifications that need attention and lists them, and a new Inbox
+  window shows every notification with the changed files and diff captured when
+  it was sent. `omni notifications` and `omni notification` list and manage
+  them from the terminal. Urgent notifications also show a macOS banner.
+- An OmniTerm Inbox widget for Notification Center, in small and medium sizes,
+  showing how many notifications need you and the newest ones. Clicking it
+  opens the Inbox.
+- The Omni dashboard has an Inbox button (`i`), shows the unread total, and
+  counts notifications per agent and per run.
+- The MCP server's instructions and a new `omni://guide` resource document
+  notifications for every session, and runs started by OmniTerm get a short
+  note naming the agent and run and saying when to notify.
+- Runs export `OMNI_RUN_ID` and `OMNI_AGENT` to their agent.
 - An `interrupted` run outcome, for a run whose runner disappeared before the
   agent finished its turn, such as during a restart.
+- Agents can be renamed (`omni agent NAME rename NEW`, MCP `rename_agent`; the
+  agent file, run history and notifications move with it), grouped into
+  sections and subsections, and given an icon (an SF Symbol or one emoji) and
+  one of sixteen named colours: red, rose, pink, orange, brown, yellow, lime,
+  green, mint, teal, cyan, blue, indigo, purple, slate and gray
+  (`omni agent NAME set --group/--icon/--color`, MCP
+  `create_agent`/`update_agent`). `omni agents` lists them by section, in the
+  sidebar's order (`omni agents order NAME…`).
+- Sidebar folders open a folder page listing their subfolders and agents, with
+  Rename, New Subfolder, New Agent Here and Delete Folder. The sidebar works
+  from the keyboard: Control-Command-S focuses it, the arrow keys move through it
+  and open and close folders, Return renames, Command-I edits the icon and
+  colour, Option-Command-Up/Down reorders, Command-N and Shift-Command-N create
+  an agent or a folder, and Tab returns to the page or terminal.
+- `omni run RUN-ID --screen [--plain]` prints the run's last terminal screen and
+  up to 2,000 lines of scrollback, saved with colours when a turn finishes and
+  when the run's session ends (`run-screens/`, kept 30 days and for the 200
+  newest runs). `omni run RUN-ID --tail [--lines N] [--json]` renders the end
+  of the run's Claude or Codex session transcript the same way, for runs without
+  a saved screen.
+- Run reports. `omni run RUN-ID [--diff] [--json]` and the read-only MCP tool
+  `get_run` show a run's AI summary, the agent's final message, branch, commits,
+  changed files and pull request. When an agent finishes a turn, OmniTerm writes
+  a short summary with a small Claude model (`summary_model`, default `haiku`)
+  that has no tools and no MCP servers; `"summaries": false` in
+  `~/.omni/settings.json` turns it off and shows the final message instead.
+  The scheduler records each run's workspace, provider and starting commit, and
+  when a turn finishes captures the commits made since, and one diff of
+  everything that changed since the run started, committed or not. Run diffs
+  are private files kept for 30 days and the 200 newest runs. `list_runs`
+  filters by `agent`, `origin`, `limit` and `before`.
+
+- Keyboard navigation through the main window and the Inbox. → or Tab in the
+  sidebar goes into the page. There:
+  - ↑ and ↓ move through a list, and the run report follows the selection;
+  - ← and → move between buttons;
+  - Return opens a row or presses a button;
+  - Tab moves between the parts of the page;
+  - Escape returns to the sidebar.
+- Every panel can be resized and collapsed: the sidebar, an agent page's run
+  list, the terminal band and a run's diff. Control-Command-1 to 4 show and hide
+  them. A narrow window stacks the report under the run list.
+- Panel sizes and the window's frame are kept in `~/.omni/settings.json` under
+  `layout`, so the window reopens as it was left.
+- The Inbox also opens as a page in the main window's sidebar.
+- A keyboard map: Command-/ anywhere in the terminal window, or `?` from the
+  sidebar or a page. In the OmniTerm window, Command-/ no longer finds the cursor.
+- An agent's page shows its startup and system prompts in full, formatted as
+  Markdown, with **Show more** for long ones.
+- The icon and colour picker (Command-I, or a double-click on a sidebar icon)
+  offers about 340 SF Symbols in categories and an Emoji tab of common emoji.
+  Typing in its search field filters both as you go, by name and keywords;
+  for example, "bug" finds the ant and the ladybugs. ↓ moves into the grid,
+  the arrows move through it, and Return picks. `omni agents appearance --json`
+  lists each icon with its category and keywords.
+- The agent editor's prompt fields are Markdown editors that format as you type:
+  - the syntax stays visible, dimmed;
+  - Command-B, Command-I and Command-K add bold, italic and links;
+  - Return continues a list;
+  - Tab indents list items.
 
 ### Changed
 
+- The knowledge index stores one copy of transcript text and vectors as binary,
+  and returns freed space as it goes. Vectors are stored as int8. A live 26 GB
+  index became 9.6 GB. Tool output is kept as its first 1,500 and last 500
+  characters, for new transcripts and, through a background pass, for ones
+  already indexed; the full output stays in the transcript file.
+- Each turn a loop agent finishes now appears as its own run in history, with
+  its own final message, summary, diff, screen and notifications. The loop
+  still keeps one live run, tab and provider session. Its agent page lists
+  every turn; the sidebar, dashboard and folder pages show its two newest.
+- Memory, search and other knowledge reads no longer wait for indexing to save
+  its writes: they go straight to the knowledge worker and leave the writes
+  for the indexing tick, which also stops between batches when a request
+  waits. `knowledge_status` uses counts kept warm in steps instead of counting
+  millions of messages and vectors while every other request waits, and a scan
+  looks for pending transcripts only once its last batch is used up and the
+  last scan counted some. The vector snapshot is saved every four hours rather
+  than every 30 minutes, since each save rewrites hundreds of megabytes, and is
+  restored in stages after a launch. Scans stop early when a request is
+  waiting. On a 26 GB
+  index a Memory request went from about 6 s to under 100 ms.
+- Pages ask the scheduler for every live run plus recent foreground runs
+  (`list_runs` takes `include_live`, `foreground` and `loop_turns`), and the Settings page
+  reads login-startup status off the main thread, once per refresh. Live-run
+  queries use a new index on the run state.
+- New agents start from the Settings defaults everywhere: the app's editor,
+  `omni agent add` and MCP `create_agent`. MCP `create_agent` no longer needs a
+  `provider`. The CLI's fallback provider changes from Codex to the default,
+  which is Claude unless you change it in Settings.
+- The menu bar, widget and sidebar count the notifications your settings
+  count (by default attention and urgent, as before). Banners follow the same
+  rules: by default only urgent ones, as before. An urgent notification beyond
+  the newest eight is no longer missed.
+- Meaning-based (semantic) search ranks better without changing the embedding model.
+  A memory's title gets a vector of its own: the local sentence model ranks short
+  titles far better than long bodies. Memories embedded earlier are re-embedded once,
+  and the graph's similarity and the merge sweep still average the body only. Memory
+  scores are mean-centred against the corpus, so text that resembles everything
+  stops outranking the specific match; intake's duplicate check keeps raw cosine.
+  Turns the harness writes (Codex approval reviews and their verdicts, system
+  reminders, hook feedback, skill and command wrappers) are no longer embedded.
+  They were a third of all transcript vectors, and their near-identical short chunks
+  topped every semantic search. They stay lexically searchable, and vectors embedded
+  before the rule are skipped at query time and pruned in the background.
+- Release builds keep the build machine's folders out of the binaries.
+  `scripts/release-paths.sh` maps the project and home folders out of compiled-in
+  file names (C/Objective-C `__FILE__`, Swift 5 `#file`, debug info), builds Metal
+  shaders without embedded sources, and strips the debug map before signing.
+  Releases up to 0.3.1 still name the builder's home folder.
+- Extra knowledge folders are listed in
+  `~/Library/Application Support/OmniTerm/knowledge-roots` (`label=path` per
+  line) instead of a built-in path; only `~/Projects` and `~/.claude/knowledge`
+  are read by default.
+- The contact address is now `dev at wnbx dot net`, and the documentation
+  screenshots no longer show a real home folder or carry editing metadata.
+- The memory consolidator agent no longer has a sidebar row and is not
+  counted in folders or on the Dashboard. The Memory page's Ingest tab lists
+  its runs, and its new Open Agent button opens the agent's page to pause or
+  edit it. Reordering the sidebar keeps its saved place. `omni agents` and MCP
+  `list_agents` still list it.
+- The keyboard map (`?` or Command-/) lists what Return does on each kind
+  of sidebar row: rename an agent or folder, focus a run's or a terminal's
+  terminal (a finished run's page instead), and go into the Dashboard, Inbox
+  or Memory page.
+- Lexical search ranks inside the full-text index and reads only the ranked
+  rows, widening the window when filters reject rows, and marks snippets from
+  the returned rows' text instead of FTS5 `snippet()` (0.3 s saved per search). When fewer than three messages or memories match
+  every word, matches of any word follow, marked `partial_match`.
+- The graph re-lays itself out only when its memories, links or half-point
+  weights change; a refresh warm-starts from the previous positions, and large
+  graphs use Barnes–Hut repulsion, culled edges and cached edge drawing.
+- Memory search keeps lexical as its default mode, now judged by the frozen eval:
+  with any-word relaxation, lexical scores nDCG@10 0.642 on answerable memory
+  queries against hybrid's 0.595 (0.232 against 0.313 before relaxation, on the
+  same grades). Stopwords (English and French) are left out of searches whenever
+  another word remains, and the any-word pass stops after 150 ms.
+- Filtered transcript search tests ranked messages on `knowledge-filters.sqlite`,
+  a derived copy of each message's filter columns beside the index (about 350 MB
+  for 1.6M messages), filled 4,000 rows per tick and rebuilt when the index is
+  replaced; the rows returned are checked against the index again. A cold
+  `provider:` filter step went from 1.5 s to 0.04 s.
+- Ranked rows are read by rowid in a fixed join order, so a `provider:` filter
+  no longer walks the scope index over every message of that provider (2 s cold
+  before, 0.1 s after). Semantic transcript search rejects filtered candidates on
+  the sidecar instead of reading each message, and `type:` with a memory type
+  (`procedural`, `decision`…) on transcripts answers at once with no matches.
+- The idle embedding burst runs as 0.25 s slices with a check for waiting
+  searches between them (`embed` `slice`/`followup`, `slices` in its answer), so
+  a search waits for at most one slice (0.5–0.85 s measured) instead of the
+  whole burst (about 2 s or more).
+- Scoped memory search (`ws:`, `provider:`, `role:`) judges scope on a copy of
+  cited messages' scope columns, warmed a few batches per tick after launch:
+  30 s for `provider:codex` before, about 0.2 s after.
+- Worktree checkouts of one repository (`repo/@head`, `repo-wt/<name>`,
+  `repo/.claude/worktrees/<name>`) share one workspace hub in the memory graph,
+  and the graph's workspace filter matches all of them.
+- Memory candidate batches stay under about 24 KB and topic lists under about
+  16 KB, so agent harnesses show them whole; the rest wait for the next call.
+
+- Semantic and hybrid search are exact and fast. The knowledge worker holds
+  every stored vector in memory, scores them all with Accelerate, and loads them
+  in the background after launch (results say `vectors_warming` until done).
+  Searches no longer embed on the query path. The loaded vectors are saved as a
+  snapshot beside the index, so a relaunch warms in seconds.
+- Hybrid search fuses lexical and semantic rankings with Reciprocal Rank Fusion
+  and lets near-duplicate results give way (MMR).
+- Tool calls and tool output are no longer vector-indexed; lexical search still
+  finds them, and existing vectors for them are pruned in bounded sweeps.
+- Repeated chunks embed once, and background embedding runs for a time budget
+  per tick, memories first, instead of one chunk per tick.
+- The Omni Memory consolidator runs on Codex `gpt-6-luna` at low reasoning
+  effort by default (`configure_memory` takes `model`) and works through up to
+  three batches of 20 candidates per run.
+
+- Memory reads reuse enriched memories and re-read only those that changed:
+  with 2,600 memories, list, graph and overview answer in 15–75 ms warm
+  instead of 0.5–0.8 s, and the background tick keeps them warm.
+
+- Transcript indexing takes up to 4 MB per scan but stops after about 0.8 s
+  and embeds at most 4 chunks; while a backlog remains and no request waits,
+  a tick runs up to four such scans. A request waits for at most one scan, and
+  a multi-gigabyte backlog drains at about 70 MB a minute instead of 12–19.
+  Stream cleanup removes up to 4,000 small staging documents per scan instead
+  of 200, which had left a few hundred reindexing transcripts stalled.
+  Records up to 1 MB are parsed in place instead of going through the
+  incremental stream parser above 64 KB; a 1 GB transcript of ~120 KB tool
+  results had advanced about 60 KB per scan.
+- The memory consolidator's candidates are the newest unconsidered records,
+  walked backwards by row instead of sorted by timestamp (313 s → 0.09 s on a
+  million-message index), and the pending count stops at 500 ("500+").
+- The worker's startup probe and the Memory page no longer count the whole
+  corpus on the request path. Display counts (messages, vectors, pending and
+  considered candidates) are counted exactly in bounded index steps by the
+  background tick and refresh every 30 minutes; the page shows them as warming
+  right after a launch.
+- Memories store the workspaces of their evidence, so the Memory page's cache
+  builds from the memory rows alone (0.65 s cold on 2,600 memories, was up to
+  13 s); evidence availability is checked in the detail view. The graph keeps
+  memory embeddings and pairwise similarity in memory, loads embeddings in
+  slices off the request path and re-reads only changed memories.
+- Embedding runs as its own worker request, and each Memory background step
+  is bounded, so a page request waits for at most one short call. Calls over
+  0.5 s are listed in `knowledge_status.slow_calls`. Live, 2,600 memories:
+  overview, list, graph, mind map and journal p90 ≤ 0.1 s; first page load
+  after a launch ≤ 0.6 s.
+
+- The helper-test workflow selects upstream-update workflow changes on both push
+  and pull request. Release-host documentation records the system Python
+  prerequisite used by ad-hoc entitlement processing.
+- OmniTerm shows in the Dock and Command-Tab while one of its windows is up.
+  Command-Q and Command-W still only hide it.
+- "Overview" is now "Dashboard", with an icon. Dashboard and Inbox sit at the
+  top of the sidebar.
+- The Inbox window has the main window's look: the same sidebar, cards, status
+  chips and colours. A hairline divides the title bar from the content in both
+  windows.
+- Command-W closes the Inbox, and Control-Option-Space shows only the terminal,
+  putting the Inbox away.
 - The dashboard shows `completed` runs in green and `interrupted` runs in peach.
+- `omni run NAME` is now `omni run RUN-ID`, the run report; an argument that is
+  not a run ID still starts the named agent, as `omni agent NAME run` does.
 
 ### Fixed
 
+- Session handoffs to Claude keep working across Claude Code updates that
+  advertise the same peer protocol.
+- Idle runs no longer show as Running. Live runs dropped out of the sidebar's
+  short list of recent runs once the memory consolidator had started a few
+  runs, so their tabs fell back to Running. A Claude session compacted while
+  idle also looked as though a new turn had started. The agent page, `omni
+  runs` and the terminal dashboard now say idle too.
+- Runs whose agent had finished before retention closed the idle session are
+  recorded as completed, not evicted. Earlier history is corrected once, for
+  runs that recorded a finished turn. Runs from before turns were tracked show
+  as Ended, since whether they finished was never recorded; only runs known to
+  be mid-turn show as Evicted.
+- The window no longer jumps to the Omni Memory run every time the consolidator
+  starts. Background agents' run tabs now open without being selected, and when
+  one is selected incidentally (a neighbouring tab closed) the window shows the
+  Dashboard rather than that run's page.
+- Running an agent whose advanced arguments end in a multi-value Claude flag
+  (`--add-dir a --add-dir b`) started an empty session that did nothing: the flag
+  took the startup prompt as one more directory. The runner now ends options with
+  `--` before the prompt, for Claude and Codex, which also keeps a prompt that
+  starts with `-` from being read as a flag.
+- Memory searches scoped by `provider:` or `ws:` found nothing once the any-word
+  fallback was needed. Every pass re-parsed all memories' cited sources (about 0.2 s
+  with ~2,900 memories), which used up the fallback's 150 ms budget. The parsed
+  sources and scoped memory sets are now cached until a memory changes.
+- Semantic transcript searches limited by `before:`, `after:` or `since:` scored
+  every record in turn and rejected the ones outside the window one lookup at a time
+  (over 4 s for an early window). Each loaded vector now carries its message's time,
+  so only records inside the window are scored.
+- A transcript keyword search for a very common word ranked every match (142,000 for
+  one project name, 0.6–1.6 s). It now ranks the newest 20,000 matches. Searches with
+  fewer matches are ranked exactly as before.
+- Hybrid transcript search fuses the top 30 keyword matches instead of 50. The eval
+  scored 20, 30, 40 and 50 the same, and the slowest warm searches (about 0.4 s)
+  lose the time spent reading rows that never reached the results.
+
+- Codex loops and session-reuse runs can compact again. OmniTerm typed
+  `/compact` and Enter in one write, and Codex’s TUI takes a carriage return
+  that arrives in the same burst as typed text for a pasted newline, so the
+  command sat unsubmitted in the composer. Codex now gets the command, then
+  Enter as a separate write half a second later; each write is refused if a
+  person has typed in the session, and a refused Enter reports compaction as
+  rejected instead of delivered. Claude is unchanged.
+- Codex runs start with `check_for_update_on_startup=false`. Codex's update
+  prompt could take the Enter OmniTerm types for `/compact` or a loop tick and
+  install an update.
+- Omni Memory runs end once their agent finishes its turn and are recorded
+  completed, instead of idling at the prompt as "Idle · waiting for you" until
+  the next occurrence replaced them. Only OmniTerm's own unattended agents close
+  this way; ordinary runs stay open for a reply, loops are unchanged, and a
+  memory session reopened from history stays open.
+
+- Graph community regions show again in the overview: memories outside the
+  day's stable topics keep the community found among the memories shown.
+
+- The memory graph's similarity edges include memories embedded by the knowledge
+  helper itself (float32 vectors were skipped).
+
+- Opening the knowledge index no longer scans every record: the one-time
+  backfill guard now seeks the primary key, so a cold launch stops reading the
+  whole 22 GB file before the worker starts.
+
+- A transcript whose stream job record had gone missing restarted from zero,
+  so a 1 GB transcript kept re-reading itself; it now resumes at its offset.
+- Memory candidates' Codex-mirror check looks up the record's rollout
+  position instead of comparing text across the whole session (3.8 s → 0.02 s
+  for a pending-count window).
+
+- Codex provider databases closed by their last writer (no `-wal`/`-shm`
+  files) are read immutably instead of failing with "unable to open database
+  file" on every scan.
+
+- The Memory page loads promptly: it refreshes in the background every 15
+  seconds instead of every 2, never repeats a request still in flight, and
+  reuses corpus counts for five minutes, refreshed in the background by the
+  indexing tick, so tab switches and clicks no longer queue behind its own
+  polling or a multi-second recount of the message index. Its list column has a source-list design
+  (count, type chips, weight bars) and can be resized by dragging its edge;
+  the width is remembered with the window layout. A memory's evidence is
+  grouped under each session's title, without command markup.
+
+- Memory page and MCP knowledge requests no longer wait behind indexing: the
+  app's indexing tick yields to queued requests between its worker calls,
+  taking typical reads from 45–56 seconds to under 2 seconds while a large
+  backlog drains, and each five-second indexing tick now reads up to 1 MB of
+  transcript instead of 256 KB. `knowledge_status` reports `last_scan_timings`
+  per phase.
+
+- `omni agents order` now reorders agents in the sidebar itself: the
+  scheduler rewrites the agent slots of the sidebar's canonical order within
+  each folder (named agents first, in the order given, the rest unchanged)
+  and leaves folder positions and memberships alone.
+
+- The managed memory consolidator now works one tool call at a time and
+  dismisses examined candidates in a single batch, so its requests no longer
+  queue behind indexing until responses are lost; its run budget is 600
+  seconds. Its prompt routes memories into types and treats an assistant's
+  report as a claim unless the evidence shows the result. Existing v1 agents
+  are recognised and upgraded in place. Knowledge requests from MCP wait up
+  to 90 seconds, and lost dismissal responses are retried safely.
+
+- Failed release packaging preserves the prior DMG, ZIP and checksums. Failed
+  publication restores the prior files, or retains backups with their location
+  if restoration is incomplete, while preserving the original failure status.
+- Uninstall propagates MCP removal failure before deleting the app, launchers
+  or user data, including with `--purge`, so the installation remains available
+  for retry. Provider registrations already removed are not rolled back.
+- `omni mcp uninstall` exits 1 if an installed provider's removal fails, after
+  attempting removal from both installed providers. Existing ownership checks,
+  provider command scopes and printed status output are preserved.
+- Ad-hoc entitlement processing accepts either or both optional group
+  entitlement keys being absent while preserving the source plist.
+- Upstream-update discovery preserves lookup failures, rejects empty references
+  and publishes metadata only after both references have been validated.
+- Embedding cleanup bounds inspected vector keys and retains its position across
+  worker restarts. Healthy indexes no longer require a full orphan scan before
+  each maintenance pass or semantic search; deleted sources remain excluded from
+  search while their derived vectors are removed incrementally.
+- Message outbox scans use the indexed receipt key range, so unrelated transcript
+  records no longer add a full record scan to each delivery pass.
+- Provider database connections are explicitly closed if read-only initialization
+  fails, while successful connections remain owned by their calling importer.
+- Rebuilding OmniTerm with `scripts/build-app.sh` deleted and recreated the app,
+  which removed the Inbox widget from Notification Center. The build now
+  updates `dist/OmniTerm.app` in place, and `OMNITERM_SIGN_IDENTITY` signs it
+  with a stable certificate (`scripts/local-signing-identity.sh` makes one).
+- Command-W on the dashboard tab closed it and, as the only tab, the whole
+  terminal window, so the next hotkey opened a plain shell with no dashboard.
+  Command-W and Option-Command-W on the dashboard or the only tab now hide the
+  window instead.
 - Runs were marked `failed` after finishing their work. Claude and Codex stay
   open at their prompts when they finish, so a run that finished was only ever
   ended by a reboot, a closed tab or the next schedule. OmniTerm now follows the

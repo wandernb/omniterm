@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>OmniTerm · Synthetic outcome review</title>
+  <style>
+    :root { color-scheme: dark; --bg: #111112; --panel: #171718; --text: #f5f2ef; --muted: #99979a; --peach: #f7b185; --blue: #7daaff; --green: #69db7c; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    main { max-width: 1500px; margin: auto; padding: clamp(20px, 4vw, 56px); }
+    header { border-top: 5px solid var(--peach); padding-top: 20px; }
+    h1 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.15; letter-spacing: -.04em; margin: 16px 0; }
+    h2 { font-size: 1.1rem; margin-top: 32px; }
+    p { max-width: 76ch; }
+    .fixture { color: var(--peach); margin: 0; }
+    .muted, small { color: var(--muted); }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--muted); background: var(--panel); }
+    .table-scroll:focus-visible { outline: 3px solid var(--blue); outline-offset: 4px; }
+    table { border-collapse: collapse; width: 100%; min-width: 1210px; text-align: left; font-size: .9rem; }
+    caption { text-align: left; padding: 16px; color: var(--peach); }
+    th, td { vertical-align: top; padding: 16px; border-top: 1px solid var(--muted); }
+    thead th { color: var(--bg); background: var(--peach); }
+    tbody th { min-width: 170px; }
+    td { min-width: 140px; max-width: 30ch; }
+    td:nth-child(2), td:nth-child(3) { min-width: 230px; }
+    .decision { display: block; font-size: 1rem; margin-bottom: 8px; }
+    .accepted { color: var(--green); }
+    .rejected { color: var(--peach); }
+    .deferred { color: var(--blue); }
+    footer { margin-top: 32px; border-top: 1px solid var(--muted); padding-top: 12px; }
+    @media (max-width: 600px) { main { padding: 20px; } th, td { padding: 12px; } table { font-size: 1rem; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="fixture">OmniTerm / Offline review prototype / Entirely fictional</p>
+      <h1>What did the work deliver?</h1>
+      <p>Three synthetic outcomes. Each provider finished its turn and each notice
+        was delivered and read. A person's decision about the work remains separate.</p>
+      <p class="muted">Every task, number, evidence note, PR reference and decision
+        below is invented. Nothing is connected to an agent, repository or account.</p>
+    </header>
+    <section aria-labelledby="evidence-title">
+      <h2 id="evidence-title">Expected work and observed evidence</h2>
+      <p id="scroll-help" class="muted">On narrow screens, scroll the table horizontally.
+        Keyboard: Tab to the table, then use Left and Right arrows.</p>
+      <div class="table-scroll" role="region" aria-labelledby="evidence-title" aria-describedby="scroll-help" tabindex="0">
+        <table>
+          <caption>Fictional review ledger · three outcomes</caption>
+          <thead>
+            <tr>
+              <th scope="col">Outcome</th>
+              <th scope="col">Expected evidence</th>
+              <th scope="col">Observed evidence</th>
+              <th scope="col">Provider and receipt</th>
+              <th scope="col">Human decision</th>
+              <th scope="col">Decision reference</th>
+              <th scope="col">Measured cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Repair a sample importer</th>
+              <td>Preserve 12 sample records, including two with blank notes.</td>
+              <td>Fixture check: 12 records preserved; both blank notes unchanged.</td>
+              <td>Turn: completed<br>Notice: delivered<br>Notice: read</td>
+              <td><strong class="decision accepted">Accepted</strong>Fictional reviewer approved the supplied evidence.</td>
+              <td>Existing fictional PR F-17.<br>Review note F-A: accept this revision.</td>
+              <td>Unknown.<br>No cost measurement supplied.</td>
+            </tr>
+            <tr>
+              <th scope="row">Condense a sample guide</th>
+              <td>Shorten the guide while retaining all four setup steps.</td>
+              <td>Fixture comparison: three of four setup steps remain; recovery step omitted.</td>
+              <td>Turn: completed<br>Notice: delivered<br>Notice: read</td>
+              <td><strong class="decision rejected">Rejected</strong>Fictional reviewer requires the missing step.</td>
+              <td>Fictional review note F-B: reject this draft.<br>PR reference: unavailable.</td>
+              <td>Unknown.<br>No cost measurement supplied.</td>
+            </tr>
+            <tr>
+              <th scope="row">Compare sample layouts</th>
+              <td>Supply a narrow-screen capture and a keyboard review.</td>
+              <td>Fixture keyboard note supplied. Narrow-screen capture unavailable; visual result unknown.</td>
+              <td>Turn: completed<br>Notice: delivered<br>Notice: read</td>
+              <td><strong class="decision deferred">Deferred</strong>Fictional reviewer awaits the missing capture.</td>
+              <td>Fictional review note F-C: defer the decision.<br>PR reference: unavailable.</td>
+              <td>Unknown.<br>No cost measurement supplied.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <footer>
+      <p>Legend: completed = provider turn ended; delivered = notice reached its
+        destination; read = notice was opened. None records human acceptance.</p>
+      <p>Accepted, rejected and deferred are explicit fictional human decisions.
+        Unknown means unmeasured or unsupported; unavailable means evidence was
+        not supplied. Neither means zero or passed.</p>
+      <p class="muted">Static preparation only. No controls, saved decisions,
+        live evidence, or claims of adoption or successful product outcomes.</p>
+    </footer>
+  </main>
+</body>
+</html>

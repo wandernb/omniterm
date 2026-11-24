@@ -26,8 +26,18 @@ jobs:
       - name: Find the newest upstream nightly
         id: upstream
         run: |
-          echo "current=$(git -C Vendor/iTerm2 rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "tag=$(scripts/iterm2-fork.sh latest)" >> "$GITHUB_OUTPUT"
+          current="$(git -C Vendor/iTerm2 rev-parse HEAD)"
+          if [ -z "$current" ]; then
+            echo "Could not determine the current iTerm2 revision." >&2
+            exit 1
+          fi
+          tag="$(scripts/iterm2-fork.sh latest)"
+          if [ -z "$tag" ]; then
+            echo "No upstream nightly tag was found." >&2
+            exit 1
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Stop if a pull request or issue already covers this tag
         id: open
         env:

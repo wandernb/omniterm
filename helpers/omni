@@ -5,6 +5,7 @@ import argparse
 import calendar
 import curses
 import datetime as dt
+import importlib.util
 import json
 import os
 import re
@@ -16,6 +17,8 @@ import sys
 import textwrap
 import threading
 import time
+import unicodedata
+import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -37,8 +40,545 @@ DASHBOARD_ACTIVATE_KEY = 0x1D
 DASHBOARD_STATE = Path.home() / ".omni/dashboard.json"
 AGENT_CARD_ROWS = 4
 DANGEROUS_PERMISSIONS = {"claude": "bypassPermissions", "codex": "dangerous"}
+# What the editor offers; "auto-mode" is shown for Claude's stored "auto", "default" means none.
+PERMISSION_MODES = {
+    "claude": ["", "default", "auto-mode", "acceptEdits", "bypassPermissions", "manual", "dontAsk", "plan"],
+    "codex": ["", "default", "untrusted", "on-request", "never", DANGEROUS_PERMISSIONS["codex"]],
+}
+
+
+def stored_permission_mode(mode):
+    return {"auto-mode": "auto", "default": ""}.get(mode, mode)
+
+
+# What an agent file may hold.
+STORED_PERMISSION_MODES = {provider: {stored_permission_mode(mode) for mode in modes}
+                           for provider, modes in PERMISSION_MODES.items()}
+
+
+def agent_defaults(settings):
+    """What a new agent starts with: the Settings page's `agent_defaults`, checked again here.
+
+    Dangerous permission modes are never a default; only a person sets them, per agent."""
+    defaults = settings.get("agent_defaults") if isinstance(settings, dict) else None
+    defaults = defaults if isinstance(defaults, dict) else {}
+    provider = defaults.get("provider") if defaults.get("provider") in PERMISSION_MODES else "claude"
+    models = defaults.get("models") if isinstance(defaults.get("models"), dict) else {}
+    permissions = defaults.get("permission_modes") if isinstance(defaults.get("permission_modes"), dict) else {}
+
+    def model(name):
+        value = models.get(name)
+        return value if isinstance(value, str) and not value.startswith("-") and not any(c.isspace() for c in value) else ""
+
+    def permission(name):
+        value = permissions.get(name)
+        return value if value in STORED_PERMISSION_MODES[name] and value != DANGEROUS_PERMISSIONS[name] else ""
+
+    return {"provider": provider,
+            "models": {name: model(name) for name in PERMISSION_MODES},
+            "permission_modes": {name: permission(name) for name in PERMISSION_MODES},
+            "overlap": defaults.get("overlap") if defaults.get("overlap") in ("replace", "parallel") else "replace"}
+SETTINGS_FILE = Path.home() / ".omni/settings.json"
+
+# Sidebar appearance. The native app validates the same way; tests/fixtures/agent_appearance.json
+# holds the shared examples.
+# The picker's SF Symbols by category, each with search keywords. Any valid SF Symbol name is accepted;
+# this is what clients offer. Every entry exists on macOS 13.
+AGENT_ICON_CATALOG = (
+    ('Development', (
+        ('terminal', 'shell console cli'),
+        ('chevron.left.forwardslash.chevron.right', 'code html dev'),
+        ('curlybraces', 'code json'),
+        ('curlybraces.square', ''),
+        ('function', ''),
+        ('hammer', 'build tool'),
+        ('hammer.fill', ''),
+        ('wrench.and.screwdriver', 'tools fix maintenance'),
+        ('wrench.adjustable', ''),
+        ('screwdriver', ''),
+        ('ant', 'bug insect animals radar'),
+        ('ant.fill', 'bug insect animals radar'),
+        ('ladybug', 'debug animals'),
+        ('ladybug.fill', 'debug animals'),
+        ('cpu', 'chip processor gpu'),
+        ('memorychip', 'cpu gpu'),
+        ('server.rack', 'backend'),
+        ('externaldrive', 'disk backup storage'),
+        ('internaldrive', ''),
+        ('opticaldiscdrive', ''),
+        ('network', 'api'),
+        ('point.3.connected.trianglepath.dotted', ''),
+        ('point.topleft.down.curvedto.point.bottomright.up', ''),
+        ('arrow.triangle.branch', 'git'),
+        ('arrow.triangle.merge', 'git'),
+        ('arrow.triangle.pull', 'git pull request pr'),
+        ('arrow.triangle.2.circlepath', ''),
+        ('gearshape', 'settings config general'),
+        ('gearshape.2', 'settings config advanced'),
+        ('gearshape.fill', 'general settings'),
+        ('slider.horizontal.3', 'settings tune adjust edit'),
+        ('command', ''),
+        ('keyboard', ''),
+        ('cube', 'model 3d package'),
+        ('cube.fill', ''),
+        ('shippingbox', 'package release deploy'),
+        ('shippingbox.fill', ''),
+        ('puzzlepiece', ''),
+        ('puzzlepiece.extension', ''),
+        ('testtube.2', 'lab medical'),
+        ('stethoscope', ''),
+        ('scope', 'circle crosshair inspect locate measure point select target'),
+        ('gauge', ''),
+        ('gauge.medium', ''),
+        ('speedometer', ''),
+        ('barometer', 'high medium'),
+        ('cursorarrow', ''),
+        ('cursorarrow.rays', ''),
+        ('wand.and.stars', 'magic ai'),
+        ('wand.and.rays', 'magic'),
+    )),
+    ('Files', (
+        ('folder', 'move'),
+        ('folder.fill', 'move'),
+        ('folder.badge.gearshape', ''),
+        ('folder.badge.person.crop', ''),
+        ('doc', ''),
+        ('doc.fill', ''),
+        ('doc.text', 'document notes'),
+        ('doc.text.fill', ''),
+        ('doc.on.doc', ''),
+        ('doc.richtext', ''),
+        ('doc.plaintext', ''),
+        ('doc.badge.gearshape', ''),
+        ('doc.text.magnifyingglass', ''),
+        ('note.text', ''),
+        ('list.bullet', 'todo'),
+        ('list.number', ''),
+        ('list.bullet.rectangle', ''),
+        ('checklist', 'todo tasks'),
+        ('tray', 'inbox mail'),
+        ('tray.fill', 'inbox mail'),
+        ('tray.full', 'mail'),
+        ('tray.2', 'mail'),
+        ('archivebox', 'mail'),
+        ('archivebox.fill', 'mail'),
+        ('paperclip', 'attach attachments mail'),
+        ('link', 'url'),
+        ('book', 'docs read bookmark'),
+        ('book.fill', 'bookmark'),
+        ('books.vertical', ''),
+        ('book.closed', ''),
+        ('bookmark', 'save'),
+        ('bookmark.fill', ''),
+        ('newspaper', ''),
+        ('magazine', 'news'),
+        ('text.book.closed', 'dictionary'),
+        ('menucard', ''),
+        ('tablecells', ''),
+        ('square.and.pencil', 'write edit compose mail writing'),
+        ('pencil', 'write edit rename writing'),
+        ('pencil.and.outline', 'write writing'),
+        ('highlighter', 'write writing'),
+        ('scribble', ''),
+        ('lasso', ''),
+        ('trash', 'delete cleanup mail'),
+        ('calendar', 'schedule date'),
+        ('calendar.badge.clock', 'date date and time'),
+    )),
+    ('Communication', (
+        ('envelope', 'mail email address letter'),
+        ('envelope.fill', 'address letter mail'),
+        ('envelope.open', 'address letter mail'),
+        ('paperplane', 'send'),
+        ('paperplane.fill', 'send'),
+        ('message', 'chat'),
+        ('message.fill', 'chat'),
+        ('bubble.left', 'chat comment'),
+        ('bubble.right', 'chat comment'),
+        ('bubble.left.and.bubble.right', 'chat conversation'),
+        ('quote.bubble', 'chat'),
+        ('text.bubble', 'chat'),
+        ('phone', 'call'),
+        ('phone.fill', ''),
+        ('video', 'call meeting facetime'),
+        ('megaphone', 'announce marketing'),
+        ('speaker.wave.2', 'volume'),
+        ('bell', 'notification alert mail notify'),
+        ('bell.fill', 'mail notify'),
+        ('bell.badge', 'notifications'),
+        ('mic', ''),
+        ('mic.fill', ''),
+        ('antenna.radiowaves.left.and.right', 'cellular lte'),
+        ('wifi', ''),
+        ('dot.radiowaves.left.and.right', ''),
+        ('person', 'user people'),
+        ('person.fill', 'people user'),
+        ('person.2', 'team people shared'),
+        ('person.3', 'group people shared'),
+        ('person.crop.circle', 'user profile account contact people'),
+        ('person.crop.circle.badge.checkmark', 'account contact people user'),
+        ('person.badge.plus', '+ add create new people user'),
+        ('person.text.rectangle', 'card id people'),
+        ('at', '@'),
+        ('number', '# hash octothorpe pound'),
+        ('hand.wave', ''),
+        ('hand.thumbsup', 'like'),
+        ('hand.raised', 'block privacy'),
+    )),
+    ('Objects', (
+        ('briefcase', 'work job'),
+        ('briefcase.fill', ''),
+        ('case', ''),
+        ('suitcase', 'luggage'),
+        ('bag', ''),
+        ('cart', 'shop store'),
+        ('cart.fill', ''),
+        ('creditcard', ''),
+        ('dollarsign.circle', 'money cost finance currencies currency'),
+        ('eurosign.circle', 'currencies currency'),
+        ('bitcoinsign.circle', 'currencies currency'),
+        ('banknote', ''),
+        ('gift', 'birthday'),
+        ('key', 'secret password security'),
+        ('key.fill', 'password security'),
+        ('lock', 'security private padlock password'),
+        ('lock.fill', 'padlock password security'),
+        ('lock.open', 'padlock password security unlock'),
+        ('shield', 'security'),
+        ('shield.fill', ''),
+        ('lock.shield', 'padlock password security'),
+        ('checkmark.shield', ''),
+        ('lightbulb', 'idea'),
+        ('lightbulb.fill', ''),
+        ('paintbrush', ''),
+        ('paintbrush.pointed', ''),
+        ('paintpalette', ''),
+        ('camera', ''),
+        ('camera.fill', ''),
+        ('photo', 'image picture environment mountain photograph place sun'),
+        ('photo.stack', 'environment image mountain photograph picture place sun'),
+        ('film', 'movie video'),
+        ('tv', 'video watch'),
+        ('desktopcomputer', 'imac mac'),
+        ('laptopcomputer', ''),
+        ('display', ''),
+        ('iphone', ''),
+        ('ipad', ''),
+        ('applewatch', ''),
+        ('headphones', 'audio sound speaker'),
+        ('printer', 'mail'),
+        ('scanner', ''),
+        ('gamecontroller', 'play'),
+        ('dice', ''),
+        ('music.note', 'song media'),
+        ('music.note.list', 'media'),
+        ('guitars', ''),
+        ('pianokeys', ''),
+        ('theatermasks', ''),
+        ('graduationcap', 'learn study college education hat school student'),
+        ('backpack', 'camping'),
+        ('pin', ''),
+        ('mappin', ''),
+        ('map', ''),
+        ('globe', 'web internet earth language'),
+        ('compass.drawing', ''),
+        ('ruler', ''),
+        ('scissors', 'cut'),
+        ('eyeglasses', ''),
+        ('binoculars', ''),
+        ('umbrella', ''),
+        ('crown', 'king vip'),
+        ('trophy', 'win award'),
+        ('medal', ''),
+        ('flag', 'milestone mail'),
+        ('flag.fill', 'mail'),
+        ('flag.checkered', ''),
+        ('tag', ''),
+        ('tag.fill', ''),
+    )),
+    ('Places & Travel', (
+        ('house', 'home'),
+        ('house.fill', 'home'),
+        ('building', ''),
+        ('building.2', ''),
+        ('building.columns', 'library'),
+        ('airplane', 'travel flight'),
+        ('car', 'drive'),
+        ('car.fill', ''),
+        ('bus', ''),
+        ('tram', ''),
+        ('bicycle', 'bike'),
+        ('sailboat', ''),
+        ('ferry', ''),
+        ('fuelpump', ''),
+        ('location', ''),
+        ('location.fill', ''),
+        ('signpost.right', 'campground camping trail'),
+        ('map.fill', ''),
+        ('globe.americas', 'earth'),
+        ('globe.europe.africa', 'earth'),
+        ('globe.asia.australia', 'earth'),
+    )),
+    ('Nature', (
+        ('leaf', 'green eco'),
+        ('leaf.fill', ''),
+        ('tree', 'campground camping'),
+        ('sun.max', 'day weather'),
+        ('sun.max.fill', 'weather'),
+        ('moon', 'night dnd do not disturb weather'),
+        ('moon.fill', 'dnd do not disturb weather'),
+        ('moon.stars', 'night nightly weather'),
+        ('sparkle', ''),
+        ('sparkles', 'ai magic new weather'),
+        ('star', 'favorite mail vip'),
+        ('star.fill', 'favorite mail vip'),
+        ('cloud', 'deploy weather'),
+        ('cloud.fill', 'weather'),
+        ('cloud.rain', 'weather'),
+        ('cloud.bolt', 'weather'),
+        ('snowflake', 'cold winter weather'),
+        ('wind', 'weather'),
+        ('tornado', 'weather'),
+        ('drop', 'blood oil water'),
+        ('drop.fill', 'blood oil water'),
+        ('flame', 'hot fire'),
+        ('flame.fill', 'fire'),
+        ('bolt', 'fast power camera energy'),
+        ('bolt.fill', 'camera energy power'),
+        ('hare', 'animals fast rabbit'),
+        ('tortoise', 'animals slow turtle'),
+        ('bird', 'animals'),
+        ('fish', 'animals'),
+        ('pawprint', 'animals pet friendly'),
+        ('lizard', 'animals reptile'),
+        ('atom', 'science'),
+        ('mountain.2', 'campground camping trail'),
+        ('sunrise', 'arrow weather'),
+    )),
+    ('Health & Mind', (
+        ('heart', 'love favorite medical'),
+        ('heart.fill', 'love medical'),
+        ('brain', 'think'),
+        ('brain.head.profile', 'think'),
+        ('lungs', ''),
+        ('cross.case', 'first aid first aid kit firstaid kit medical'),
+        ('pills', 'medical'),
+        ('bandage', 'medical'),
+        ('figure.walk', 'human indoor walk outdoor walk person sports walking'),
+        ('figure.run', 'human outdoor run person running sports'),
+        ('dumbbell', 'sports'),
+        ('sportscourt', ''),
+        ('cup.and.saucer', 'coffee drink tea'),
+        ('fork.knife', 'drink food'),
+        ('carrot', 'food'),
+    )),
+    ('Status', (
+        ('checkmark', ''),
+        ('checkmark.circle', 'done success select'),
+        ('checkmark.circle.fill', 'select'),
+        ('checkmark.seal', 'verified review'),
+        ('xmark', 'clear close stop'),
+        ('xmark.circle', 'error fail clear close stop'),
+        ('exclamationmark.triangle', 'warning'),
+        ('exclamationmark.circle', 'warning'),
+        ('exclamationmark.octagon', 'stop warning'),
+        ('questionmark.circle', 'help'),
+        ('info.circle', ''),
+        ('clock', 'time schedule history recent'),
+        ('clock.fill', 'history recent'),
+        ('alarm', ''),
+        ('timer', ''),
+        ('hourglass', 'wait time'),
+        ('stopwatch', ''),
+        ('bell.slash', 'mail remove'),
+        ('eye', 'watch monitor review quick look quicklook show'),
+        ('eye.slash', 'hidden hide remove remove red eye'),
+        ('hand.raised.slash', 'privacy remove unblock'),
+        ('bolt.horizontal', ''),
+        ('arrow.clockwise', 'refresh'),
+        ('arrow.counterclockwise', 'revert'),
+        ('arrow.up.circle', ''),
+        ('arrow.down.circle', 'download downloads'),
+        ('play.circle', ''),
+        ('pause.circle', ''),
+        ('stop.circle', ''),
+        ('record.circle', ''),
+        ('power', 'shutdown'),
+        ('battery.100', ''),
+        ('chart.bar', 'stats metrics'),
+        ('chart.bar.fill', ''),
+        ('chart.pie', ''),
+        ('chart.line.uptrend.xyaxis', ''),
+        ('waveform', 'audio high record speech voice memo'),
+        ('waveform.path.ecg', 'health monitor medical'),
+    )),
+    ('Symbols', (
+        ('circle', ''),
+        ('circle.fill', ''),
+        ('square', ''),
+        ('square.fill', ''),
+        ('triangle', ''),
+        ('diamond', ''),
+        ('hexagon', ''),
+        ('octagon', ''),
+        ('seal', ''),
+        ('app', ''),
+        ('app.badge', 'notification'),
+        ('square.grid.2x2', ''),
+        ('circle.grid.3x3', ''),
+        ('infinity', ''),
+        ('plus.circle', '+ add create increase new'),
+        ('minus.circle', '- decrease delete remove subtract −'),
+        ('multiply.circle', '* times'),
+        ('divide.circle', '/ ÷'),
+        ('percent', '%'),
+        ('number.circle', '# hash octothorpe pound'),
+        ('textformat', 'aa'),
+        ('character', ''),
+        ('staroflife', 'medical'),
+        ('asterisk.circle', '*'),
+        ('peacesign', ''),
+        ('recordingtape', 'voicemail'),
+        ('command.circle', ''),
+        ('option', ''),
+        ('shift', ''),
+        ('capslock', ''),
+    )),
+)
+AGENT_ICONS = tuple(name for _category, icons in AGENT_ICON_CATALOG for name, _keywords in icons)
+AGENT_COLORS = ("red", "rose", "pink", "orange", "brown", "yellow", "lime", "green", "mint", "teal", "cyan",
+                "blue", "indigo", "purple", "slate", "gray")
+AGENT_COLOR_RGB = {"red": (255, 105, 97), "rose": (255, 97, 130), "pink": (255, 121, 198), "orange": (255, 159, 67),
+                   "brown": (172, 142, 104), "yellow": (255, 214, 10), "lime": (160, 215, 60),
+                   "green": (105, 219, 124), "mint": (99, 230, 210), "teal": (106, 196, 220), "cyan": (100, 210, 255),
+                   "blue": (125, 170, 255), "indigo": (124, 119, 255), "purple": (191, 135, 255),
+                   "slate": (140, 156, 178), "gray": (145, 145, 145)}
+APPEARANCE_FIELDS = ("group", "icon", "color")
+GROUP_DEPTH = 2
+GROUP_SEGMENT_CHARACTERS = 40
+EMOJI_UTF16_UNITS = 32
+AGENT_NAME_CHARACTERS = 100
+SF_SYMBOL = re.compile(r"[a-z0-9.]{1,64}")
+
+
+def is_control(character):
+    # Cc only (C0, DEL, C1): format characters such as the emoji zero-width joiner stay allowed.
+    return unicodedata.category(character) == "Cc"
+
+
+def grapheme_count(text):
+    """Extended grapheme clusters, enough for emoji: marks, variation selectors, skin tones, tags and
+    keycaps extend the previous character, a zero-width joiner glues the next one on, and regional
+    indicators pair up."""
+    count, joined, regional = 0, False, False
+    for character in text:
+        point = ord(character)
+        extends = unicodedata.category(character) in ("Mn", "Me", "Mc") or 0xFE00 <= point <= 0xFE0F \
+            or 0x1F3FB <= point <= 0x1F3FF or 0xE0020 <= point <= 0xE007F
+        if extends and count:
+            continue
+        if point == 0x200D:
+            joined = True
+            continue
+        if 0x1F1E6 <= point <= 0x1F1FF:
+            if regional:
+                regional = False
+                continue
+            regional = True
+        else:
+            regional = False
+        if not joined:
+            count += 1
+        joined = False
+    return count
+
+
+def is_single_emoji(text):
+    """One pictographic grapheme: its first scalar is at or above U+2000, or it has U+FE0F or U+20E3."""
+    return (isinstance(text, str) and 0 < len(text.encode("utf-16-le")) // 2 <= EMOJI_UTF16_UNITS
+            and not any(character.isspace() for character in text)
+            and grapheme_count(text) == 1
+            and (ord(text[0]) >= 0x2000 or "\ufe0f" in text or "\u20e3" in text))
+
+
+def normalized_group(value):
+    """"Section" or "Section/Subsection", trimmed; None for no group."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Group must be a string")
+    if not value.strip():
+        return None
+    segments = [segment.strip() for segment in value.split("/")]
+    if len(segments) > GROUP_DEPTH:
+        raise ValueError("Groups have at most two levels: Section/Subsection")
+    for segment in segments:
+        if not segment:
+            raise ValueError("Group names must not be empty")
+        if len(segment) > GROUP_SEGMENT_CHARACTERS:
+            raise ValueError(f"Group names are at most {GROUP_SEGMENT_CHARACTERS} characters")
+        if any(is_control(character) for character in segment):
+            raise ValueError("Group names must not contain control characters")
+    return "/".join(segments)
+
+
+def normalized_icon(value):
+    """"sf:<symbol name>" or "emoji:<one emoji>"; None for no icon. AGENT_ICONS is what clients offer."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and value.startswith("sf:") and SF_SYMBOL.fullmatch(value[3:]):
+        return value
+    if isinstance(value, str) and value.startswith("emoji:") and is_single_emoji(value[6:]):
+        return value
+    raise ValueError("Icon must be sf:<symbol> or emoji:<one emoji>")
+
+
+def normalized_color(value):
+    if value is None or value == "":
+        return None
+    if value not in AGENT_COLORS:
+        raise ValueError("Color must be one of " + ", ".join(AGENT_COLORS))
+    return value
+
+
+def normalized_agent_name(value):
+    """A new agent name: trimmed, 1-100 characters, no control characters."""
+    name = value.strip() if isinstance(value, str) else ""
+    if not name or len(name) > AGENT_NAME_CHARACTERS or any(is_control(character) for character in name):
+        raise ValueError(f"Agent names are 1-{AGENT_NAME_CHARACTERS} characters without control characters")
+    return name
+
+
+APPEARANCE_NORMALIZERS = {"group": normalized_group, "icon": normalized_icon, "color": normalized_color}
+
+
+def appearance_catalog():
+    """What `omni agents appearance --json` prints for pickers: icons with their category and keywords, and colours."""
+    icons = [{"name": name, "category": category, "keywords": keywords.split()}
+             for category, entries in AGENT_ICON_CATALOG for name, keywords in entries]
+    return {"icons": icons, "colors": list(AGENT_COLORS)}
+
+
+def appearance_errors(fields):
+    """The canonical appearance for the fields given (None clears), and per-field errors."""
+    values, errors = {}, {}
+    for key, value in fields.items():
+        try:
+            values[key] = APPEARANCE_NORMALIZERS[key](value)
+        except ValueError as error:
+            errors[key] = str(error)
+    return values, errors
+
+
+def with_appearance(agent, appearance):
+    """An agent carries group, icon and color only when set; an absent field means none."""
+    for key in APPEARANCE_FIELDS:
+        agent.pop(key, None)
+        if appearance.get(key) is not None:
+            agent[key] = appearance[key]
+    return agent
 RESERVED_ADVANCED_ARGS = {
-    "-C", "--cd", "--cwd", "--system-prompt", "--model", "-m", "--permission-mode",
+    "-C", "--cd", "--cwd", "--system-prompt", "--append-system-prompt", "--model", "-m", "--permission-mode",
     "--ask-for-approval", "-a", "--sandbox", "-s", "--dangerously-skip-permissions",
     "--allow-dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox",
     "--yolo",
@@ -262,6 +802,10 @@ def path_completion_matches(text):
 
 
 def request(payload):
+    if payload.get("op") in {"save_agent", "create_agent", "update_agent"} and \
+            isinstance(payload.get("agent"), dict) and payload["agent"].get("kind") == "loop":
+        if request({"op": "get_settings"}).get("loop_mode") != "persistent":
+            raise SystemExit("This OmniTerm build does not support persistent loops; update the app before saving a loop.")
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         try:
@@ -285,6 +829,153 @@ def request(payload):
         return response
     finally:
         client.close()
+
+
+NOTIFICATION_SEVERITIES = ("info", "attention", "urgent")
+
+# One source for how agents learn about notifications: the MCP server's
+# instructions, its guide resource, and the note added to OmniTerm runs.
+NOTIFY_GUIDANCE = (
+    "Call notify_user (omni MCP server) when something needs the person, or when they asked to hear "
+    "about a result: a decision or approval, a blocker you cannot get past, a failure they must fix, "
+    "or work they asked you to report. Never for routine progress. Severity: urgent only when they "
+    "must act soon (by default it also shows a macOS banner); attention, the default, raises the "
+    "menu-bar count; info is stored without raising it. The person may mute OmniTerm or quiet some "
+    "agents and levels; every notification still reaches their Inbox, so choose severity honestly "
+    "rather than raising it to be heard. Write a one-line title and a plain-text body saying what "
+    "happened and what you need; links are shown, never opened. Reuse a dedupe_key for a status you "
+    "update, so a repeat within 24 hours replaces the earlier item. A diff of the workspace is captured "
+    "with it. The person reads notifications in OmniTerm's menu bar, Inbox window, Notification Center "
+    "widget and dashboard; you cannot read or clear them."
+)
+
+
+def run_context_note(agent_name, run_id):
+    """Appended to OmniTerm runs so the agent knows which run it is and how to reach the person."""
+    return (f"You are running inside OmniTerm as the scheduled agent “{agent_name}” (run {run_id}). "
+            "The person may not be watching this terminal. " + NOTIFY_GUIDANCE)
+ACTIVE_RUN_STATES = {"starting", "running"}
+
+
+def process_ancestors(start=None):
+    """Parent, grandparent, … of this process, from one ps snapshot."""
+    try:
+        output = subprocess.run(["/bin/ps", "-axo", "pid=,ppid="], text=True, capture_output=True,
+                                timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    parents = {}
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
+            parents[int(fields[0])] = int(fields[1])
+    ancestors = []
+    pid = os.getppid() if start is None else start
+    while pid > 1 and pid not in ancestors and len(ancestors) < 64:
+        ancestors.append(pid)
+        pid = parents.get(pid, 0)
+    return ancestors
+
+
+def current_run_id(list_runs, environment=None, ancestors=None):
+    """The OmniTerm run this process belongs to, if any.
+
+    The runner exports OMNI_RUN_ID. Providers that clear the environment of
+    their tool servers (Codex does) are matched by process ancestry instead:
+    the runner records its own PID and the provider's process group.
+    """
+    environment = os.environ if environment is None else environment
+    run_id = (environment.get("OMNI_RUN_ID") or "").strip()
+    if run_id:
+        return run_id
+    ancestry = set(process_ancestors() if ancestors is None else ancestors)
+    if not ancestry:
+        return None
+    for run in list_runs():
+        if run.get("state") not in ACTIVE_RUN_STATES:
+            continue
+        if run.get("pid") in ancestry or run.get("pgid") in ancestry:
+            return run.get("id")
+    return None
+
+
+# What OmniTerm's own producers may call a notification. Agents never pass a
+# kind (the MCP tool has no such argument), so theirs is always "agent".
+NOTIFICATION_KINDS = ("compaction", "wrap_up", "loop_continuation")
+
+
+def notify_payload(title, body=None, severity=None, workspace=None, include_diff=None,
+                   dedupe_key=None, run_id=None, kind=None):
+    payload = {"op": "notify", "title": title}
+    if kind:
+        if kind not in NOTIFICATION_KINDS:
+            raise ValueError("Unknown notification kind")
+        payload["kind"] = kind
+    if body:
+        payload["body"] = body
+    if severity:
+        if severity not in NOTIFICATION_SEVERITIES:
+            raise ValueError("Severity must be info, attention or urgent")
+        payload["severity"] = severity
+    if workspace:
+        payload["workspace"] = str(Path(workspace).expanduser().resolve())
+    if include_diff is not None:
+        payload["include_diff"] = bool(include_diff)
+    if dedupe_key:
+        payload["dedupe_key"] = dedupe_key
+    if run_id:
+        payload["run_id"] = run_id
+    return payload
+
+
+def notify_from_cli(args):
+    body = args.body
+    if body == "-":
+        body = sys.stdin.read()
+    run_id = args.run_id or current_run_id(lambda: request({"op": "list_runs"})["runs"])
+    try:
+        payload = notify_payload(args.title, body=body, severity=args.severity, workspace=args.workspace,
+                                 include_diff=False if args.no_diff else None,
+                                 dedupe_key=args.dedupe_key, run_id=run_id)
+    except ValueError as error:
+        raise SystemExit(str(error))
+    response = request(payload)
+    print(response["id"])
+
+
+def notification_counts(notifications):
+    """Unread counts per agent, and notification counts per run, for the dashboard."""
+    per_agent, per_run = {}, {}
+    for item in notifications:
+        agent, run_id = item.get("agent"), item.get("run_id")
+        if agent and item.get("unread"):
+            per_agent[agent] = per_agent.get(agent, 0) + 1
+        if run_id:
+            unread, total = per_run.get(run_id, (0, 0))
+            per_run[run_id] = (unread + bool(item.get("unread")), total + 1)
+    return per_agent, per_run
+
+
+def inbox_button_label(unread):
+    return f"[ ✉ Inbox {unread} ]" if unread else "[ ✉ Inbox ]"
+
+
+def print_notifications(response, as_json=False):
+    items = response.get("notifications", [])
+    if as_json:
+        print(json.dumps(response, indent=2))
+        return
+    if not items:
+        print("No notifications.")
+        return
+    markers = {"urgent": "‼", "attention": "•", "info": "·"}
+    for item in items:
+        unread = "unread" if item.get("unread") else "read  "
+        agent = item.get("agent") or "—"
+        print(f"{item['id']}  {unread}  {markers.get(item.get('severity'), '·')} {item.get('title', '')}"
+              f"  [{agent} · {fmt_time(item.get('updated'))}]")
+    print(f"\n{response.get('attention_count', 0)} unread need attention, "
+          f"{response.get('unread_count', 0)} unread in all.")
 
 
 def parse_duration(value):
@@ -568,20 +1259,25 @@ def edit_agent(existing=None, seed_path=None):
     old = existing or {}
     global_settings = request({"op": "get_settings"})["settings"]
     default_timeout = int(global_settings.get("default_timeout_seconds", 7200))
+    defaults = agent_defaults(global_settings)
+    default_provider = old.get("provider", defaults["provider"])
     global_timezone = global_settings.get("timezone") or system_timezone()
     project = discover_project(seed_path) if seed_path and not old else None
     schedule_phrase = old.get("schedule", {}).get("phrase", "daily at 09:00")
     values = {
-        "name": old.get("name", ""), "provider": old.get("provider", "codex"),
+        "name": old.get("name", ""), "provider": default_provider,
         "workspace": old.get("workspace", str(project or Path.cwd())), "system_prompt": old.get("system_prompt", ""),
-        "startup_prompt": old.get("startup_prompt", ""), "model": old.get("model", ""),
+        "startup_prompt": old.get("startup_prompt", ""),
+        "model": old.get("model", "" if old else defaults["models"][default_provider]),
         "schedule_phrase": schedule_phrase,
-        "overlap": old.get("overlap", "replace"),
+        "overlap": old.get("overlap", defaults["overlap"]),
         "timeout": "off" if "timeout_seconds" in old and old.get("timeout_seconds") is None else f"{old.get('timeout_seconds', default_timeout)}s",
-        "permission_mode": old.get("permission_mode", ""),
+        "permission_mode": old.get("permission_mode", "" if old else defaults["permission_modes"][default_provider]),
         "advanced_args": shlex.join(old.get("advanced_args", [])),
     }
     values.update(schedule_form_values(schedule_phrase))
+    values.update({key: str(value).lower() if isinstance(value, bool) else str(value)
+                   for key, value in lifecycle_fields(old).items()})
     normalize_schedule_controls(values)
     try:
         values = interactive_agent_form(
@@ -596,6 +1292,30 @@ def edit_agent(existing=None, seed_path=None):
     agent = normalized_agent(values, old, global_timezone)
     request({"op": "save_agent", "agent": agent})
     print(styled(f"  ● Saved {agent['name']}", GREEN, BOLD))
+
+
+def lifecycle_fields(candidate):
+    """Validate lifecycle policy shared by the native form, CLI and MCP."""
+    kind = candidate.get("kind", "scheduled")
+    if kind not in {"scheduled", "loop"}:
+        raise ValueError("Kind must be scheduled or loop")
+    policy = candidate.get("session_policy", "resume")
+    if policy not in {"fresh", "resume"}:
+        raise ValueError("Session policy must be fresh or resume")
+    if kind == "loop":
+        policy = "resume"
+    compact = candidate.get("compact_on_end", False)
+    if not isinstance(compact, bool):
+        raise ValueError("compact_on_end must be a boolean")
+    result = {"kind": kind, "session_policy": policy, "compact_on_end": compact}
+    for key, default in (("run_budget_seconds", 600 if kind == "loop" else 0), ("wrap_up_seconds", 120)):
+        value = candidate.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 604800:
+            raise ValueError(f"{key} must be whole seconds between 0 and 604800")
+        result[key] = value
+    if result["run_budget_seconds"] and result["wrap_up_seconds"] > result["run_budget_seconds"]:
+        raise ValueError("Wrap-up warning cannot exceed the soft run budget")
+    return result
 
 
 def normalized_agent(values, old, global_timezone):
@@ -620,18 +1340,213 @@ def normalized_agent(values, old, global_timezone):
     if overlap not in {"replace", "parallel"}:
         raise ValueError("Overlap must be replace or parallel")
     timeout = parse_duration(values["timeout"])
-    permissions = values["permission_mode"]
-    if permissions == "auto-mode":
-        permissions = "auto"
+    permissions = stored_permission_mode(values["permission_mode"])
     advanced = shlex.split(values["advanced_args"])
     if any(value.split("=", 1)[0] in RESERVED_ADVANCED_ARGS for value in advanced):
         raise ValueError("Advanced arguments contain an OmniTerm-owned flag")
-    return {"name": name, "provider": provider, "workspace": workspace,
-            "system_prompt": system_prompt, "startup_prompt": startup_prompt,
-            "model": model, "schedule": schedule,
-            "next_run": next_run, "overlap": overlap, "timeout_seconds": timeout,
-            "permission_mode": "" if permissions == "default" else permissions,
-            "advanced_args": advanced, "enabled": old.get("enabled", True)}
+    appearance, errors = appearance_errors({key: values[key] if key in values else old.get(key)
+                                            for key in APPEARANCE_FIELDS})
+    if errors:
+        raise ValueError(next(iter(errors.values())))
+    lifecycle_candidate = {**old, **values}
+    for key in ("run_budget_seconds", "wrap_up_seconds"):
+        if isinstance(lifecycle_candidate.get(key), str):
+            lifecycle_candidate[key] = int(lifecycle_candidate[key])
+    if isinstance(lifecycle_candidate.get("compact_on_end"), str):
+        if lifecycle_candidate["compact_on_end"] not in {"true", "false"}:
+            raise ValueError("Compact on end must be true or false")
+        lifecycle_candidate["compact_on_end"] = lifecycle_candidate["compact_on_end"] == "true"
+    lifecycle = lifecycle_fields(lifecycle_candidate)
+    if lifecycle["kind"] == "loop":
+        overlap = "parallel"
+    return with_appearance({**lifecycle, "name": name, "provider": provider, "workspace": workspace,
+                            "system_prompt": system_prompt, "startup_prompt": startup_prompt,
+                            "model": model, "schedule": schedule,
+                            "next_run": next_run, "overlap": overlap, "timeout_seconds": timeout,
+                            "permission_mode": permissions,
+                            "advanced_args": advanced, "enabled": old.get("enabled", True)}, appearance)
+
+
+def nested_setting(key, value):
+    """`a.b.c` and a value as the nested object `set_settings` takes."""
+    parts = [part for part in key.split(".")]
+    if not all(parts):
+        raise ValueError(f"Invalid setting name: {key}")
+    for part in reversed(parts[1:]):
+        value = {part: value}
+    return {parts[0]: value}
+
+
+def parsed_setting_value(text):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
+
+
+def mute_until(duration, now=None):
+    """The `muted_until` value for a duration: seconds since the epoch, or "forever"."""
+    now = time.time() if now is None else now
+    duration = duration.strip().lower()
+    if duration in {"forever", "", "on"}:
+        return "forever"
+    if duration == "tomorrow":
+        moment = dt.datetime.fromtimestamp(now)
+        morning = (moment + dt.timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+        return int(morning.timestamp())
+    match = re.fullmatch(r"(\d+)\s*([mh])", duration)
+    if not match or int(match.group(1)) <= 0:
+        raise ValueError("Give a duration such as 30m, 2h, tomorrow or forever")
+    seconds = int(match.group(1)) * (3600 if match.group(2) == "h" else 60)
+    return int(now) + seconds
+
+
+def set_setting(key, text):
+    try:
+        changes = nested_setting(key, parsed_setting_value(text))
+    except ValueError as error:
+        raise SystemExit(str(error))
+    response = request({"op": "set_settings", "settings": changes})
+    if not response.get("ok"):
+        raise SystemExit(response.get("error") or "Could not change the setting")
+    print(f"Saved {key}.")
+
+
+def stored_settings():
+    """Global settings read from their file, without the scheduler.
+
+    The app runs these helpers for its own editor, so they must not wait on its socket.
+    """
+    try:
+        settings = json.loads(SETTINGS_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def schedule_preview(phrase, timezone, count=5):
+    """The canonical schedule for a phrase and its next occurrences, as the editor shows them."""
+    schedule, cursor = parse_schedule(phrase, timezone)
+    next_run, occurrences = cursor, []
+    for _ in range(max(1, min(20, count))):
+        if cursor is None:
+            break
+        occurrences.append(cursor)
+        cursor = next_calendar(schedule, timezone, cursor)
+    return {"ok": True, "schedule": schedule, "phrase": schedule["phrase"], "timezone": timezone,
+            "next_run": next_run, "occurrences": occurrences}
+
+
+def parse_schedule_json(phrase, count=5, settings=None):
+    settings = stored_settings() if settings is None else settings
+    try:
+        return schedule_preview(phrase, settings.get("timezone") or system_timezone(), count)
+    except (ValueError, KeyError, OverflowError) as error:
+        return {"ok": False, "error": str(error) or "Invalid schedule"}
+
+
+def agent_form_values(candidate, default_timeout):
+    """Map an agent object (agent-file shape, or with schedule_phrase/timeout) onto the editor's form
+    values, collecting per-field errors the editor would refuse."""
+    errors = {}
+    try:
+        lifecycle = lifecycle_fields(candidate)
+    except ValueError as error:
+        lifecycle = {}
+        errors["lifecycle"] = str(error)
+    if candidate.get("kind") == "loop":
+        default_timeout = 86400
+
+    def text(key):
+        value = candidate.get(key)
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            errors[key] = f"{key} must be a string"
+            return ""
+        return value
+
+    values = {key: text(key) for key in ("name", "provider", "workspace", "system_prompt", "startup_prompt",
+                                         "model", "overlap", "permission_mode")}
+    values["provider"] = values["provider"].lower() or agent_defaults(stored_settings())["provider"]
+    values.update(lifecycle)
+    values["overlap"] = values["overlap"] or "replace"
+    if values["provider"] not in PERMISSION_MODES:
+        errors["provider"] = "Provider must be codex or claude"
+    elif stored_permission_mode(values["permission_mode"]) not in STORED_PERMISSION_MODES[values["provider"]]:
+        errors["permission_mode"] = f"Invalid permission mode for {values['provider']}"
+    if not values["workspace"].strip():
+        errors["workspace"] = "Workspace is required"
+    elif not Path(values["workspace"]).expanduser().is_dir():
+        errors["workspace"] = f"Workspace does not exist: {Path(values['workspace']).expanduser().resolve()}"
+    if values["overlap"] not in {"replace", "parallel"}:
+        errors["overlap"] = "Overlap must be replace or parallel"
+
+    phrase = candidate.get("schedule_phrase")
+    if phrase is None and isinstance(candidate.get("schedule"), dict):
+        phrase = candidate["schedule"].get("phrase")
+    if not isinstance(phrase, str) or not phrase.strip():
+        errors["schedule"] = "Schedule is required"
+        phrase = ""
+    values["schedule_phrase"] = phrase
+
+    if "timeout" in candidate:
+        timeout = candidate["timeout"]
+        values["timeout"] = "off" if timeout is None else str(timeout)
+    elif "timeout_seconds" in candidate:
+        timeout = candidate["timeout_seconds"]
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, int)):
+            errors["timeout"] = "timeout_seconds must be a whole number of seconds or null"
+        values["timeout"] = "off" if timeout is None else f"{timeout}s"
+    else:
+        values["timeout"] = f"{default_timeout}s"
+    if "timeout" not in errors:
+        try:
+            parse_duration(values["timeout"])
+        except ValueError as error:
+            errors["timeout"] = str(error)
+
+    advanced = candidate.get("advanced_args") or []
+    if isinstance(advanced, list) and all(isinstance(item, str) for item in advanced):
+        values["advanced_args"] = shlex.join(advanced)
+    elif isinstance(advanced, str):
+        values["advanced_args"] = advanced
+    else:
+        errors["advanced_args"] = "advanced_args must be a list of strings"
+        values["advanced_args"] = ""
+    try:
+        if any(item.split("=", 1)[0] in RESERVED_ADVANCED_ARGS for item in shlex.split(values["advanced_args"])):
+            errors["advanced_args"] = "Advanced arguments contain an OmniTerm-owned flag"
+    except ValueError as error:
+        errors["advanced_args"] = str(error)
+    return values, errors
+
+
+def normalize_agent_json(candidate, settings=None):
+    """Validate an agent the way the editor does and return its canonical form. Writes nothing.
+
+    Dangerous permission modes are accepted, as in the editor: only a person uses it.
+    """
+    if not isinstance(candidate, dict):
+        return {"ok": False, "errors": {"agent": "Agent must be a JSON object"}}
+    settings = stored_settings() if settings is None else settings
+    timezone = settings.get("timezone") or system_timezone()
+    values, errors = agent_form_values(candidate, int(settings.get("default_timeout_seconds", 7200)))
+    if "schedule" not in errors:
+        try:
+            parse_schedule(values["schedule_phrase"], timezone)
+        except (ValueError, KeyError, OverflowError) as error:
+            errors["schedule"] = str(error) or "Invalid schedule"
+    appearance, appearance_problems = appearance_errors({key: candidate.get(key) for key in APPEARANCE_FIELDS})
+    errors.update(appearance_problems)
+    values.update(appearance)
+    if errors:
+        return {"ok": False, "errors": errors}
+    try:
+        agent = normalized_agent(values, {"enabled": candidate.get("enabled", True) is not False}, timezone)
+    except (ValueError, KeyError, OverflowError) as error:
+        return {"ok": False, "errors": {"agent": str(error)}}
+    return {"ok": True, "agent": agent, "dangerous": has_dangerous_permissions(agent)}
 
 
 def fmt_time(value, timezone=None):
@@ -726,8 +1641,17 @@ def tui_palette():
     return {name: curses.color_pair(index) for index, name in enumerate(colors, 1)}
 
 
-RUN_STATE_COLORS = {"running": "green", "completed": "green", "interrupted": "peach",
+RUN_STATE_COLORS = {"running": "green", "idle": "peach", "completed": "green", "interrupted": "peach",
                     "failed": "red", "timed_out": "red"}
+
+
+def run_state_label(run):
+    """A live run whose agent finished its turn is idle, waiting for the person, not running."""
+    if run.get("state") in ACTIVE_RUN_STATES and run.get("turn_finished") == 1:
+        return "idle"
+    if run.get("state") == "evicted" and run.get("turn_finished") is None:
+        return "ended"  # Closed by retention before turns were tracked: the outcome is unknown.
+    return run.get("state", "")
 
 
 AGENT_FORM_FIELDS = [
@@ -746,10 +1670,20 @@ AGENT_FORM_FIELDS = [
     ("timeout", "Retention"),
     ("permission_mode", "Permissions"),
     ("advanced_args", "Advanced args"),
+    ("kind", "Agent kind"),
+    ("session_policy", "Session reuse"),
+    ("compact_on_end", "Compact on end"),
+    ("run_budget_seconds", "Soft budget (s)"),
+    ("wrap_up_seconds", "Warn before (s)"),
     ("__save__", "Save agent"),
 ]
 
 AGENT_FORM_DESCRIPTIONS = {
+    "kind": "A loop keeps one run and session. Each due tick repeats its prompt only when idle; busy ticks coalesce.",
+    "session_policy": "Successive runs resume one session by default (compacted when it grows large); fresh starts a new session each run. Loops always keep their session.",
+    "compact_on_end": "Request compaction after the agent finishes its work (true or false).",
+    "run_budget_seconds": "Soft work budget in seconds, not a kill deadline; zero disables it.",
+    "wrap_up_seconds": "Warn this many seconds before the soft budget ends.",
     "name": "Optional; blank derives a name from the workspace and startup prompt.",
     "provider": "Select the interactive coding agent used for each run.",
     "workspace": "Type like `cd`; Tab completes and descends through folders, Enter accepts the path.",
@@ -770,7 +1704,12 @@ AGENT_FORM_DESCRIPTIONS = {
 
 
 def agent_form_choices(key, values):
+    if values.get("kind") == "loop" and key in {"overlap", "session_policy"}:
+        return []  # These controls belong to ordinary scheduled agents.
     choices = {
+        "kind": ["scheduled", "loop"],
+        "session_policy": ["resume", "fresh"],
+        "compact_on_end": ["false", "true"],
         "provider": ["codex", "claude"],
         "repeat_count": [str(value) for value in range(1, 31)],
         "repeat_unit": ["minutes", "hours", "days", "weekdays", "weeks", "months", "once"],
@@ -780,10 +1719,7 @@ def agent_form_choices(key, values):
     if key == "model":
         return model_choices(values.get("provider", "codex"))
     if key == "permission_mode":
-        if values.get("provider") == "claude":
-            return ["", "default", "auto-mode", "acceptEdits", "bypassPermissions",
-                    "manual", "dontAsk", "plan"]
-        return ["", "default", "untrusted", "on-request", "never", DANGEROUS_PERMISSIONS["codex"]]
+        return list(PERMISSION_MODES["claude" if values.get("provider") == "claude" else "codex"])
     if key == "repeat_on":
         unit = values.get("repeat_unit")
         if unit == "hours":
@@ -898,6 +1834,10 @@ def interactive_agent_form(initial, existing=None, validator=None):
     """Edit an agent in one resize-aware screen with no nested picker panels."""
     values = {key: str(value or "") for key, value in initial.items()}
     existing = existing or {}
+    defaults = lifecycle_fields({"kind": initial.get("kind", "scheduled")})
+    for key, value in defaults.items():
+        if key not in initial:
+            values[key] = str(value).lower() if isinstance(value, bool) else str(value)
 
     def screen(window):
         palette = tui_palette()
@@ -1020,7 +1960,10 @@ def interactive_agent_form(initial, existing=None, validator=None):
                 tui_text(window, y, 3, marker, style)
                 field_label = agent_form_label(field_key, field_label, values)
                 tui_text(window, y, 6, f"{field_label:<15}", style, label_width - 1)
-                preview = _field_preview(field_key, values.get(field_key, ""), width - value_x - 4)
+                preview_value = values.get(field_key, "")
+                if values.get("kind") == "loop" and field_key in {"overlap", "session_policy"}:
+                    preview_value = "Same persistent session"
+                preview = _field_preview(field_key, preview_value, width - value_x - 4)
                 value_style = curses.A_BOLD | (curses.A_REVERSE if is_active else 0)
                 if field_key == "__save__" and is_active:
                     value_style |= palette["green"]
@@ -1068,6 +2011,8 @@ def interactive_agent_form(initial, existing=None, validator=None):
                     mouse_options.append((y, index))
             elif key != "__save__":
                 value = values.get(key, "")
+                if values.get("kind") == "loop" and key in {"overlap", "session_policy"}:
+                    value = "Same persistent session — repeat only when idle"
                 tui_text(window, detail_y + 2, 4, value, curses.A_BOLD, width - 8)
                 cursor_target = (detail_y + 2,
                                  4 + min(cursors[key], max(0, width - 9)))
@@ -1201,6 +2146,9 @@ def interactive_agent_form(initial, existing=None, validator=None):
                         continue
                     else:
                         values[key] = option
+                    if key == "kind" and option == "loop":
+                        values.update(overlap="parallel", timeout="24h", session_policy="resume",
+                                      run_budget_seconds="600", wrap_up_seconds="120")
                     if key == "repeat_unit":
                         normalize_schedule_controls(values)
                     cursors[key] = len(values[key])
@@ -1215,6 +2163,7 @@ def interactive_agent_form(initial, existing=None, validator=None):
                                (key == "repeat_time" and
                                 values.get("repeat_unit") not in {"weeks", "months"}))
             if (key in {"__save__", "schedule_phrase"} or schedule_unused or
+                    (values.get("kind") == "loop" and key in {"overlap", "session_policy"}) or
                     (existing.get("name") and key == "name")):
                 continue
             if pressed in ("\x7f", "\b", curses.KEY_BACKSPACE):
@@ -1737,6 +2686,7 @@ def dashboard_screen(window):
     focus = "agents"
     message = "Ready"
     agents, runs, groups = [], [], []
+    inbox = {"unread": 0, "attention": 0, "per_agent": {}, "per_run": {}}
     group_by_repo = load_repo_grouping()
     hitboxes = []
     last_refresh = None
@@ -1748,7 +2698,14 @@ def dashboard_screen(window):
         try:
             groups = group_agents(request({"op": "list_agents"})["agents"], group_by_repo)
             agents = [agent for _, members in groups for agent in members]
-            runs = request({"op": "list_runs"})["runs"]
+            runs = request({"op": "list_runs", "include_live": True})["runs"]
+            try:
+                response = request({"op": "notifications", "limit": 500})
+                per_agent, per_run = notification_counts(response.get("notifications", []))
+                inbox.update(unread=response.get("unread_count", 0), attention=response.get("attention_count", 0),
+                             per_agent=per_agent, per_run=per_run)
+            except BaseException:
+                pass  # An older scheduler has no notifications; the rest still works.
             selected = max(0, min(selected, len(agents) - 1))
             last_refresh = time.monotonic()
         except BaseException as exc:
@@ -1814,6 +2771,10 @@ def dashboard_screen(window):
         nonlocal message, selected, selected_run
         agent = selected_agent()
         try:
+            if action == "inbox":
+                request({"op": "show_inbox"})
+                message = "Opened the Inbox"
+                return
             if action == "add":
                 tui_suspend(window, edit_agent)
                 message = "Agent created"
@@ -1875,6 +2836,16 @@ def dashboard_screen(window):
         tui_text(window, 2, header_x, "Interactive scheduler · Codex + Claude", palette["muted"], width - header_x - 2)
         active_count = sum(run["state"] in {"starting", "running"} for run in runs)
         tui_text(window, 3, header_x, f"● {active_count} active   ◆ {len(agents)} agents   ◷ {len(runs)} runs", palette["green"], width - header_x - 2)
+        inbox_button = inbox_button_label(inbox["unread"])
+        inbox_x = width - len(inbox_button) - 2
+        inbox_style = (palette["peach"] if inbox["attention"] else palette["blue"]) | curses.A_BOLD
+        tui_text(window, 1, inbox_x, inbox_button, inbox_style, len(inbox_button))
+        hitboxes.append((1, 1, inbox_x, inbox_x + len(inbox_button) - 1, "inbox", None))
+        if inbox["unread"]:
+            summary = f"{inbox['attention']} need you" if inbox["attention"] else "nothing urgent"
+            summary_x = width - len(summary) - 2
+            if summary_x > header_x + 40:  # Never over the subtitle.
+                tui_text(window, 2, summary_x, summary, palette["muted"], len(summary))
         tui_text(window, 4, header_x,
                  "mouse enabled  ·  ↑↓ navigate  ·  Enter opens details",
                  palette["blue"], width - header_x - 2)
@@ -1915,9 +2886,15 @@ def dashboard_screen(window):
             state_style = palette["green"] if agent["enabled"] else palette["muted"]
             tui_text(window, y, 3, f"{marker} {agent['name']}", card_style, left_width - 18)
             tui_text(window, y, left_width - 10, state, state_style | curses.A_BOLD, 7)
-            tui_text(window, y + 1, 5, f"{agent['provider']}  ·  {agent['schedule']['phrase']}", palette["muted"], left_width - 8)
+            agent_unread = inbox["per_agent"].get(agent["name"], 0)
+            kind_label = "Loop · " if agent.get("kind") == "loop" else ""
+            tui_text(window, y + 1, 5, f"{kind_label}{agent['provider']}  ·  {agent['schedule']['phrase']}", palette["muted"],
+                     left_width - (19 if agent_unread else 8))
             next_text = fmt_time(agent.get("next_run"))
-            tui_text(window, y + 2, 5, f"◷ {next_text}   ↻ {agent['overlap']}", palette["blue"], left_width - 8)
+            behavior = "same session" if agent.get("kind") == "loop" else agent["overlap"]
+            tui_text(window, y + 2, 5, f"◷ {next_text}   ↻ {behavior}", palette["blue"], left_width - 8)
+            if agent_unread:
+                tui_text(window, y + 1, left_width - 10, f"✉ {agent_unread}", palette["peach"] | curses.A_BOLD, 7)
             hitboxes.append((y, y + 2, 2, left_width, "select", index))
 
         agent = selected_agent()
@@ -1939,7 +2916,8 @@ def dashboard_screen(window):
                 ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
                 ("Access", "⚠ DANGEROUS · no safety checks" if has_dangerous_permissions(agent)
                  else agent.get("permission_mode") or "provider default"),
-                ("Schedule", agent["schedule"]["phrase"]), ("Overlap", agent["overlap"]),
+                ("Schedule", agent["schedule"]["phrase"]),
+                ("Run mode", "same persistent session" if agent.get("kind") == "loop" else agent["overlap"]),
                 ("Retention", "off" if agent.get("timeout_seconds") is None else f"{agent['timeout_seconds'] // 60} minutes"),
             ]
             for offset, (label, value) in enumerate(details):
@@ -1983,11 +2961,14 @@ def dashboard_screen(window):
             max_run_rows = max(0, panel_bottom - run_y - 1)
             agent_runs = [run for run in runs if run["agent"] == agent["name"]][:max_run_rows]
             for offset, run in enumerate(agent_runs):
-                state_style = palette[RUN_STATE_COLORS.get(run["state"], "muted")]
+                state = run_state_label(run)
+                state_style = palette[RUN_STATE_COLORS.get(state, "muted")]
                 chosen_run = focus == "runs" and offset == selected_run
-                symbol = "▶" if chosen_run else "●" if run["state"] == "running" else "◆"
+                symbol = "▶" if chosen_run else "●" if state == "running" else "◆"
                 style = state_style | (curses.A_BOLD | curses.A_REVERSE if chosen_run else 0)
-                tui_text(window, run_y + 1 + offset, x, f"{symbol} {run['state']:<11} {fmt_time(run['started'])[5:]}  {run['id'][:8]}", style, right_width - 6)
+                unread, total = inbox["per_run"].get(run["id"], (0, 0))
+                mail = f"  ✉ {total}" + (f" ({unread} new)" if unread else "") if total else ""
+                tui_text(window, run_y + 1 + offset, x, f"{symbol} {state:<11} {fmt_time(run['started'])[5:]}  {run['id'][:8]}{mail}", style, right_width - 6)
                 hitboxes.append((run_y + 1 + offset, run_y + 1 + offset, x, x + right_width - 7, "resume_run", offset))
 
         actions = [("add", "＋ Add"), ("edit", "✎ Edit"),
@@ -2005,7 +2986,7 @@ def dashboard_screen(window):
             cursor_x += len(button) + 4
         tui_text(window, height - 2, 2, "● " + message, palette["green"] if not message.startswith("Error") else palette["red"], width - 4)
         tui_text(window, height - 1, 2,
-                 "↑↓ navigate · ←→ focus · Enter activates · g by repo · a add · e edit",
+                 "↑↓ navigate · ←→ focus · Enter activates · i inbox · g by repo · a add · e edit",
                  palette["muted"], width - 4)
         window.refresh()
 
@@ -2049,6 +3030,8 @@ def dashboard_screen(window):
                     perform("resume")
             elif key == ord("g"):
                 toggle_repo_grouping()
+            elif key == ord("i"):
+                perform("inbox")
             elif key == ord("a"):
                 perform("add")
             elif key == ord("e"):
@@ -2125,6 +3108,9 @@ def dashboard_supervisor():
             time.sleep(1)
 
 
+RUN_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
 def normalized_cli_argv(argv):
     """Translate the original verb-first agent syntax for compatibility."""
     argv = list(argv)
@@ -2137,6 +3123,8 @@ def normalized_cli_argv(argv):
         if legacy in {"edit", "show", "enable", "disable", "delete"} and len(argv) >= 3:
             action = [] if legacy == "show" else [legacy]
             return ["agent", argv[2], *action, *argv[3:]]
+    if len(argv) >= 2 and argv[0] == "run" and not RUN_ID.match(argv[1]):
+        return ["agent", argv[1], "run", *argv[2:]]
     return argv
 
 
@@ -2234,6 +3222,7 @@ def mcp_round_trip():
 
 
 def uninstall_mcp():
+    failed = False
     for provider in ("claude", "codex"):
         if not shutil.which(provider):
             continue
@@ -2246,6 +3235,10 @@ def uninstall_mcp():
         result = subprocess.run(command, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT)
         print(f"{provider:8} {'removed' if result.returncode == 0 else 'error'}")
+        if result.returncode != 0:
+            failed = True
+    if failed:
+        raise SystemExit(1)
 
 
 def cli_parser():
@@ -2264,9 +3257,23 @@ def cli_parser():
     subs = parser.add_subparsers(dest="command", metavar="COMMAND")
     subs.add_parser("dashboard", help="open the full-screen interactive interface")
 
+    folders = subs.add_parser("folders", help="manage configured sidebar folders")
+    folder_commands = folders.add_subparsers(dest="folders_command", metavar="ACTION", required=True)
+    folder_set = folder_commands.add_parser(
+        "set", help="replace the complete configured folder list; agent memberships stay unchanged")
+    folder_set.add_argument("paths", nargs="+", metavar="PATH", help="Section or Section/Subsection")
+    folder_set.add_argument("--json", action="store_true", help="emit the saved folder list as JSON")
+
     agents = subs.add_parser("agents", help="list agents or create a new one")
     agents.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     agent_commands = agents.add_subparsers(dest="agents_command", metavar="ACTION")
+    order = agent_commands.add_parser("order", help="set the order of agents in the sidebar")
+    order.add_argument("names", nargs="+", metavar="NAME", help="agent names, first to last")
+    appearance = agent_commands.add_parser("appearance", help="list the icons and colours agents may use")
+    appearance.add_argument("--json", action="store_true", help="JSON output (the only format)")
+    normalize = agent_commands.add_parser(
+        "normalize", help="validate an agent JSON object on standard input and print its canonical form")
+    normalize.add_argument("--json", action="store_true", help="JSON output (the only format)")
     add = agent_commands.add_parser("add", help="create an agent with an optional project path")
     add.add_argument("path", nargs="?", help="folder or file used for project discovery")
     listing = agent_commands.add_parser("list", help="list agents (same as ‘omni agents’)")
@@ -2275,17 +3282,134 @@ def cli_parser():
     agent = subs.add_parser("agent", help="show or operate on one named agent")
     agent.add_argument("name", help="agent name")
     agent.add_argument("action", nargs="?", default="show",
-                       choices=["show", "edit", "run", "runs", "schedule", "enable", "disable", "delete"],
+                       choices=["show", "edit", "run", "runs", "schedule", "enable", "disable", "delete",
+                                "rename", "set"],
                        help="action to perform (default: show)")
+    agent.add_argument("new_name", nargs="?", help="with rename, the new name")
     agent.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    agent.add_argument("--group", help="with set, Section or Section/Subsection (\"\" clears)")
+    agent.add_argument("--icon", help="with set, sf:<symbol> or emoji:<emoji> (\"\" clears)")
+    agent.add_argument("--color", help="with set, " + ", ".join(AGENT_COLORS) + " (\"\" clears)")
 
-    run = subs.add_parser("run", help="start an agent now"); run.add_argument("name")
+    notify = subs.add_parser("notify", help="raise a notification in OmniTerm's menu bar and Inbox")
+    notify.add_argument("title")
+    notify.add_argument("--body", help="details; use - to read them from standard input")
+    notify.add_argument("--severity", choices=NOTIFICATION_SEVERITIES, default="attention",
+                        help="info is stored without raising the menu-bar count (default: attention)")
+    notify.add_argument("--workspace", help="capture this Git workspace's diff with the notification")
+    notify.add_argument("--no-diff", action="store_true", help="do not capture a diff")
+    notify.add_argument("--dedupe-key", help="a repeat within 24 hours updates the earlier notification")
+    notify.add_argument("--run-id", help="attach to this run (default: the run this command is inside)")
+    notifications = subs.add_parser("notifications", help="list agent notifications")
+    notifications.add_argument("--unread", action="store_true", help="only unread notifications")
+    notifications.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    notifications.add_argument("--read-all", action="store_true", help="mark every notification as read")
+    inbox = subs.add_parser("inbox", help="open the Inbox window, optionally at one notification")
+    inbox.add_argument("id", nargs="?")
+    notification = subs.add_parser("notification", help="mark one notification read or unread, or delete it")
+    notification.add_argument("id")
+    notification.add_argument("action", choices=("read", "unread", "delete"))
+
+    run = subs.add_parser("run", help="show a run's report: summary, commits, changed files and PR")
+    run.add_argument("id", help="run ID (‘omni run NAME’ still starts an agent, as ‘omni agent NAME run’)")
+    run.add_argument("--diff", action="store_true", help="also print the diff since the run started")
+    run.add_argument("--screen", action="store_true",
+                     help="print the run's last terminal screen and scrollback instead of the report")
+    run.add_argument("--tail", action="store_true",
+                     help="print the end of the run's provider transcript, like its terminal")
+    run.add_argument("--lines", type=int, default=TAIL_LINES, help=f"with --tail, at most this many lines "
+                     f"(default: {TAIL_LINES}, max: {TAIL_LINES_MAX})")
+    run.add_argument("--plain", action="store_true", help="with --screen or --tail, drop colours as well")
+    run.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     resume = subs.add_parser("resume", help="resume a recent provider session in a new tab"); resume.add_argument("run_id")
     runs = subs.add_parser("runs", help="list recent runs"); runs.add_argument("--agent"); runs.add_argument("--json", action="store_true")
+    sessions = subs.add_parser("sessions", help="list local Claude and Codex sessions across workspaces")
+    sessions.add_argument("--provider", choices=("claude", "codex"))
+    sessions.add_argument("--workspace")
+    sessions.add_argument("--state", choices=("running", "unknown", "archived"))
+    sessions.add_argument("--limit", type=int, default=20)
+    sessions.add_argument("--cursor", help="next_cursor from the preceding page")
+    sessions.add_argument("--json", action="store_true")
+    session = subs.add_parser("session", help="read a provider transcript or send a message")
+    session.add_argument("session_id", help="provider-qualified ID, such as claude:<id>")
+    session.add_argument("action", choices=("show", "send"), nargs="?", default="show")
+    session.add_argument("message", nargs="?", help="with send, plain text for the recipient")
+    session.add_argument("--offset", type=int, default=0)
+    session.add_argument("--limit", type=int, default=50)
+    session.add_argument("--request-id", help="with send, stable UUID reused for retries; otherwise generated")
+    session.add_argument("--sender-session-id")
+    session.add_argument("--sender-name")
+    session.add_argument("--json", action="store_true")
+    hook = subs.add_parser("hook", help="report a provider hook event (called by Claude and Codex hooks)")
+    hook.add_argument("provider", choices=("claude", "codex"))
+    hook.add_argument("payload", nargs=argparse.REMAINDER,
+                      help="Codex: [--then PROGRAM ARGS...] EVENT-JSON; Claude uses stdin")
+    hooks = subs.add_parser("hooks", help="install or remove the hooks that report blocked sessions")
+    hooks.add_argument("action", choices=("install", "uninstall", "status"))
+    hooks.add_argument("--provider", choices=("claude", "codex"), action="append",
+                       help="limit to one provider (repeatable); default both")
+    hooks.add_argument("--json", action="store_true")
+    unblock = subs.add_parser("unblock", help="show or switch auto-unblock for one session (on by default)")
+    unblock.add_argument("session_id", help="provider-qualified ID, such as claude:<id>")
+    unblock.add_argument("state", choices=("on", "off"), nargs="?")
+    unblock.add_argument("--json", action="store_true")
+    blocked = subs.add_parser("blocked", help="list Claude and Codex sessions waiting for input")
+    blocked.add_argument("--all", action="store_true", help="include answered, skipped and resolved sessions")
+    blocked.add_argument("--min-age", type=int, default=0, help="only blocks waiting at least this many seconds")
+    blocked.add_argument("--json", action="store_true")
+    block = subs.add_parser("block", help="show, answer or skip one blocked session")
+    block.add_argument("block_id")
+    block.add_argument("action", choices=("show", "answer", "skip"), nargs="?", default="show")
+    block.add_argument("text", nargs="?", help="with answer, the message to send")
+    block.add_argument("--reason", help="with answer or skip, a one-line reason")
+    block.add_argument("--json", action="store_true")
+    unblocker = subs.add_parser("unblocker", help="create, update or disable the Omni Unblocker agent")
+    unblocker.add_argument("--provider", choices=("claude", "codex"))
+    unblocker.add_argument("--workspace")
+    unblocker.add_argument("--model", default="")
+    unblocker.add_argument("--disabled", action="store_true")
+    unblocker.add_argument("--json", action="store_true")
+    message = subs.add_parser("message", help="inspect a durable cross-session delivery receipt")
+    message.add_argument("request_id")
+    message.add_argument("--json", action="store_true")
+    knowledge = subs.add_parser("knowledge", help="inspect indexing or search transcripts and memories")
+    knowledge_commands = knowledge.add_subparsers(dest="knowledge_command", required=True)
+    knowledge_commands.add_parser("status", help="inspect indexing backlog and inference availability").add_argument("--json", action="store_true")
+    memory = knowledge_commands.add_parser("memory", help="configure the scheduled memory consolidator")
+    memory_commands = memory.add_subparsers(dest="memory_command", required=True)
+    memory_install = memory_commands.add_parser("install", help="create or update the owned Omni Memory agent")
+    memory_install.add_argument("--provider", choices=("claude", "codex"))
+    memory_install.add_argument("--workspace")
+    memory_install.add_argument("--disabled", action="store_true", help="save the agent without enabling scheduled inference")
+    memory_install.add_argument("--json", action="store_true")
+    for command, description in (("search", "search transcript messages and tool outputs"),
+                                  ("memories", "search durable memories, or list recent ones")):
+        search = knowledge_commands.add_parser(command, help=description)
+        search.add_argument("query", **({"nargs": "?"} if command == "memories" else {}))
+        search.add_argument("--mode", choices=("lexical", "semantic", "hybrid"), default="lexical")
+        search.add_argument("--limit", type=int, default=20)
+        search.add_argument("--json", action="store_true")
+        if command == "search":
+            search.add_argument("--provider", choices=("claude", "codex"))
+            search.add_argument("--workspace")
+            search.add_argument("--session-id")
     stop = subs.add_parser("stop", help="stop an active run"); stop.add_argument("run_id")
-    subs.add_parser("settings", help="show global ~/.omni/settings.json values")
+    settings = subs.add_parser("settings", help="show or change global ~/.omni/settings.json values")
+    settings_commands = settings.add_subparsers(dest="settings_command", metavar="ACTION")
+    settings_set = settings_commands.add_parser(
+        "set", help="change one setting, e.g. notifications.levels.info.banner true or agent_defaults.provider codex")
+    settings_set.add_argument("key", help="a setting, with dots for nested values")
+    settings_set.add_argument("value", help="JSON (true, 12, \"text\") or plain text")
+    mute = subs.add_parser("mute", help="silence OmniTerm's banners and sounds; the Inbox still fills")
+    mute.add_argument("duration", nargs="?", default="forever",
+                      help="30m, 2h, tomorrow (08:00) or forever (default)")
+    subs.add_parser("unmute", help="let OmniTerm's banners and sounds through again")
     schedule = subs.add_parser("schedule", help="preview an agent schedule").add_subparsers(dest="schedule_command")
     preview = schedule.add_parser("preview", help="show the next five occurrences"); preview.add_argument("name")
+    parse = schedule.add_parser("parse", help="normalize a schedule phrase and show its next occurrences")
+    parse.add_argument("phrase")
+    parse.add_argument("--count", type=int, default=5, help="occurrences to show, 1-20 (default: 5)")
+    parse.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     mcp = subs.add_parser("mcp", help="install and diagnose Claude/Codex MCP access").add_subparsers(dest="mcp_command")
     mcp.add_parser("install", help="register Omni globally in Claude Code and Codex").add_argument("--quiet", action="store_true")
     mcp.add_parser("status", help="show launcher, scheduler, and provider registration state").add_argument("--json", action="store_true")
@@ -2294,16 +3418,136 @@ def cli_parser():
     return parser
 
 
-def print_agents(items, as_json=False):
+def agent_marker(agent):
+    """A terminal stand-in for the sidebar icon: the emoji itself, else a dot in the agent's colour."""
+    icon, color = agent.get("icon"), agent.get("color")
+    if isinstance(icon, str) and icon.startswith("emoji:"):
+        marker = icon[6:]
+    elif icon or color:
+        marker = "●"
+    else:
+        return "  "
+    rgb = AGENT_COLOR_RGB.get(color)
+    return (f"\033[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{marker}{RESET} " if rgb else f"{marker} ")
+
+
+def display_width(text):
+    """Terminal columns, ignoring colour sequences: wide characters take two, joiners none."""
+    width = 0
+    for character in CONTROL_SEQUENCE.sub("", text):
+        if unicodedata.combining(character) or unicodedata.category(character) in ("Mn", "Me", "Cf") \
+                or 0xFE00 <= ord(character) <= 0xFE0F:
+            continue
+        width += 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
+    return width
+
+
+def agent_groups(items, order=None, agent_order=None):
+    """Ungrouped agents first, then each section with its own agents and its subsections, in the
+    sidebar's order: settings sidebar_groups for groups and sidebar_agent_order for the agents in
+    each, then alphabetically."""
+    order = [path for path in order if isinstance(path, str)] if isinstance(order, list) else []
+    agent_order = [name for name in agent_order if isinstance(name, str)] if isinstance(agent_order, list) else []
+    agent_positions = {}
+    for name in agent_order:
+        agent_positions.setdefault(name, len(agent_positions))
+
+    def agent_key(item):
+        name = str(item.get("name", ""))
+        return (agent_positions.get(name, len(agent_positions)), name.lower(), name)
+
+    positions = {}
+    for path in order:
+        positions.setdefault(path, len(positions))
+        positions.setdefault(path.partition("/")[0], len(positions))
+
+    def key(path):
+        return (path != "", positions.get(path, len(positions)), path.lower())
+
+    sections = {}
+    for item in items:
+        group = item.get("group") if isinstance(item.get("group"), str) else ""
+        section, _, subsection = group.partition("/")
+        sections.setdefault(section, {}).setdefault(subsection, []).append(item)
+    ordered = []
+    for section in sorted(sections, key=key):
+        for subsection in sorted(sections[section], key=lambda name: key(f"{section}/{name}" if name else "")):
+            ordered.append((section, subsection, sorted(sections[section][subsection], key=agent_key)))
+    return ordered
+
+
+def legacy_sidebar_rows(items, settings):
+    """Rows for settings without sidebar_order: ungrouped agents, then sections, each with its
+    agents before its subsections."""
+    rows, shown_section = [], None
+    for section, subsection, agents in agent_groups(items, settings.get("sidebar_groups"),
+                                                    settings.get("sidebar_agent_order")):
+        if section and section != shown_section:
+            rows.append(("group", 0, section))
+            shown_section = section
+        if subsection:
+            rows.append(("group", 1, subsection))
+        depth = (1 if section else 0) + (1 if subsection else 0)
+        rows += [("agent", depth, item) for item in agents]
+    return rows
+
+
+def sidebar_rows(items, order):
+    """Rows in the sidebar's order: at each level groups and agents interleave by their index in
+    sidebar_order ("group:<path>", "agent:<name>"); unknown ones follow, groups then agents,
+    alphabetically. Groups without agents are not listed."""
+    positions = {}
+    for key in order:
+        if isinstance(key, str):
+            positions.setdefault(key, len(positions))
+    root = {"agents": [], "groups": {}}
+    for item in items:
+        group = item.get("group") if isinstance(item.get("group"), str) else ""
+        node, path = root, ""
+        for segment in (group.split("/") if group else []):
+            path = f"{path}/{segment}" if path else segment
+            node = node["groups"].setdefault(segment, {"path": path, "agents": [], "groups": {}})
+        node["agents"].append(item)
+
+    def walk(node, depth):
+        entries = [(f"group:{child['path']}", 0, name, child) for name, child in node["groups"].items()]
+        entries += [(f"agent:{item.get('name', '')}", 1, str(item.get("name", "")), item) for item in node["agents"]]
+        entries.sort(key=lambda entry: (positions[entry[0]], 0, "", "") if entry[0] in positions
+                     else (len(positions), entry[1], entry[2].lower(), entry[2]))
+        rows = []
+        for _, kind, name, value in entries:
+            if kind == 0:
+                rows.append(("group", depth, name))
+                rows += walk(value, depth + 1)
+            else:
+                rows.append(("agent", depth, value))
+        return rows
+
+    return walk(root, 0)
+
+
+def print_agents(items, as_json=False, tty=None):
     if as_json:
         print(json.dumps(items, indent=2))
         return
     if not items:
         print("No agents configured. Run ‘omni agents add .’ to create one.")
         return
+    tty = sys.stdout.isatty() if tty is None else tty
     print(f"{'NAME':28} {'PROVIDER':9} {'STATE':9} SCHEDULE")
-    for item in items:
-        print(f"{item['name'][:28]:28} {item['provider']:9} {'enabled' if item['enabled'] else 'disabled':9} {item['schedule']['phrase']}")
+    settings = stored_settings()
+    order = settings.get("sidebar_order")
+    rows = sidebar_rows(items, order) if isinstance(order, list) else legacy_sidebar_rows(items, settings)
+    for kind, depth, value in rows:
+        indent = "  " * depth
+        if kind == "group":
+            print(indent + (styled(plain(value), BOLD) if tty else plain(value)))
+            continue
+        label = indent + (agent_marker(value) if tty else "")
+        label += plain(value["name"])[:max(4, 28 - display_width(label))]
+        print(f"{label}{' ' * max(0, 28 - display_width(label))} {value['provider']:9} "
+              f"{'enabled' if value['enabled'] else 'disabled':9} {value['schedule']['phrase']}")
+
 
 
 def print_agent(agent, as_json=False):
@@ -2315,7 +3559,8 @@ def print_agent(agent, as_json=False):
         ("Name", agent["name"]), ("Provider", agent["provider"]),
         ("State", "enabled" if agent["enabled"] else "disabled"),
         ("Workspace", agent["workspace"]), ("Model", agent.get("model") or "provider default"),
-        ("Schedule", agent["schedule"]["phrase"]), ("Overlap", agent["overlap"]),
+        ("Schedule", agent["schedule"]["phrase"]),
+        ("Run mode", "same persistent session" if agent.get("kind") == "loop" else agent["overlap"]),
         ("Retention", "off" if timeout is None else f"{timeout}s"),
         ("Next run", fmt_time(agent.get("next_run"))),
     ]
@@ -2332,7 +3577,301 @@ def print_runs(items, as_json=False):
         return
     print(f"{'RUN ID':36} {'AGENT':24} {'STATE':11} STARTED")
     for item in items:
-        print(f"{item['id']:36} {item['agent'][:24]:24} {item['state']:11} {fmt_time(item['started'])}")
+        print(f"{item['id']:36} {item['agent'][:24]:24} {run_state_label(item):11} {fmt_time(item['started'])}")
+
+
+CONTROL_SEQUENCE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\^_])|[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def plain(value):
+    """Agent-written text, made safe to print: no escape sequences can reach the terminal."""
+    return CONTROL_SEQUENCE.sub("", value) if isinstance(value, str) else ""
+
+
+def run_report_text(run):
+    """The summary when there is one, else the agent's final message, labelled as such."""
+    summary, final_message = plain(run.get("summary")).strip(), plain(run.get("final_message")).strip()
+    if run.get("summary_state") == "ready" and summary:
+        return "Summary", summary
+    state = run.get("summary_state") or "not available"
+    if final_message:
+        return f"Final message (AI summary {state})", final_message
+    return f"No summary (AI summary {state}) and no final message", ""
+
+
+def print_run(run, diff=None, as_json=False):
+    if as_json:
+        value = dict(run)
+        if diff is not None:
+            value["diff"] = diff.get("diff")
+            value["diff_truncated"] = bool(diff.get("truncated"))
+        print(json.dumps(value, indent=2))
+        return
+    head_start, head_end = plain(run.get("head_start"))[:12], plain(run.get("head_end"))[:12]
+    head = f"{head_start}..{head_end}" if head_start and head_end and head_start != head_end else head_start
+    reason = plain(run.get("reason"))
+    values = [
+        ("Run", plain(run.get("id"))), ("Agent", plain(run.get("agent"))),
+        ("State", f"{plain(run.get('state'))}{f' · {reason}' if reason else ''}"),
+        ("Origin", plain(run.get("origin"))), ("Provider", plain(run.get("provider"))),
+        ("Started", fmt_time(run.get("started")) if run.get("started") else ""),
+        ("Finished", fmt_time(run.get("finished")) if run.get("finished") else ""),
+        ("Workspace", plain(run.get("workspace"))), ("Branch", plain(run.get("branch"))),
+        ("Head", head), ("PR", plain(run.get("pr_url"))),
+    ]
+    for label, value in values:
+        if value:
+            print(f"{label:12} {value}")
+    title, text = run_report_text(run)
+    print(f"\n{title}")
+    for line in text.splitlines():
+        print(f"  {line}")
+    commits = [commit for commit in run.get("commits") or [] if isinstance(commit, dict)]
+    if commits:
+        print(f"\nCommits ({len(commits)})")
+        for commit in commits:
+            print(f"  {plain(commit.get('sha'))[:12]}  {plain(commit.get('subject'))}")
+    files = [plain(path) for path in run.get("diff_files") or [] if isinstance(path, str)]
+    if files:
+        print(f"\nChanged files ({len(files)})")
+        for path in files:
+            print(f"  {path}")
+    else:
+        print(f"\nChanged files  none ({plain(run.get('diff_state')) or 'not captured'})")
+    if diff is not None:
+        body = plain(diff.get("diff"))
+        print(f"\nDiff{' (truncated)' if diff.get('truncated') else ''}")
+        print(body.rstrip("\n") if body.strip() else f"  none ({plain(diff.get('diff_state')) or 'not captured'})")
+
+
+SGR = re.compile(r"\x1b\[[0-9;:]*m")
+
+
+def screen_text(screen, colour):
+    """A recorded terminal screen, safe to print: at most colours (SGR) survive, never cursor
+    movement, titles, clears or other control sequences."""
+    if not isinstance(screen, str):
+        return ""
+    if not colour:
+        return plain(screen)
+    return CONTROL_SEQUENCE.sub(lambda match: match.group(0) if SGR.fullmatch(match.group(0)) else "", screen)
+
+
+def print_run_screen(response, as_json=False, colour=False):
+    if as_json:
+        print(json.dumps({"screen": plain(response.get("screen")),
+                          "truncated": bool(response.get("truncated"))}, indent=2))
+        return
+    text = screen_text(response.get("screen"), colour).rstrip("\n")
+    print(text + ("\x1b[0m" if colour and text else ""))
+    if response.get("truncated"):
+        print("── earlier scrollback not kept ──")
+
+
+TAIL_LINES = 200
+TAIL_LINES_MAX = 2000
+TAIL_BYTES = 2097152
+TAIL_BYTES_MAX = 16777216
+TAIL_LINE_CHARACTERS = 500
+TAIL_RESULT_LINES = 4
+TAIL_ARGUMENT_CHARACTERS = 80
+TRANSCRIPT_ROOTS = (Path.home() / ".claude/projects", Path.home() / ".codex/sessions")
+SESSION_ID = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+TOOL_ARGUMENT_KEYS = ("command", "cmd", "file_path", "path", "pattern", "query", "url", "description",
+                      "prompt", "skill")
+
+
+def owned_transcript(path):
+    """A provider transcript file, never anything else a run row might name."""
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    if resolved.suffix != ".jsonl" or not resolved.is_file():
+        return None
+    for root in TRANSCRIPT_ROOTS:
+        try:
+            resolved.relative_to(root.resolve())
+            return resolved
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def run_transcript(run):
+    """The run's transcript: as recorded, else found by session ID as the runner finds it."""
+    recorded = run.get("transcript_path")
+    if isinstance(recorded, str) and owned_transcript(recorded):
+        return owned_transcript(recorded)
+    provider = run.get("provider")
+    providers = [provider] if provider in ("claude", "codex") else ["claude", "codex"]
+    for key in ("session_id", "resume_session_id", "id"):
+        session_id = run.get(key)
+        if not isinstance(session_id, str) or not SESSION_ID.match(session_id):
+            continue
+        for name in providers:
+            claude_root, codex_root = TRANSCRIPT_ROOTS
+            matches = (claude_root.glob(f"*/{session_id}.jsonl") if name == "claude"
+                       else codex_root.rglob(f"*{session_id}.jsonl"))
+            for match in matches:
+                found = owned_transcript(match)
+                if found:
+                    return found
+    return None
+
+
+def transcript_tail_events(path, limit=TAIL_BYTES):
+    """The events at the end of a transcript, oldest first, and whether earlier ones were left out."""
+    with path.open("rb") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, size - limit))
+        lines = handle.read().splitlines()
+    if size > limit:
+        lines = lines[1:]  # The tail starts mid-line.
+    events = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events, size > limit
+
+
+def tool_call_line(name, arguments):
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            pass
+    summary = arguments
+    if isinstance(arguments, dict):
+        summary = next((arguments[key] for key in TOOL_ARGUMENT_KEYS if arguments.get(key)), None)
+        if summary is None:
+            summary = json.dumps(arguments, ensure_ascii=False) if arguments else ""
+    if isinstance(summary, list):
+        summary = " ".join(str(part) for part in summary)
+    summary = " ".join(plain(str(summary or "")).split())
+    if len(summary) > TAIL_ARGUMENT_CHARACTERS:
+        summary = summary[:TAIL_ARGUMENT_CHARACTERS - 1] + "…"
+    return ("tool", plain(str(name or "tool")), summary)
+
+
+def tool_output_text(output):
+    if isinstance(output, list):
+        return "\n".join(block.get("text", "") for block in output
+                         if isinstance(block, dict) and isinstance(block.get("text"), str))
+    if isinstance(output, str):
+        try:
+            value = json.loads(output)
+        except ValueError:
+            return output
+        if isinstance(value, dict) and isinstance(value.get("output"), str):
+            return value["output"]
+    return output if isinstance(output, str) else ""
+
+
+def is_injected_context(text):
+    """Text a provider adds to the user's side: environment, instructions, reminders."""
+    return text.lstrip().startswith(("<", "# AGENTS.md instructions"))
+
+
+def claude_transcript_items(event):
+    if event.get("isSidechain") or event.get("isMeta") or event.get("type") not in ("user", "assistant"):
+        return []
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+    items = []
+    for block in blocks if isinstance(blocks, list) else []:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "text" and isinstance(block.get("text"), str) and block["text"].strip():
+            if event["type"] == "assistant":
+                items.append(("assistant", block["text"]))
+            elif not is_injected_context(block["text"]):
+                items.append(("user", block["text"]))
+        elif kind == "tool_use" and event["type"] == "assistant":
+            items.append(tool_call_line(block.get("name"), block.get("input")))
+        elif kind == "tool_result":
+            items.append(("result", tool_output_text(block.get("content"))))
+    return items
+
+
+def codex_transcript_items(event):
+    payload = event.get("payload")
+    if event.get("type") != "response_item" or not isinstance(payload, dict):
+        return []
+    kind = payload.get("type")
+    if kind == "message" and payload.get("role") in ("user", "assistant"):
+        texts = [block.get("text") for block in payload.get("content") or []
+                 if isinstance(block, dict) and isinstance(block.get("text"), str) and block["text"].strip()]
+        if payload["role"] == "user":
+            return [("user", text) for text in texts if not is_injected_context(text)]
+        return [("assistant", text) for text in texts]
+    if kind == "function_call":
+        return [tool_call_line(payload.get("name"), payload.get("arguments"))]
+    if kind == "custom_tool_call":
+        return [tool_call_line(payload.get("name"), payload.get("input"))]
+    if kind in ("function_call_output", "custom_tool_call_output"):
+        return [("result", tool_output_text(payload.get("output")))]
+    return []
+
+
+def render_transcript_items(items, colour):
+    def style(text, code):
+        return f"\x1b[{code}m{text}\x1b[0m" if colour else text
+
+    def cut(line):
+        return line if len(line) <= TAIL_LINE_CHARACTERS else line[:TAIL_LINE_CHARACTERS - 1] + "…"
+
+    lines = []
+    for item in items:
+        kind = item[0]
+        if kind == "tool":
+            _, name, summary = item
+            lines.append(f"● {style(name, '1')}({summary})")
+            continue
+        text_lines = plain(item[1]).strip("\n").splitlines()
+        if kind == "user":
+            lines.append("")
+            lines += [style(cut(("❯ " if index == 0 else "  ") + line), "1") for index, line in enumerate(text_lines)]
+            lines.append("")
+        elif kind == "assistant":
+            lines += [cut(("● " if index == 0 else "  ") + line) for index, line in enumerate(text_lines)]
+        else:
+            shown = text_lines[:TAIL_RESULT_LINES]
+            lines += [style(cut(("  ⎿ " if index == 0 else "    ") + line), "2") for index, line in enumerate(shown)]
+            if len(text_lines) > len(shown):
+                lines.append(style(f"    … +{len(text_lines) - len(shown)} lines", "2"))
+    return lines
+
+
+def run_tail(run, count=TAIL_LINES, colour=False):
+    """The end of a run's provider transcript, rendered like its terminal. Read-only."""
+    path = run_transcript(run)
+    if not path:
+        return {"ok": False, "error": "No transcript found for this run"}
+    reader = codex_transcript_items if path.is_relative_to(TRANSCRIPT_ROOTS[1].resolve()) else claude_transcript_items
+    count = max(1, min(TAIL_LINES_MAX, count))
+    limit = TAIL_BYTES
+    while True:
+        try:
+            events, cut_short = transcript_tail_events(path, limit)
+        except OSError as error:
+            return {"ok": False, "error": f"Could not read the transcript: {error.strerror or error}"}
+        lines = render_transcript_items([item for event in events for item in reader(event)], colour)
+        while lines and not lines[-1]:
+            lines.pop()
+        # Transcripts also hold large bookkeeping events; read further back only when the tail
+        # had too little to show.
+        if len(lines) >= count or not cut_short or limit >= TAIL_BYTES_MAX:
+            break
+        limit = min(TAIL_BYTES_MAX, limit * 4)
+    return {"ok": True, "text": "\n".join(lines[-count:]).lstrip("\n"), "source": "transcript", "path": str(path),
+            "truncated": cut_short or len(lines) > count}
 
 
 def preview_schedule(name):
@@ -2346,16 +3885,288 @@ def preview_schedule(name):
         cursor = next_calendar(item["schedule"], timezone, cursor)
 
 
+def configure_memory_agent(provider=None, workspace=None, enabled=True, native_request=None, model=None):
+    helper = Path(__file__).resolve().parent / "omni_memory.py"
+    spec = importlib.util.spec_from_file_location("omni_memory", helper)
+    memory = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(memory)
+    return memory.configure_memory(native_request or request, provider=provider, workspace=workspace,
+                                   enabled=enabled, model=model)
+
+
+def blocks_module():
+    helper = Path(__file__).resolve().parent / "omni_blocks.py"
+    spec = importlib.util.spec_from_file_location("omni_blocks", helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def quick_request(payload, timeout=3):
+    """A bounded scheduler call for hooks: never waits long, never raises."""
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(timeout)
+    try:
+        client.connect(str(SOCKET))
+        client.sendall(json.dumps(payload).encode() + b"\n")
+        client.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks))
+    except (OSError, ValueError):
+        return None
+    finally:
+        client.close()
+
+
+def run_hook(provider, payload_text, environ=None, send=None):
+    """Record a hook event. Hooks must never block or fail the provider session."""
+    environ = os.environ if environ is None else environ
+    send = send or quick_request
+    try:
+        blocks = blocks_module()
+        if environ.get("OMNITERM_AGENT") in blocks.MANAGED_AGENTS:
+            return None
+        payload = json.loads(payload_text or "null")
+        event = blocks.claude_event(payload) if provider == "claude" else blocks.codex_event(payload)
+        if not event:
+            return None
+        response = send({"op": "record_block", "event": event})
+        if response and response.get("ok") and response.get("escalate") and response.get("block"):
+            notice = blocks.notification_for(response["block"])
+            notice.update({"workspace": event.get("cwd") or None, "include_diff": False})
+            for key, variable in (("run_id", "OMNITERM_RUN_ID"), ("agent", "OMNITERM_AGENT")):
+                if environ.get(variable):
+                    notice[key] = environ[variable]
+            send({key: value for key, value in notice.items() if value is not None})
+        return response
+    except Exception:  # noqa: BLE001 - a hook that raises would surface in the provider's TUI
+        return None
+
+
+def print_blocks(blocks):
+    if not blocks:
+        print("No sessions are waiting.")
+        return
+    for block in blocks:
+        minutes = block.get("age_seconds", 0) // 60
+        flag = "answerable" if block.get("answerable") else ("needs you" if block.get("kind") != "idle" else block.get("state"))
+        prompt = " ".join((block.get("prompt") or "").split())
+        print(f"{block['block_id']}  {block['session_id']}  {block['kind']:<10} {block['state']:<9} {minutes:>4}m  {flag}")
+        print(f"    {block.get('cwd') or ''}")
+        if prompt:
+            print("    " + (prompt[:160] + ("…" if len(prompt) > 160 else "")))
+
+
+def blocks_command(args):
+    blocks = blocks_module()
+    if args.command == "hook":
+        chained = []
+        if args.provider == "codex":
+            # Codex appends its event JSON to the notify program's arguments.
+            words = list(args.payload)
+            payload = words.pop() if words else ""
+            if words[:1] == ["--then"]:
+                chained = words[1:]
+        else:
+            payload = sys.stdin.read(1048576)
+        if args.provider == "claude" and '"SessionStart"' in payload:
+            try:
+                if json.loads(payload).get("hook_event_name") == "SessionStart":
+                    print(blocks.session_start_output())
+                    return
+            except (ValueError, AttributeError):
+                return
+        # Return to the provider at once; record from a detached child, since the
+        # request queues behind indexing and must never hold up a prompt.
+        try:
+            if os.fork():
+                return
+            os.setsid()
+            devnull = os.open(os.devnull, os.O_RDWR)
+            for descriptor in (0, 1, 2):
+                os.dup2(devnull, descriptor)
+        except OSError:
+            pass
+        try:
+            if chained:
+                try:
+                    subprocess.Popen(chained + [payload], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+                except OSError:
+                    pass
+            run_hook(args.provider, payload, send=lambda body: quick_request(body, timeout=60))
+        finally:
+            os._exit(0)
+    if args.command == "hooks":
+        providers = tuple(args.provider or ("claude", "codex"))
+        try:
+            result = (blocks.hooks_status() if args.action == "status" else
+                      blocks.install_hooks(install=args.action == "install", providers=providers))
+            if args.action != "status":
+                # The hooks and the agent that answers are one feature: on together, off together.
+                result["unblocker"] = blocks.configure_unblocker(request, enabled=args.action == "install")["changed"]
+        except (OSError, ValueError) as error:
+            raise SystemExit(str(error))
+        print(json.dumps(result, indent=None if args.json else 2))
+        return
+    if args.command == "unblocker":
+        try:
+            result = blocks.configure_unblocker(request, provider=args.provider, workspace=args.workspace,
+                                                enabled=not args.disabled, model=args.model)
+        except ValueError as error:
+            raise SystemExit(str(error))
+        print(json.dumps(result, indent=None if args.json else 2, ensure_ascii=False))
+        return
+    if args.command == "unblock":
+        payload = {"op": "get_unblock" if args.state is None else "set_unblock", "session_id": args.session_id}
+        if args.state is not None:
+            payload["enabled"] = args.state == "on"
+        response = request(payload)
+        response.pop("ok", None)
+        print(json.dumps(response, indent=None if args.json else 2, ensure_ascii=False))
+        return
+    if args.command == "blocked":
+        response = request({"op": "list_blocked", "state": "all" if args.all else "open",
+                            "min_age_seconds": args.min_age})
+        if args.json:
+            print(json.dumps({"blocks": response["blocks"]}, ensure_ascii=False))
+        else:
+            print_blocks(response["blocks"])
+        return
+    if args.action == "show":
+        response = request({"op": "get_block", "block_id": args.block_id})
+    elif args.action == "answer":
+        if not args.text or not args.reason:
+            raise SystemExit("Give a message and a reason: omni block ID answer TEXT --reason WHY")
+        response = request({"op": "answer_block", "block_id": args.block_id, "message": args.text,
+                            "reason": args.reason})
+    else:
+        if not args.reason:
+            raise SystemExit("Give a reason: omni block ID skip --reason WHY")
+        response = request({"op": "skip_block", "block_id": args.block_id, "reason": args.reason})
+    response.pop("ok", None)
+    print(json.dumps(response, indent=None if args.json else 2, ensure_ascii=False))
+
+
 def main(argv=None):
     args = cli_parser().parse_args(normalized_cli_argv(sys.argv[1:] if argv is None else argv))
     if args.command in {None, "dashboard"}:
         return dashboard_supervisor()
+    if args.command in {"hook", "hooks", "blocked", "block", "unblocker", "unblock"}:
+        return blocks_command(args)
+    if args.command in {"sessions", "session", "message", "knowledge"}:
+        if args.command == "sessions":
+            payload = {"op": "list_sessions", "limit": args.limit}
+            for key in ("provider", "workspace", "state", "cursor"):
+                if getattr(args, key) is not None:
+                    payload[key] = getattr(args, key)
+        elif args.command == "session":
+            if args.action == "send":
+                if not args.message:
+                    raise SystemExit("Give a message: omni session ID send TEXT")
+                payload = {"op": "send_session_message", "session_id": args.session_id,
+                           "request_id": args.request_id or str(uuid.uuid4()), "message": args.message}
+                for key in ("sender_session_id", "sender_name"):
+                    if getattr(args, key) is not None:
+                        payload[key] = getattr(args, key)
+            else:
+                if args.message:
+                    raise SystemExit("Unexpected text after session ID; use send TEXT")
+                payload = {"op": "get_session", "session_id": args.session_id,
+                           "offset": args.offset, "limit": args.limit}
+        elif args.command == "message":
+            payload = {"op": "get_session_message", "request_id": args.request_id}
+        elif args.knowledge_command == "memory":
+            try:
+                result = configure_memory_agent(provider=args.provider, workspace=args.workspace,
+                                                enabled=not args.disabled)
+            except ValueError as error:
+                raise SystemExit(str(error))
+            print(json.dumps(result, indent=None if args.json else 2, ensure_ascii=False))
+            return
+        elif args.knowledge_command == "status":
+            payload = {"op": "knowledge_status"}
+        else:
+            payload = {"op": "search_memories" if args.knowledge_command == "memories" else "search_transcripts",
+                       "mode": args.mode, "limit": args.limit}
+            if args.query is not None:
+                payload["query"] = args.query
+            if args.knowledge_command == "search":
+                for key in ("provider", "workspace", "session_id"):
+                    if getattr(args, key) is not None:
+                        payload[key] = getattr(args, key)
+        # JSON escapes terminal controls in transcript and agent-authored text.
+        try:
+            response = request(payload)
+        except SystemExit as error:
+            if payload["op"] == "send_session_message":
+                raise SystemExit(f"{error}\nMessage request ID: {payload['request_id']}. Reuse it for retries.")
+            raise
+        print(json.dumps(response, indent=None if args.json else 2, ensure_ascii=False))
+        return
+    if args.command == "folders":
+        try:
+            groups = [normalized_group(path) for path in args.paths]
+            if any(group is None for group in groups):
+                raise ValueError("Folder paths must not be empty")
+        except ValueError as error:
+            raise SystemExit(str(error))
+        response = request({"op": "set_sidebar_groups", "groups": list(dict.fromkeys(groups))})
+        if args.json:
+            print(json.dumps(response["groups"], ensure_ascii=False))
+        else:
+            for group in response["groups"]:
+                print(plain(group))
+        return
     if args.command == "agents":
         if args.agents_command == "add":
             return edit_agent(seed_path=args.path)
+        if args.agents_command == "order":
+            names = list(dict.fromkeys(name.strip() for name in args.names if name.strip()))
+            if not names:
+                raise SystemExit("Give agent names, first to last")
+            request({"op": "set_sidebar_agent_order", "names": names})
+            return
+        if args.agents_command == "appearance":
+            print(json.dumps(appearance_catalog()))
+            return
+        if args.agents_command == "normalize":
+            try:
+                candidate = json.loads(sys.stdin.read())
+            except ValueError as error:
+                print(json.dumps({"ok": False, "errors": {"agent": f"Invalid JSON: {error}"}}))
+                return
+            print(json.dumps(normalize_agent_json(candidate)))
+            return
         items = request({"op": "list_agents"})["agents"]
         return print_agents(items, args.json)
     if args.command == "agent":
+        if args.action == "rename":
+            if not (args.new_name or "").strip():
+                raise SystemExit("Give the new name: omni agent NAME rename NEW")
+            try:
+                new_name = normalized_agent_name(args.new_name)
+            except ValueError as error:
+                raise SystemExit(str(error))
+            response = request({"op": "rename_agent", "name": args.name, "new_name": new_name})
+            print((response.get("agent") or {}).get("name", new_name))
+            return
+        if args.action == "set":
+            fields = {key: getattr(args, key) for key in APPEARANCE_FIELDS if getattr(args, key) is not None}
+            if not fields:
+                raise SystemExit("Give --group, --icon or --color (\"\" clears one)")
+            values, errors = appearance_errors(fields)
+            if errors:
+                raise SystemExit("; ".join(errors.values()))
+            # "" clears: the socket strips nulls.
+            request({"op": "set_agent_appearance", "name": args.name,
+                     **{key: "" if value is None else value for key, value in values.items()}})
+            return
         if args.action == "edit": return edit_agent(request({"op": "show_agent", "name": args.name})["agent"])
         if args.action == "run": print(request({"op": "run_agent", "name": args.name})["run_id"]); return
         if args.action == "runs": return print_runs(request({"op": "list_runs", "name": args.name})["runs"], args.json)
@@ -2363,12 +4174,62 @@ def main(argv=None):
         if args.action in {"enable", "disable"}: request({"op": "set_enabled", "name": args.name, "enabled": args.action == "enable"}); return
         if args.action == "delete": request({"op": "delete_agent", "name": args.name}); return
         return print_agent(request({"op": "show_agent", "name": args.name})["agent"], args.json)
-    if args.command == "run": print(request({"op": "run_agent", "name": args.name})["run_id"]); return
+    if args.command == "notify": return notify_from_cli(args)
+    if args.command == "notifications":
+        if args.read_all:
+            response = request({"op": "notifications_read_all"})
+            print(f"Marked {response.get('marked', 0)} as read.")
+            return
+        return print_notifications(request({"op": "notifications", "unread": args.unread, "limit": 100}), args.json)
+    if args.command == "inbox":
+        request({"op": "show_inbox", **({"id": args.id} if args.id else {})})
+        return
+    if args.command == "notification":
+        if args.action == "delete":
+            request({"op": "notification_delete", "id": args.id})
+        else:
+            request({"op": "notification_read", "id": args.id, "read": args.action == "read"})
+        return
+    if args.command == "run" and args.tail:
+        colour = not args.plain and (args.json or sys.stdout.isatty())
+        try:
+            result = run_tail(request({"op": "get_run", "id": args.id})["run"], args.lines, colour)
+        except SystemExit as error:
+            result = {"ok": False, "error": str(error)}
+        if args.json:
+            print(json.dumps(result))
+        elif not result["ok"]:
+            raise SystemExit(result["error"])
+        else:
+            print(result["text"] + ("\x1b[0m" if colour and result["text"] else ""))
+        return
+    if args.command == "run" and args.screen:
+        return print_run_screen(request({"op": "run_screen", "id": args.id}), args.json,
+                                colour=sys.stdout.isatty() and not args.plain)
+    if args.command == "run":
+        run = request({"op": "get_run", "id": args.id})["run"]
+        return print_run(run, request({"op": "run_diff", "id": args.id}) if args.diff else None, args.json)
     if args.command == "resume": print(request({"op": "resume_run", "run_id": args.run_id})["run_id"]); return
     if args.command == "runs": return print_runs(request({"op": "list_runs", "name": args.agent})["runs"], args.json)
     if args.command == "stop": request({"op": "stop_run", "run_id": args.run_id}); return
-    if args.command == "settings": print(json.dumps(request({"op": "get_settings"})["settings"], indent=2)); return
+    if args.command == "settings":
+        if getattr(args, "settings_command", None) == "set":
+            return set_setting(args.key, args.value)
+        print(json.dumps(request({"op": "get_settings"})["settings"], indent=2)); return
+    if args.command == "mute": return set_setting("notifications.muted_until", json.dumps(mute_until(args.duration)))
+    if args.command == "unmute": return set_setting("notifications.muted_until", "0")
     if args.command == "schedule" and args.schedule_command == "preview": return preview_schedule(args.name)
+    if args.command == "schedule" and args.schedule_command == "parse":
+        result = parse_schedule_json(args.phrase, args.count)
+        if args.json:
+            print(json.dumps(result))
+        elif not result["ok"]:
+            raise SystemExit(result["error"])
+        else:
+            print(result["phrase"])
+            for value in result["occurrences"]:
+                print(dt.datetime.fromtimestamp(value, ZoneInfo(result["timezone"])).isoformat())
+        return
     if args.command == "mcp":
         if args.mcp_command == "install": return install_mcp(args.quiet)
         if args.mcp_command == "status": return mcp_status(args.json)

@@ -1,0 +1,95 @@
+name: Native Omni gate
+
+# Opt in until a clean hosted build passes. Every exported Omni XCTest class
+# must run and report a nonempty passing suite; live GUI acceptance is separate.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-omni:
+    runs-on: macos-26
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      OMNITERM_SIGN_IDENTITY: "-"
+      RUN_TESTS_STALL_SECONDS: "600"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check packaged sources and toolchain
+        run: |
+          test -f widget/Info.plist
+          test -f widget/OmniInboxWidget.swift
+          test -f widget/OmniInboxWidget.entitlements
+          xcodebuild -version
+          xcrun --show-sdk-version
+      - name: Bootstrap the pinned native fork
+        run: |
+          ./scripts/bootstrap.sh
+          test -f Vendor/iTerm2/ModernTests/OmniSchedulerTests.m
+          python3 - <<'PY'
+          import pathlib, re
+          root = pathlib.Path("Vendor/iTerm2")
+          project = (root / "iTerm2.xcodeproj/project.pbxproj").read_text()
+          paths = re.findall(r"path = ../OmniTerm/([^;]+);", project)
+          missing = [p for p in paths if not (root / "sources/OmniTerm" / p).is_file()]
+          if missing:
+              raise SystemExit(f"Fork export is missing native sources: {missing}")
+          PY
+      - name: Install explicit build prerequisites
+        run: |
+          brew install cmake pkg-config automake perl python3 gettext
+          brew install --cask sf-symbols
+          python3 -m pip install --break-system-packages pyobjc
+          rustup toolchain install stable --profile minimal
+          rustup target add --toolchain stable x86_64-apple-darwin aarch64-apple-darwin
+          xcodebuild -downloadComponent MetalToolchain
+          echo "$(brew --prefix gettext)/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Rebuild native dependencies
+        working-directory: Vendor/iTerm2
+        run: |
+          mkdir -p tmp
+          make paranoid-deps 2>&1 | tee tmp/native-deps.log
+      - name: Build the local development bundle
+        run: ./scripts/build-app.sh
+      - name: Verify the packaged bundle
+        run: |
+          ./scripts/check-bundle.sh dist/OmniTerm.app
+          codesign --verify --deep --strict dist/OmniTerm.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/OmniTerm.app/Contents/Info.plist)" = com.omniterm.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' dist/OmniTerm.app/Contents/Info.plist)" = OmniTerm
+          test -x dist/OmniTerm.app/Contents/MacOS/OmniTerm
+      - name: Run all exported Omni tests
+        working-directory: Vendor/iTerm2
+        run: |
+          set -o pipefail
+          python3 ../../scripts/native-test-gate.py select ModernTests > tmp/native-test-selectors.txt
+          selectors=()
+          while IFS= read -r selector; do
+            selectors+=("$selector")
+          done < tmp/native-test-selectors.txt
+          tools/run_tests.expect "${selectors[@]}" 2>&1 | tee tmp/native-tests.log
+          python3 ../../scripts/native-test-gate.py verify tmp/native-test-selectors.txt tmp/native-tests.log
+      - name: Preserve failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-gate-logs
+          retention-days: 3
+          if-no-files-found: ignore
+          path: |
+            Vendor/iTerm2/tmp/build.log
+            Vendor/iTerm2/tmp/native-deps.log
+            Vendor/iTerm2/tmp/native-tests.log
+            Vendor/iTerm2/tmp/native-test-selectors.txt

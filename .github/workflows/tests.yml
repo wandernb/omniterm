@@ -7,12 +7,14 @@ on:
       - "scripts/**"
       - "tests/**"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/iterm2-update.yml"
   pull_request:
     paths:
       - "helpers/**"
       - "scripts/**"
       - "tests/**"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/iterm2-update.yml"
   workflow_dispatch:
 
 permissions:
@@ -27,4 +29,7 @@ jobs:
       - name: Run helper unit tests
         run: python3 -m unittest discover -s tests -v
       - name: Check shell script syntax
-        run: /bin/zsh -n scripts/*.sh
+        run: |
+          for script in scripts/*.sh; do
+            /bin/zsh -n "$script"
+          done

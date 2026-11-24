@@ -1,7 +1,7 @@
 # Third-party notices
 
 OmniTerm-specific work is Copyright (C) 2026 Paul REBOH
-(`dev at reboh dot net`).
+(`dev at wnbx dot net`).
 
 OmniTerm is a modified distribution of [iTerm2](https://iterm2.com/), created
 by George Nachman and the iTerm2 contributors. OmniTerm is not an official

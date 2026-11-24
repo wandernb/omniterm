@@ -1,0 +1,143 @@
+{
+  "description": "Shared agent appearance and name examples. helpers/omni (tests/test_omni.py) and the native scheduler (ModernTests) must accept every valid value and reject every invalid one. group_normalized pins the stored form of a group. An all-spaces group clears, like \"\".",
+  "group": {
+    "valid": [
+      "Work",
+      "  Work / Reviews  ",
+      "Work/Reviews",
+      "",
+      "   ",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "Café ☕/Été 🌞",
+      "👨‍💻 Dev",
+      " 👨‍💻 Dev / Wren 🛡️ ",
+      "      "
+    ],
+    "invalid": [
+      "A/B/C",
+      "/Work",
+      "Work/",
+      "A//B",
+      "Work/ ",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Work/yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "Bad\u0007bell",
+      "Line\nbreak",
+      "Tab\there",
+      "Delete",
+      "Bad\u0007Bell",
+      "C1here"
+    ]
+  },
+  "group_normalized": [
+    [
+      "Work",
+      "Work"
+    ],
+    [
+      "  Work / Reviews  ",
+      "Work/Reviews"
+    ],
+    [
+      " Work ",
+      "Work"
+    ],
+    [
+      "Café ☕/Été 🌞",
+      "Café ☕/Été 🌞"
+    ],
+    [
+      "👨‍💻 Dev",
+      "👨‍💻 Dev"
+    ],
+    [
+      " 👨‍💻 Dev / Wren 🛡️ ",
+      "👨‍💻 Dev/Wren 🛡️"
+    ]
+  ],
+  "icon": {
+    "valid": [
+      "sf:folder",
+      "sf:testtube.2",
+      "sf:chevron.left.forwardslash.chevron.right",
+      "sf:trash",
+      "sf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "emoji:🚀",
+      "emoji:👍🏽",
+      "emoji:👨‍👩‍👧",
+      "emoji:🇫🇷",
+      "emoji:1️⃣",
+      "emoji:❤️",
+      "emoji:🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+      ""
+    ],
+    "invalid": [
+      "folder",
+      "sf:Folder",
+      "sf:folder ",
+      "sf:",
+      "sf:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sf:wrench_and",
+      "emoji:",
+      "emoji:a",
+      "emoji:1",
+      "emoji:🚀🚀",
+      "emoji: 🚀",
+      "emoji:🚀 ",
+      "EMOJI:🚀",
+      "🚀"
+    ]
+  },
+  "color": {
+    "valid": [
+      "gray",
+      "red",
+      "orange",
+      "yellow",
+      "green",
+      "blue",
+      "purple",
+      "pink",
+      "mint",
+      "teal",
+      "cyan",
+      "indigo",
+      "brown",
+      "lime",
+      "rose",
+      "slate",
+      ""
+    ],
+    "invalid": [
+      "Red",
+      "beige",
+      "Teal",
+      "magenta",
+      " red",
+      "grey",
+      "red "
+    ]
+  },
+  "name": {
+    "valid": [
+      "Nightly",
+      "  Nightly review  ",
+      "Wren 🛡️",
+      "👨‍💻 Dev",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Café ☕"
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "Bad\u0007bell",
+      "Line\nbreak",
+      "Tab\there",
+      "Tab\tName",
+      "Deletename",
+      "C1name"
+    ]
+  }
+}

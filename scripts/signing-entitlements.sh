@@ -14,8 +14,20 @@ identity="${3:-}"
 
 if [[ "$identity" == - ]]; then
   cp "$source_file" "$output_file"
-  /usr/libexec/PlistBuddy -c 'Delete :keychain-access-groups' "$output_file"
-  /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.application-groups' "$output_file"
+  /usr/bin/python3 - "$output_file" <<'PY'
+import plistlib
+import sys
+
+path = sys.argv[1]
+with open(path, "rb") as source:
+    entitlements = plistlib.load(source)
+if not isinstance(entitlements, dict):
+    raise ValueError("Entitlements must be a dictionary")
+for key in ("keychain-access-groups", "com.apple.security.application-groups"):
+    entitlements.pop(key, None)
+with open(path, "wb") as output:
+    plistlib.dump(entitlements, output)
+PY
 else
   team="${OMNITERM_TEAM_ID:-}"
   if [[ -z "$team" && "$identity" =~ '\(([A-Z0-9]{10})\)$' ]]; then

@@ -17,21 +17,26 @@ socket namespace, runtime state, and update path.
 
 ## Settings control plane
 
-The native menu-bar Settings window owns OmniTerm behavior rather than exposing
-iTerm2's inherited preferences UI. It configures the global shortcut, login
-startup, window behavior, scheduling timezone, default run retention, and the
-number of protected recent tabs. Changes apply live and are written to the
-canonical `~/.omni/settings.json` file also read by the CLI, scheduler, and MCP
-server.
+The native Settings page in the terminal window's sidebar owns OmniTerm behavior
+rather than exposing iTerm2's inherited preferences UI. It configures
+notifications (mute, per level, kind and agent), the global shortcut, login
+startup, window behavior, defaults for new agents, scheduling timezone, default
+run retention, the number of protected recent tabs and run summaries. Every
+change goes through the scheduler's `set_settings` operation, which validates
+each key and writes the canonical `~/.omni/settings.json` file also read by the
+CLI and MCP server; the app applies the shortcut and login startup itself. MCP
+can read settings but not change them.
 
-Launch at login uses the macOS main-app service on supported systems, with a
-per-user LaunchAgent fallback for macOS 12.
+Whether a notification banners, plays a sound or raises the menu-bar count is
+one scheduler rule over those settings; the menu bar, widget and sidebar use it.
+
+Launch at login uses the macOS main-app service.
 
 ## Visibility lifecycle
 
 OmniTerm treats process lifecycle and window visibility as separate concerns.
 A fresh launch, login startup, or application-reopen event keeps every AppKit
-window hidden, including the non-restorable Settings window. Only an explicit
+window hidden. Only an explicit
 menu-bar **Open OmniTerm** action or the configured global shortcut may reveal
 the terminal. Closing or hiding the terminal therefore leaves the native app,
 scheduler, MCP bridge, tabs, and PTYs running in the background.

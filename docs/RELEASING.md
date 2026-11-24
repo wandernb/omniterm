@@ -12,6 +12,9 @@ decision the maintainer makes for that release.
 
 ## One-time setup
 
+- Use a supported Xcode installation. Before building a release, verify that
+  `/usr/bin/python3 --version` works on the build host; ad-hoc entitlement
+  generation uses Python's `plistlib` standard library module.
 - Join the Apple Developer Program and create a **Developer ID Application**
   certificate.
 - Store notarization credentials with `xcrun notarytool store-credentials`.
@@ -47,10 +50,26 @@ release, first rebuild native dependencies for both architectures with
 `UNIVERSAL=1 make paranoid-deps` in `Vendor/iTerm2`, then export
 `OMNITERM_UNIVERSAL=1` before packaging.
 
+The build runs with `XCODE_XCCONFIG_FILE` set to a configuration from
+`scripts/release-paths.sh`, which maps the project and home folders out of
+compiled-in file names and builds Metal shaders without embedded sources; the
+same script strips the debug map from every Mach-O file before signing. It
+lists any file that still names your home folder. Prebuilt upstream components
+keep their own build paths (for example `/Users/gnachman/...`).
+
 This produces a DMG, ZIP, and `SHA256SUMS` under `dist/release`. It invokes the
 fork's official Release build, adds notices, signs the final app, submits the
 DMG with `notarytool`, staples the ticket, and generates checksums. Without the
 two environment variables it produces an ad-hoc-signed package.
+
+Packaging prepares nonempty replacement artifacts privately before replacing
+existing files. A publication failure attempts to restore the prior artifacts
+and preserves the original failure status. If restoration is incomplete, it
+prints a retained backup location. Keep those copies and recover the prior
+artifact state before retrying; do not delete them until recovery is verified.
+This recovery covers the DMG, ZIP and checksums, not the rebuilt app bundle.
+Run packaging serially; concurrent publishers and untrappable interruption are
+outside this recovery mechanism.
 
 ## Validate and publish
 

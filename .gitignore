@@ -26,3 +26,4 @@ SHA256SUMS
 !.env.example
 Vendor/iTerm2/tmp/
 Vendor/iTerm2/plists/iTerm2.plist
+tmp/

@@ -20,7 +20,7 @@ patch_paths=(
   plists
   docs/notes-3.7.txt
   iTerm2.xcodeproj/project.pbxproj
-  ModernTests/OmniSchedulerTests.m
+  ':(glob)ModernTests/Omni*Tests.*'
 )
 
 latest_tag() {
@@ -34,15 +34,31 @@ current_tag() {
   git -C "$fork_dir" describe --tags --exact-match HEAD
 }
 
-export_patch() {
-  git -C "$fork_dir" diff --binary --full-index HEAD -- "${patch_paths[@]}" >"$patch_file.tmp"
-  [[ -s "$patch_file.tmp" ]] || {
-    rm -f "$patch_file.tmp"
+export_patch() (
+  # git diff HEAD omits untracked files. Fail before replacing the patch so a
+  # fresh checkout cannot silently lose new native sources or regression tests.
+  local untracked
+  untracked="$(git -C "$fork_dir" ls-files --others --exclude-standard -- "${patch_paths[@]}")"
+  if [[ -n "$untracked" ]]; then
+    print -u2 "Stage new fork files before exporting:"
+    print -u2 -r -- "$untracked"
+    exit 1
+  fi
+  # Each exporter owns its output inode, including while another invocation
+  # publishes. Keep it beside the patch so the final rename stays atomic.
+  local temporary_patch
+  temporary_patch="$(mktemp "$patch_file.tmp.XXXXXX")"
+  trap 'rm -f -- "$temporary_patch"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  git -C "$fork_dir" diff --binary --full-index HEAD -- "${patch_paths[@]}" >"$temporary_patch"
+  [[ -s "$temporary_patch" ]] || {
     print -u2 "Refusing to write an empty patch: OmniTerm's changes are not applied to $fork_dir."
     exit 1
   }
-  mv "$patch_file.tmp" "$patch_file"
-}
+  mv -- "$temporary_patch" "$patch_file"
+)
 
 update_fork() {
   local tag="$1"

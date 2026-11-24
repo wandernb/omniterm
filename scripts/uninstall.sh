@@ -25,7 +25,7 @@ while (( $# )); do
 done
 
 if [[ -x "$bin_dir/omni" ]]; then
-  "$bin_dir/omni" mcp uninstall || true
+  "$bin_dir/omni" mcp uninstall
 fi
 for launcher in "$bin_dir/omni" "$bin_dir/omni-mcp"; do
   if [[ -L "$launcher" && "$(readlink "$launcher")" == *OmniTerm.app/* ]]; then

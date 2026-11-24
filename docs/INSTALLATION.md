@@ -35,10 +35,11 @@ showing a terminal or Settings window. Use **Open OmniTerm** from the menu-bar
 icon or press Control-Option-Space, the default configurable shortcut, when you
 want the terminal.
 
-Choose **OmniTerm Settings…** from the menu bar to change the shortcut, enable
-launch at login, configure active-screen centering and double-Escape behavior,
-or set scheduler timezone and retention defaults. Changes apply immediately and
-are stored in `~/.omni/settings.json`.
+Choose **OmniTerm Settings…** from the menu bar, or the Settings row in the
+sidebar, to change the shortcut, enable launch at login, configure active-screen
+centering and double-Escape behavior, mute or tune notifications, and set
+defaults for new agents, the scheduler timezone and retention. Changes apply
+immediately and are stored in `~/.omni/settings.json`.
 
 When launch at login is enabled, macOS may ask for confirmation under **System
 Settings → General → Login Items**. Login startup remains background-only and
@@ -63,8 +64,18 @@ Running a newer installer replaces only an app whose bundle identifier is
 `com.omniterm.app`; the prior app is retained as
 `/Applications/OmniTerm.previous.app`. Agent definitions and history survive.
 
+If app rotation or replacement fails, the installer attempts to restore the
+existing app and its previous version before exiting with the original error.
+If restoration also fails, it retains the recoverable copies and prints their
+paths. Keep those copies until the installation has been recovered.
+
 Uninstalling removes the app, its previous version, the launchers, and the MCP
 registrations. Quit OmniTerm first with **Terminate OmniTerm Completely**.
+
+If the MCP helper reports a failure, uninstall exits with that status before
+removing the app, launchers or user data, including with `--purge`. Resolve the
+provider-registration error and retry the same uninstall command.
+Provider registrations already removed before the failure are not restored.
 
 ```sh
 ./scripts/uninstall.sh          # preserve data
