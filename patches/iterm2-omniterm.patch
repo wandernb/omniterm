@@ -8447,13 +8447,22 @@ index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cc
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b61be832a8 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376deb55b799 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -5,6 +5,44 @@ right-to-left rendering, selection, and copy
+@@ -5,6 +5,53 @@ right-to-left rendering, selection, and copy
  improvements in this release.
  
  Major New Features:
++- OmniTerm has a Projects page in its sidebar
++  listing every Forge project on your Mac, found
++  by Forge. A project’s page shows its branches,
++  worktrees, remotes, recent sessions, knowledge
++  folder, README and files. Sessions are now
++  grouped by project by default, and every
++  worktree or @head checkout counts as its
++  project; turn it off with Group by Project in
++  the sessions search menu.
 +- OmniTerm has a Settings page in its sidebar for
 +  notifications, the global shortcut, login
 +  startup, window behavior and defaults for new
@@ -8495,7 +8504,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b6
  - Support for the Program Status Protocol
    (OSC 7501), which lets a program report that it
    is working, waiting on you, done, or failed.
-@@ -45,6 +83,10 @@ Major New Features:
+@@ -45,6 +92,10 @@ Major New Features:
    3.8).
  
  New Features:
@@ -8506,7 +8515,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b6
  - `it2` can now target a session by the tmux pane
    it is showing. From inside a tmux Integration
    pane, pass --tmux "$TMUX" --tmux-pane
-@@ -680,6 +722,10 @@ Improvements:
+@@ -680,6 +731,10 @@ Improvements:
    General > Magic.
  
  Bug Fixes:
@@ -8517,7 +8526,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b6
  - Commands saved to Command History no longer
    include a right-hand prompt (such as zsh’s
    RPROMPT) drawn on the same line.
-@@ -2418,3 +2464,197 @@ Bug Fixes:
+@@ -2418,3 +2473,197 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -8716,10 +8725,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b6
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee763190d949a75 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b0acfc4d4 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,29 @@
+@@ -7,6 +7,30 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -8734,6 +8743,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
 +		5D0A7B1C2E3F000000000005 /* OmniMemoryPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */; };
 +		5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */; };
 +		5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */; };
++		5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
 +		0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */; };
@@ -8749,7 +8759,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5161,30 @@
+@@ -5138,6 +5162,31 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -8765,6 +8775,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
 +		5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSettingsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniUnblockerPane.swift; sourceTree = "<group>"; };
++		5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniProjectsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTerminalSnapshotView.swift; sourceTree = "<group>"; };
@@ -8780,7 +8791,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10654,30 @@
+@@ -10607,6 +10656,31 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -8796,6 +8807,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
 +				5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */,
 +				5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */,
 +				5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */,
++				5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
 +				0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */,
@@ -8811,7 +8823,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18639,7 @@
+@@ -18568,7 +18642,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -8820,7 +8832,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18649,7 @@
+@@ -18578,7 +18652,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -8829,7 +8841,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18836,28 @@
+@@ -18765,6 +18839,29 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -8843,6 +8855,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
 +				5D0A7B1C2E3F000000000005 /* OmniMemoryPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */,
++				5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
 +				0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */,
@@ -8858,7 +8871,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20841,7 @@
+@@ -20748,6 +20845,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -8866,7 +8879,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21653,7 @@
+@@ -21559,7 +21657,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8875,7 +8888,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21686,7 @@
+@@ -21592,7 +21690,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8884,7 +8897,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21823,8 @@
+@@ -21729,8 +21827,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8895,7 +8908,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22911,8 @@
+@@ -22817,8 +22915,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8906,7 +8919,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24777,7 @@
+@@ -24683,7 +24781,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -8915,7 +8928,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24864,7 @@
+@@ -24770,7 +24868,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8924,7 +8937,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24951,7 @@
+@@ -24857,7 +24955,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8933,7 +8946,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25038,7 @@
+@@ -24944,7 +25042,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8942,7 +8955,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25334,8 @@
+@@ -25240,8 +25338,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8953,7 +8966,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25429,8 @@
+@@ -25335,8 +25433,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8964,7 +8977,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25634,7 @@
+@@ -25540,7 +25638,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8973,7 +8986,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee76319
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25667,7 @@
+@@ -25573,7 +25671,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9891,7 +9904,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d51226be8 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a09b0fe5b1 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -10947,14 +10960,15 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,67 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,74 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
 +    // omniterm://inbox opens the Inbox, for the widget. omniterm://memory opens
 +    // the Memory page, optionally on a tab (omniterm://memory/graph?mode=mindmap,
 +    // omniterm://memory/search?q=words, omniterm://memory/graph?select=ID or ?open=ID).
-+    // omniterm://unblocker opens the Unblocker page.
++    // omniterm://unblocker opens the Unblocker page. omniterm://projects opens the
++    // Projects page, omniterm://project/<root path> one project.
 +    // omniterm://sessions shows the sidebar's Sessions mode, omniterm://session/claude:ID
 +    // one session's page (?message=ID: from that message; ?system=1: with its system
 +    // prompt open). Nothing else is accepted.
@@ -10968,6 +10982,12 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
 +            [self openOmniTerm:nil];
 +            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
 +            [terminal omniShowUnblocker];
++        } else if ([url.host isEqualToString:@"projects"] || [url.host isEqualToString:@"project"]) {
++            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
++            [self openOmniTerm:nil];
++            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
++            NSString *root = [url.host isEqualToString:@"project"] && url.path.length > 1 ? url.path : nil;
++            [terminal omniShowProjects:root];
 +        } else if ([url.host isEqualToString:@"memory"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -11015,7 +11035,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3481,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3488,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11038,7 +11058,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3627,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3634,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11047,7 +11067,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4091,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4098,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11063,7 +11083,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4857,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4864,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11084,7 +11104,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5103,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5110,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -12803,7 +12823,7 @@ index 0000000000000000000000000000000000000000..285b59c9505d5df83f3be7e14d37a9d7
 +}
 diff --git a/sources/OmniTerm/OmniCardPane.swift b/sources/OmniTerm/OmniCardPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..36d2c07662d94fef305493793fb82c44ab8b65e7
+index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f63d745a2
 --- /dev/null
 +++ b/sources/OmniTerm/OmniCardPane.swift
 @@ -0,0 +1,1115 @@
@@ -12913,7 +12933,7 @@ index 0000000000000000000000000000000000000000..36d2c07662d94fef305493793fb82c44
 +        case .run(let id):
 +            previewRunID = id
 +            details = OmniRunReportPane(runID: id, compact: true)
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session:
 +            details = NSView()
 +        }
 +        super.init()
@@ -13019,7 +13039,7 @@ index 0000000000000000000000000000000000000000..36d2c07662d94fef305493793fb82c44
 +            OmniSchedulerClient.request(["op": "get_run", "id": id]) { [weak self] response in
 +                self?.renderRun(response)
 +            }
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session:
 +            break
 +        }
 +    }
@@ -13924,10 +13944,10 @@ index 0000000000000000000000000000000000000000..36d2c07662d94fef305493793fb82c44
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..9011b9344793611b24b858d321e34212f4c68280
+index 0000000000000000000000000000000000000000..4e7f52c0fc1d3e5d3cada78b9e7b310bbf31294a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,779 @@
+@@ -0,0 +1,786 @@
 +import AppKit
 +import Foundation
 +
@@ -13946,6 +13966,9 @@ index 0000000000000000000000000000000000000000..9011b9344793611b24b858d321e34212
 +    case settings
 +    // The background unblocker: its switch, policy and audit trail.
 +    case unblocker
++    // Every forge project on the Mac, and one project by its root path.
++    case projects
++    case project(String)
 +    // A Claude or Codex session from the machine's history, by its
 +    // provider-qualified ID (`claude:<id>`).
 +    case session(String)
@@ -14086,6 +14109,10 @@ index 0000000000000000000000000000000000000000..9011b9344793611b24b858d321e34212
 +            pane = OmniSettingsPane()
 +        case .unblocker:
 +            pane = OmniUnblockerPane()
++        case .projects:
++            pane = OmniProjectsPane(projectID: nil)
++        case .project(let root):
++            pane = OmniProjectsPane(projectID: root)
 +        case .session(let id):
 +            pane = OmniSessionPane(sessionID: id)
 +        case .agent, .run:
@@ -22532,6 +22559,461 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +    override func mouseDown(with event: NSEvent) {
 +    }
 +}
+diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee59f44515
+--- /dev/null
++++ b/sources/OmniTerm/OmniProjectsPane.swift
+@@ -0,0 +1,449 @@
++import AppKit
++import Foundation
++
++// MARK: - Model
++
++// What the Projects pages show. Pure so tests can check it without a window.
++enum OmniProjectsModel {
++    // A path with the home folder written as ~.
++    static func abbreviated(_ path: String, home: String = NSHomeDirectory()) -> String {
++        guard !home.isEmpty, path == home || path.hasPrefix(home + "/") else { return path }
++        return "~" + path.dropFirst(home.count)
++    }
++
++    // "~/Projects/acme/web · 3 checkouts · internal".
++    static func detail(_ project: [String: Any]) -> String {
++        var parts = [abbreviated(project["root"] as? String ?? "")]
++        let checkouts = (project["checkouts"] as? [Any])?.count ?? 0
++        if checkouts > 1 {
++            parts.append("\(checkouts) checkouts")
++        }
++        if let exposure = project["exposure"] as? [String: Any], exposure["listed"] as? Bool == true,
++           let tier = exposure["tier"] as? String {
++            parts.append(tier)
++        }
++        if project["forge"] as? Bool != true {
++            parts.append("no knowledge folder")
++        }
++        return parts.joined(separator: " · ")
++    }
++
++    static func name(_ project: [String: Any]) -> String {
++        return project["display_name"] as? String ?? project["name"] as? String ?? "Project"
++    }
++
++    static func size(_ bytes: Int?) -> String {
++        guard let bytes else { return "" }
++        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
++    }
++
++    // "main ↑2" from a branch and its upstream tracking text such as "[ahead 2]".
++    static func branchDetail(_ branch: [String: Any]) -> String {
++        var parts: [String] = []
++        if let upstream = branch["upstream"] as? String, !upstream.isEmpty {
++            var text = upstream
++            let track = branch["track"] as? String ?? ""
++            if track.contains("gone") {
++                text += " (gone)"
++            } else {
++                let ahead = Self.count(in: track, after: "ahead ")
++                let behind = Self.count(in: track, after: "behind ")
++                if ahead > 0 { text += " ↑\(ahead)" }
++                if behind > 0 { text += " ↓\(behind)" }
++            }
++            parts.append(text)
++        }
++        if let subject = branch["subject"] as? String, !subject.isEmpty {
++            parts.append(subject)
++        }
++        return parts.joined(separator: " · ")
++    }
++
++    private static func count(in text: String, after marker: String) -> Int {
++        guard let range = text.range(of: marker) else { return 0 }
++        return Int(text[range.upperBound...].prefix { $0.isNumber }) ?? 0
++    }
++
++    // The session's project for grouping: its forge project when known,
++    // otherwise the last folder of its path that is not a worktree slot such
++    // as `@head`.
++    static func sessionGroup(_ session: [AnyHashable: Any]) -> (key: String, title: String) {
++        if let project = session["project"] as? [String: Any], let id = project["id"] as? String {
++            return (key: "project|" + id, title: project["name"] as? String ?? (id as NSString).lastPathComponent)
++        }
++        let workspace = session["workspace"] as? String ?? ""
++        let name = workspace.split(separator: "/").map(String.init).filter { !$0.hasPrefix("@") }.last ?? ""
++        return (key: "folder|" + workspace, title: name)
++    }
++}
++
++// MARK: - Page
++
++// The Projects pages: every forge project on this Mac (`.projects`), and one
++// project (`.project(root)`) with its repository, worktrees, branches,
++// sessions, knowledge folder, README and files. Data comes from forge
++// through the knowledge worker (`list_projects`, `get_project`,
++// `get_project_file`); README and knowledge text are untrusted and shown
++// through the safe Markdown view, with no clickable links.
++final class OmniProjectsPane: OmniPane {
++    private let projectID: String?
++    private let scroll = OmniColumnScrollView()
++    private let statusLabel = OmniTheme.meta()
++    private var projects: [[String: Any]] = []
++    private var forge: [String: Any] = [:]
++    private var project: [String: Any]?
++    private var sessions: [[AnyHashable: Any]] = []
++    private var openFile: (path: String, text: String)?
++    private var buttonsZone: OmniButtonZone?
++    private(set) var zones: [(title: String, zone: OmniListZone)] = []
++    private let fileView = OmniMarkdownView(text: "")
++    private let readmeView = OmniMarkdownView(text: "")
++
++    override var contentViews: [NSView] {
++        return [scroll]
++    }
++
++    override var focusZones: [OmniFocusZone] {
++        return (buttonsZone.map { [$0 as OmniFocusZone] } ?? []) + zones.map(\.zone)
++    }
++
++    init(projectID: String?) {
++        self.projectID = projectID
++        super.init()
++        addSubview(scroll)
++        for view in [fileView, readmeView] {
++            view.didChangeHeight = { [weak self] in self?.scroll.relayout() }
++        }
++        readmeView.collapsedHeight = OmniMarkdownView.height(lines: 18)
++        fileView.collapsedHeight = OmniMarkdownView.height(lines: 30)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func layoutPane() {
++        super.layoutPane()
++        scroll.frame = bounds
++    }
++
++    override func reload() {
++        if let projectID {
++            reloadProject(projectID)
++        } else {
++            reloadList(refresh: false)
++        }
++    }
++
++    private func reloadList(refresh: Bool) {
++        var request: [String: Any] = ["op": "list_projects"]
++        if refresh {
++            request["refresh"] = true
++        }
++        OmniSchedulerClient.request(request) { [weak self] response in
++            guard let self else { return }
++            guard OmniPane.isOK(response) else {
++                self.showMessage(OmniPane.unreachableMessage(response))
++                return
++            }
++            self.forge = response["forge"] as? [String: Any] ?? [:]
++            self.projects = response["projects"] as? [[String: Any]] ?? []
++            self.rebuild()
++        }
++    }
++
++    private func reloadProject(_ id: String) {
++        var responses: [String: [AnyHashable: Any]] = [:]
++        let group = DispatchGroup()
++        let requests: [(String, [String: Any])] = [
++            ("project", ["op": "get_project", "project": id]),
++            ("sessions", ["op": "list_sessions", "order": "recent", "limit": 100]),
++        ]
++        for (name, request) in requests {
++            group.enter()
++            OmniSchedulerClient.request(request) { response in
++                responses[name] = response
++                group.leave()
++            }
++        }
++        group.notify(queue: .main) { [weak self] in
++            guard let self else { return }
++            guard let response = responses["project"], OmniPane.isOK(response),
++                  let project = response["project"] as? [String: Any] else {
++                let error = responses["project"]?["error"] as? String
++                self.showMessage("This project could not be read." + (error.map { "\n\($0)" } ?? ""))
++                return
++            }
++            self.project = project
++            let all = responses["sessions"]?["sessions"] as? [[AnyHashable: Any]] ?? []
++            self.sessions = all.filter { ($0["project"] as? [String: Any])?["id"] as? String == id }
++            if let readme = project["readme"] as? [String: Any], let text = readme["text"] as? String {
++                self.readmeView.text = OmniReportText.sanitized(text)
++            }
++            self.rebuild()
++        }
++    }
++
++    private func rebuild() {
++        preservingZoneFocus {
++            scroll.rebuildKeepingScroll {
++                if project != nil {
++                    buildProject()
++                } else {
++                    buildList()
++                }
++            }
++        }
++        showContent()
++    }
++
++    // MARK: List
++
++    private func buildList() {
++        let column = scroll.column
++        column.removeAll()
++        let previous = zones
++        zones = []
++        column.addText(OmniTheme.title("Projects"), spacing: 4)
++        let intro = OmniPaneText.label(
++            "Every Forge project on this Mac: folders found under your project roots, plus any a session opened " +
++            "in or you added with forge projects add. Worktrees and @head, @maintenance or @production " +
++            "checkouts count as their project.",
++            size: 12.5, color: OmniTheme.secondaryText)
++        column.add(intro, spacing: 6) { [weak intro] width in
++            intro?.sizeThatFits(NSSize(width: width, height: 400)).height ?? 40
++        }
++        let refresh = OmniPaneText.button("Refresh", target: self, action: #selector(refreshList(_:)))
++        let buttons = OmniButtonRow([refresh])
++        buttonsZone = buttons.zone
++        column.add(buttons, spacing: 10) { _ in 30 }
++        if forge["available"] as? Bool != true {
++            let reason = forge["error"] as? String ?? "Forge has not answered yet."
++            setStatus("Forge is unavailable: \(reason)", error: true)
++            column.addText(statusLabel, spacing: 10)
++        }
++        let rows: [(key: String, row: OmniZoneItem)] = projects.compactMap { project in
++            guard let root = project["root"] as? String else { return nil }
++            let updated = (project["updated"] as? NSNumber)?.doubleValue
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
++                                         title: OmniProjectsModel.name(project),
++                                         detail: OmniProjectsModel.detail(project),
++                                         badge: OmniSessionText.age(updated), status: nil) { [weak self] in
++                self?.actions?.paneOpen(.project(root))
++            }
++            return (key: root, row: row)
++        }
++        if rows.isEmpty, forge["available"] as? Bool == true {
++            column.addText(OmniTheme.meta("No forge projects found. Run forge projects add in a project to register it."))
++        }
++        section("\(rows.count) projects", key: "projects", previous: previous, rows: rows)
++    }
++
++    // MARK: One project
++
++    private func buildProject() {
++        guard let project else { return }
++        let column = scroll.column
++        column.removeAll()
++        let previous = zones
++        zones = []
++        column.addText(OmniTheme.title(OmniProjectsModel.name(project)), spacing: 4)
++        column.addText(OmniTheme.meta(OmniProjectsModel.detail(project)), spacing: 8)
++        let back = OmniPaneText.button("All Projects", target: self, action: #selector(showAll(_:)))
++        let reveal = OmniPaneText.button("Reveal in Finder", target: self, action: #selector(revealRoot(_:)))
++        let copy = OmniPaneText.button("Copy Path", target: self, action: #selector(copyPath(_:)))
++        let buttons = OmniButtonRow([back, reveal, copy])
++        buttonsZone = buttons.zone
++        column.add(buttons, spacing: 10) { _ in 30 }
++
++        var facts: [(String, String)] = []
++        if let main = project["main"] as? String {
++            facts.append(("Main checkout", OmniProjectsModel.abbreviated(main)))
++        }
++        let git = project["git"] as? [String: Any]
++        if let git {
++            if let branch = git["branch"] as? String {
++                facts.append(("Branch", branch))
++            }
++            if let changes = git["changes"] as? NSNumber {
++                facts.append(("Uncommitted", changes.intValue == 0 ? "Clean" : "\(changes.intValue) changed files"))
++            }
++            if let last = git["last_commit"] as? [String: Any] {
++                let when = Date(timeIntervalSince1970: (last["time"] as? NSNumber)?.doubleValue ?? 0)
++                let sha = String((last["sha"] as? String ?? "").prefix(9))
++                facts.append(("Last commit", "\(sha) · \(OmniFormat.relative(when)) · \(last["subject"] as? String ?? "")"))
++            }
++            for remote in git["remotes"] as? [[String: Any]] ?? [] {
++                facts.append(("Remote \(remote["name"] as? String ?? "")", remote["url"] as? String ?? ""))
++            }
++        } else {
++            facts.append(("Repository", "Not a git repository"))
++        }
++        if let exposure = project["exposure"] as? [String: Any] {
++            let tier = exposure["tier"] as? String ?? "protected"
++            let guardText = exposure["guard"] as? String ?? ""
++            let listed = exposure["listed"] as? Bool == true
++            facts.append(("Exposure", (listed ? tier : "\(tier) (not in the map)") + (guardText.isEmpty ? "" : " · \(guardText)")))
++        }
++        column.addSection("Repository")
++        column.addText(OmniPane.facts(facts), spacing: 8)
++
++        let worktrees = git?["worktrees"] as? [[String: Any]] ?? []
++        section("Worktrees", key: "worktrees", previous: previous, rows: worktrees.compactMap { worktree in
++            guard let path = worktree["path"] as? String else { return nil }
++            let branch = worktree["branch"] as? String ?? (worktree["detached"] as? Bool == true ? "detached" : "")
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowTriangleBranch.rawValue), iconColor: nil,
++                                         title: worktree["name"] as? String ?? (path as NSString).lastPathComponent,
++                                         detail: [branch, OmniProjectsModel.abbreviated(path)].filter { !$0.isEmpty }
++                                            .joined(separator: " · "),
++                                         badge: worktree["prunable"] as? Bool == true ? "prunable" : "", status: nil) {
++                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
++            }
++            return (key: path, row: row)
++        })
++
++        let id = projectID ?? ""
++        let sessionRows: [(key: String, row: OmniZoneItem)] = sessions.prefix(12).compactMap { session in
++            guard let sessionID = session["session_id"] as? String else { return nil }
++            let row = OmniFolderEntryRow(icon: .symbol(OmniSessionText.providerSymbol(session["provider"] as? String)),
++                                         iconColor: OmniSessionText.isLive(session) ? OmniTheme.running : nil,
++                                         title: OmniSessionText.title(session["title"] as? String),
++                                         detail: OmniSessionText.detail(session), badge: "",
++                                         status: OmniSessionText.isLive(session) ? OmniTheme.running : nil) { [weak self] in
++                self?.actions?.paneOpen(.session(sessionID))
++            }
++            return (key: sessionID, row: row)
++        }
++        if sessionRows.isEmpty {
++            column.addSection("Recent sessions")
++            column.addText(OmniTheme.meta(id.isEmpty ? "" : "No recent Claude or Codex session in this project."))
++        } else {
++            section("Recent sessions", key: "sessions", previous: previous, rows: sessionRows)
++        }
++
++        let branches = git?["branches"] as? [[String: Any]] ?? []
++        section("Branches", key: "branches", previous: previous, rows: branches.prefix(15).compactMap { branch in
++            guard let name = branch["name"] as? String else { return nil }
++            let updated = (branch["updated"] as? NSNumber)?.doubleValue
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowTriangleBranch.rawValue), iconColor: nil,
++                                         title: name, detail: OmniProjectsModel.branchDetail(branch),
++                                         badge: OmniSessionText.age(updated),
++                                         status: name == git?["branch"] as? String ? OmniTheme.running : nil) {}
++            return (key: name, row: row)
++        })
++
++        let knowledge = project["knowledge"] as? [[String: Any]] ?? []
++        if knowledge.isEmpty {
++            column.addSection("Knowledge")
++            column.addText(OmniTheme.meta("No knowledge folder."))
++        } else {
++            section("Knowledge", key: "knowledge", previous: previous, rows: knowledge.prefix(80).compactMap { file in
++                guard let path = file["path"] as? String else { return nil }
++                let modified = (file["modified"] as? NSNumber)?.doubleValue
++                let shown = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : path
++                let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.docText.rawValue), iconColor: nil, title: shown,
++                                             detail: OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
++                                             badge: OmniSessionText.age(modified), status: nil) { [weak self] in
++                    self?.open(file: path)
++                }
++                return (key: path, row: row)
++            })
++            if knowledge.count > 80 {
++                column.addText(OmniTheme.meta("\(knowledge.count - 80) more files in the knowledge folder."))
++            }
++        }
++        if let openFile {
++            column.addSection(openFile.path)
++            column.add(fileView, spacing: 8) { [weak self] width in
++                self?.fileView.height(forWidth: width) ?? 0
++            }
++        }
++
++        if project["readme"] is [String: Any] {
++            column.addSection("README")
++            column.add(readmeView, spacing: 8) { [weak self] width in
++                self?.readmeView.height(forWidth: width) ?? 0
++            }
++        }
++
++        let base = project["main"] as? String ?? project["root"] as? String ?? ""
++        let files = project["files"] as? [[String: Any]] ?? []
++        section("Files", key: "files", previous: previous, rows: files.compactMap { file in
++            guard let name = file["name"] as? String else { return nil }
++            let isDirectory = file["kind"] as? String == "dir"
++            let path = (base as NSString).appendingPathComponent(name)
++            let row = OmniFolderEntryRow(icon: .symbol(isDirectory ? SFSymbol.folder.rawValue : SFSymbol.docText.rawValue),
++                                         iconColor: nil, title: name,
++                                         detail: isDirectory ? "Folder" : OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
++                                         badge: "", status: nil) { [weak self] in
++                if isDirectory {
++                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
++                } else {
++                    self?.open(file: name)
++                }
++            }
++            return (key: name, row: row)
++        })
++    }
++
++    private func section(_ title: String, key: String, previous: [(title: String, zone: OmniListZone)],
++                         rows: [(key: String, row: OmniZoneItem)]) {
++        guard !rows.isEmpty else { return }
++        let column = scroll.column
++        column.addSection(title)
++        let zone = previous.first { $0.title == key }?.zone ?? OmniListZone()
++        let list = OmniColumnView()
++        list.inset = 0
++        list.topPadding = 0
++        list.bottomPadding = 0
++        list.overlay = zone
++        for (_, row) in rows {
++            list.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
++        }
++        zone.setItems(rows.map { (key: $0.key, view: $0.row) })
++        column.add(list, spacing: 8) { [weak list] width in
++            list?.layoutColumn(width: width) ?? 0
++        }
++        zones.append((title: key, zone: zone))
++    }
++
++    private func setStatus(_ text: String, error: Bool) {
++        statusLabel.stringValue = text
++        statusLabel.textColor = error ? OmniTheme.failed : OmniTheme.secondaryText
++    }
++
++    // MARK: Actions
++
++    private func open(file path: String) {
++        guard let projectID else { return }
++        OmniSchedulerClient.request(["op": "get_project_file", "project": projectID, "path": path]) { [weak self] response in
++            guard let self else { return }
++            let file = response["file"] as? [String: Any]
++            let text = OmniPane.isOK(response) ? (file?["text"] as? String ?? "") :
++                (response["error"] as? String ?? "This file could not be read.")
++            self.openFile = (path: path, text: text)
++            self.fileView.text = path.lowercased().hasSuffix(".md") ? OmniReportText.sanitized(text) :
++                "```\n" + OmniReportText.sanitized(text) + "\n```"
++            self.rebuild()
++        }
++    }
++
++    @objc private func refreshList(_ sender: Any?) {
++        reloadList(refresh: true)
++    }
++
++    @objc private func showAll(_ sender: Any?) {
++        actions?.paneOpen(.projects)
++    }
++
++    @objc private func revealRoot(_ sender: Any?) {
++        guard let root = project?["root"] as? String else { return }
++        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: root)
++    }
++
++    @objc private func copyPath(_ sender: Any?) {
++        guard let root = project?["root"] as? String else { return }
++        NSPasteboard.general.clearContents()
++        NSPasteboard.general.setString(root, forType: .string)
++    }
++}
 diff --git a/sources/OmniTerm/OmniRunReport.swift b/sources/OmniTerm/OmniRunReport.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..bca17bdc36df4d2d6e533de6529276e1869768e9
@@ -23050,10 +23532,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..8ab4bac05024ad91dcfe9eb9b800107a4376c0d6
+index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8e9e2413b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4200 @@
+@@ -0,0 +1,4202 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -23165,7 +23647,8 @@ index 0000000000000000000000000000000000000000..8ab4bac05024ad91dcfe9eb9b800107a
 +                                                    @"get_unblock", @"set_unblock", @"rename_session",
 +                                                    @"get_system_prompt", @"consume_grant",
 +                                                    @"record_unblock_audit", @"unblocker_audit",
-+                                                    @"get_unblocker_policy", @"set_unblocker_policy" ]];
++                                                    @"get_unblocker_policy", @"set_unblocker_policy",
++                                                    @"list_projects", @"get_project", @"get_project_file" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -23184,7 +23667,8 @@ index 0000000000000000000000000000000000000000..8ab4bac05024ad91dcfe9eb9b800107a
 +                                                    @"memory_graph", @"memory_digest", @"memory_topics",
 +                                                    @"explain_memory", @"list_blocked", @"get_block",
 +                                                    @"get_unblock", @"get_system_prompt", @"unblocker_audit",
-+                                                    @"get_unblocker_policy" ]];
++                                                    @"get_unblocker_policy", @"list_projects", @"get_project",
++                                                    @"get_project_file" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -30643,10 +31127,10 @@ index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c8659
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9adcf3f7ad
+index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4f2736c18
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3357 @@
+@@ -0,0 +1,3382 @@
 +import AppKit
 +import Foundation
 +import os
@@ -30683,6 +31167,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +        case memory
 +        case settings
 +        case unblocker
++        case projects
 +        // A Claude or Codex session, in Sessions mode.
 +        case session
 +        // Sessions mode: loads the next page of the list.
@@ -30717,7 +31202,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +
 +    // Dashboard, Inbox and Memory: the top group.
 +    var isTopGroup: Bool {
-+        return kind == .overview || kind == .inbox || kind == .memory || kind == .settings || kind == .unblocker
++        return kind == .overview || kind == .inbox || kind == .memory || kind == .settings || kind == .unblocker || kind == .projects
 +    }
 +
 +    // Headers and the rule are not rows to select.
@@ -30851,6 +31336,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +    private let memoryItem = OmniSidebarItem(kind: .memory, key: "memory", title: "Memory", route: .memory)
 +    private let settingsItem = OmniSidebarItem(kind: .settings, key: "settings", title: "Settings", route: .settings)
 +    private let unblockerItem = OmniSidebarItem(kind: .unblocker, key: "unblocker", title: "Unblocker", route: .unblocker)
++    private let projectsItem = OmniSidebarItem(kind: .projects, key: "projects", title: "Projects", route: .projects)
 +    private var inboxUnread = 0
 +    private var inboxAttention = 0
 +    private let topGroupDivider = OmniSidebarItem(kind: .divider, key: "divider", title: "")
@@ -30891,7 +31377,13 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +    private let matchesSection = OmniSidebarItem(kind: .section, key: "session-matches", title: "In Transcripts")
 +    private let moreSessionsItem = OmniSidebarItem(kind: .loadMore, key: "more-sessions", title: "Show More…")
 +    private static let sessionsProviderKey = "OmniSessionsProvider" as CFString
-+    private static let sessionsGroupKey = "OmniSessionsGroupByFolder" as CFString
++    // Sessions are grouped by project unless the person turned it off.
++    private static let sessionsGroupKey = "OmniSessionsGroupByProject" as CFString
++    private static var groupsSessions: Bool {
++        var valid: DarwinBoolean = false
++        let on = CFPreferencesGetAppBooleanValue(sessionsGroupKey, preferencesDomain, &valid)
++        return valid.boolValue ? on : true
++    }
 +    private static let sessionsHideAgentRunsKey = "OmniSessionsHideAgentRuns" as CFString
 +    private var itemCache: [String: OmniSidebarItem] = [:]
 +    private var reloadDeferred = false
@@ -31644,7 +32136,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +        case .agent(let name): return agentTab(name)
 +        case .run(let id): return runTab(id)
 +        case .session(let id): return sessionTab(id)
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, nil: return nil
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, nil: return nil
 +        }
 +    }
 +
@@ -31840,7 +32332,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +            return row
 +        }
 +        var live: [OmniSidebarItem] = []
-+        var rest: [(row: OmniSidebarItem, workspace: String)] = []
++        var rest: [(row: OmniSidebarItem, group: (key: String, title: String))] = []
 +        var seen = Set<String>()
 +        for session in sessions {
 +            guard let id = session["session_id"] as? String, seen.insert(id).inserted else { continue }
@@ -31859,7 +32351,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +            if OmniSessionText.isLive(session) {
 +                live.append(row)
 +            } else {
-+                rest.append((row, session["workspace"] as? String ?? ""))
++                rest.append((row, OmniProjectsModel.sessionGroup(session)))
 +            }
 +        }
 +        liveSessionsSection.children = live
@@ -31884,19 +32376,20 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +                items.append(matchesSection)
 +            }
 +        }
-+        if CFPreferencesGetAppBooleanValue(Self.sessionsGroupKey, Self.preferencesDomain, nil) {
-+            var order: [String] = []
-+            var byFolder: [String: [OmniSidebarItem]] = [:]
++        if Self.groupsSessions {
++            // One section per forge project (worktrees and @head checkouts
++            // included), else per folder, newest activity first.
++            var order: [(key: String, title: String)] = []
++            var byGroup: [String: [OmniSidebarItem]] = [:]
 +            for entry in rest {
-+                if byFolder[entry.workspace] == nil {
-+                    order.append(entry.workspace)
++                if byGroup[entry.group.key] == nil {
++                    order.append(entry.group)
 +                }
-+                byFolder[entry.workspace, default: []].append(entry.row)
++                byGroup[entry.group.key, default: []].append(entry.row)
 +            }
-+            for workspace in order {
-+                let name = OmniSessionText.folder(workspace)
-+                let section = item(.section, key: "folder|\(workspace)", title: name.isEmpty ? "No Folder" : name)
-+                section.children = byFolder[workspace] ?? []
++            for group in order {
++                let section = item(.section, key: group.key, title: group.title.isEmpty ? "No Folder" : group.title)
++                section.children = byGroup[group.key] ?? []
 +                items.append(section)
 +            }
 +        } else {
@@ -31937,9 +32430,9 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +            menu.addItem(entry)
 +        }
 +        menu.addItem(.separator())
-+        let group = NSMenuItem(title: "Group by Folder", action: #selector(toggleSessionsGrouping(_:)), keyEquivalent: "")
++        let group = NSMenuItem(title: "Group by Project", action: #selector(toggleSessionsGrouping(_:)), keyEquivalent: "")
 +        group.target = self
-+        group.state = CFPreferencesGetAppBooleanValue(Self.sessionsGroupKey, Self.preferencesDomain, nil) ? .on : .off
++        group.state = Self.groupsSessions ? .on : .off
 +        menu.addItem(group)
 +        let hide = NSMenuItem(title: "Hide OmniTerm Agent Runs", action: #selector(toggleSessionsAgentRuns(_:)), keyEquivalent: "")
 +        hide.target = self
@@ -31962,8 +32455,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +    }
 +
 +    @objc private func toggleSessionsGrouping(_ sender: NSMenuItem) {
-+        let on = CFPreferencesGetAppBooleanValue(Self.sessionsGroupKey, Self.preferencesDomain, nil)
-+        setSessionsPreference(Self.sessionsGroupKey, (!on) as CFBoolean)
++        setSessionsPreference(Self.sessionsGroupKey, (!Self.groupsSessions) as CFBoolean)
 +        rebuild()
 +    }
 +
@@ -31986,7 +32478,7 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +
 +    // The pages both modes share, then the mode switch.
 +    private var sharedItems: [OmniSidebarItem] {
-+        return [overviewItem, inboxItem, memoryItem, unblockerItem, settingsItem, modeSwitchItem]
++        return [overviewItem, inboxItem, projectsItem, memoryItem, unblockerItem, settingsItem, modeSwitchItem]
 +    }
 +
 +    // Agents mode search: rows whose name or detail holds the query; a
@@ -32383,6 +32875,8 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +        case .memory: title = "Memory"
 +        case .settings: title = "Settings"
 +        case .unblocker: title = "Unblocker"
++        case .projects: title = "Projects"
++        case .project(let root): title = (root as NSString).lastPathComponent
 +        case .agent(let name): title = name
 +        case .run(let id): title = recentRuns.first { $0.id == id }.map { "\($0.agent) · Run" } ?? "Run"
 +        case .group(let path): title = path.components(separatedBy: "/").last ?? path
@@ -32401,7 +32895,10 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +                continue
 +            }
 +            let matches: Bool
-+            if let route {
++            if case .project = route {
++                // A project's page keeps the Projects row highlighted.
++                matches = item.kind == .projects
++            } else if let route {
 +                matches = item.route == route
 +            } else {
 +                matches = item.route == nil && current != nil && item.tab === current
@@ -33266,6 +33763,9 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +        } else if item.kind == .settings {
 +            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.gearshape.rawValue), iconColor: nil,
 +                           status: nil, pulses: false)
++        } else if item.kind == .projects {
++            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
++                           status: nil, pulses: false)
 +        } else if item.kind == .unblocker {
 +            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.forwardCircle.rawValue), iconColor: nil,
 +                           status: nil, pulses: false)
@@ -33318,6 +33818,15 @@ index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9a
 +    // omniterm://unblocker.
 +    @objc func showUnblocker() {
 +        showPane(.unblocker)
++    }
++
++    // omniterm://projects, and omniterm://project/<root path>.
++    @objc func showProjects(_ root: String?) {
++        if let root, !root.isEmpty {
++            showPane(.project(root))
++        } else {
++            showPane(.projects)
++        }
 +    }
 +
 +    @objc func showSettings() {
@@ -35066,10 +35575,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..aeb23883004ea42dd4371c108ceb0200bffefa6e 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..4ee3692b351eb352b7f2bc979a4ca8b8eff4b9fe 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,47 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,48 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -35092,6 +35601,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..aeb23883004ea42dd4371c108ceb0200
 +- (id)omniSidebarForTesting;
 +- (void)omniShowSettings;
 +- (void)omniShowUnblocker;
++- (void)omniShowProjects:(NSString *)root;
 +// Saves the frame of the window if it is on screen (for quitting).
 +- (void)omniSaveWindowFrame;
 +// Pinned, the window keeps its frame: no moving or resizing, and showing it
@@ -35118,7 +35628,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..aeb23883004ea42dd4371c108ceb0200
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973a24ffbd3 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7c0761145 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -35280,7 +35790,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,125 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,129 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -35366,6 +35876,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
 +    [_omniSidebar showUnblocker];
 +}
 +
++- (void)omniShowProjects:(NSString *)root {
++    [_omniSidebar showProjects:root];
++}
++
 +- (BOOL)omniRestoreWindowFrameOnScreen:(NSScreen *)screen centered:(BOOL)centered {
 +    // Only the person's ways of showing the window come here.
 +    [_omniSidebar noteWindowShownByPerson];
@@ -35407,7 +35921,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7103,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7107,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -35417,7 +35931,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7419,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7423,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -35429,7 +35943,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7629,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7633,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -35437,7 +35951,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7745,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7749,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -35449,7 +35963,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8367,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8371,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -35457,7 +35971,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8376,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8380,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -35470,7 +35984,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8528,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8532,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -35479,7 +35993,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8867,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8871,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -35496,7 +36010,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8905,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8909,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -35505,7 +36019,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9156,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9160,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -35514,7 +36028,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12470,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12474,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -35530,7 +36044,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13430,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13434,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -35546,7 +36060,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14007,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14011,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {

@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- A Projects page in the sidebar lists every Forge project on the Mac, found
+  by `forge projects`; a project's page shows its repository, worktrees,
+  branches, recent sessions, knowledge folder, README and files. Sessions are
+  grouped by project by default, with worktrees and `@head` checkouts counted
+  as their project. Forge stays its own install; OmniTerm reads it through its
+  command line.
+
 ### Fixed
 
 - The Omni Unblocker now reaches sessions whose `/goal` or `/loop` hook keeps
