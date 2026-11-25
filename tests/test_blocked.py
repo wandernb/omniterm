@@ -202,14 +202,15 @@ class StoreTests(unittest.TestCase):
         self.store.record(claude("Stop", 1005, last_assistant_message="stale"))
         self.assertEqual(self.documents["block:claude:" + SESSION]["state"], "resolved")
 
-    def test_every_stop_is_a_new_block_and_a_grown_transcript_is_stale(self):
+    def test_a_goal_loop_keeps_its_wait_and_a_grown_transcript_is_stale(self):
         with tempfile.TemporaryDirectory() as directory:
             transcript = Path(directory) / "t.jsonl"
             transcript.write_text("{}\n")
             first = self.store.record(claude("Stop", 1000, transcript_path=str(transcript)))["block"]
+            # A /goal hook re-ran the session ten seconds later: the same wait.
             second = self.store.record(claude("Stop", 1010, transcript_path=str(transcript)))["block"]
-            self.assertNotEqual(first["block_id"], second["block_id"])
-            self.assertEqual(second["created"], 1010)
+            self.assertEqual(first["block_id"], second["block_id"])
+            self.assertEqual(second["created"], 1000)
             # Claude Code's bookkeeping after the turn is not the session moving on.
             with transcript.open("a") as handle:
                 for kind in ("system", "ai-title", "last-prompt", "mode", "session-owner"):
@@ -245,6 +246,20 @@ class StoreTests(unittest.TestCase):
         result = self.store.setting({"session_id": "codex:thread-9", "enabled": False})
         self.assertEqual((result["auto_unblock"], result["waiting"]), (False, None))
         self.assertEqual(self.store.list({"state": "all"})["blocks"], [])
+
+    def test_a_skipped_goal_loop_stays_skipped_until_something_new_is_refused(self):
+        block = self.open_idle()
+        self.store.skip({"block_id": block["block_id"], "reason": "waits on the person"})
+        self.clock.now += 20
+        self.store.record(claude("Stop", self.clock.now))
+        self.assertEqual(self.documents["block:claude:" + SESSION]["state"], "skipped")
+        self.clock.now += 20
+        self.store.record({"event": "denied", "session_id": "claude:" + SESSION, "ts": self.clock.now,
+                           "denial": {"tool_name": "Bash", "reason": "x"}})
+        self.clock.now += 1
+        reopened = self.store.record(claude("Stop", self.clock.now))["block"]
+        self.assertEqual(reopened["state"], "open")
+        self.assertNotEqual(reopened["block_id"], block["block_id"])
 
     def test_skip_closes_the_block(self):
         block = self.open_idle()

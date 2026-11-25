@@ -502,6 +502,7 @@ def holdable(event):
 
 
 # A go-ahead for a refused call pre-approves exactly that call, once, for this long.
+CONTINUE_SECONDS = 600  # a Stop this soon after the last one, with no prompt between, is the same wait
 GRANT_SECONDS = 1800
 GRANT_NOTE = ("OmniTerm has pre-approved, once, exactly the command{s} that auto mode refused: {names}. "
               "Run {it} again unchanged; any other command goes through the usual checks.")
@@ -622,7 +623,18 @@ class BlockStore:
             return {"block": block, "escalate": False}
         # Every Stop is a new turn: a /goal hook or a queued message may have
         # continued the session without a UserPromptSubmit.
-        opens = not is_open or block.get("kind") != kind or name == "stop"
+        # A /goal or /loop hook that keeps the session going ends a turn every
+        # few seconds with nobody typing. Those turns continue the same wait, so
+        # the block keeps its age and id instead of starting over each Stop.
+        continuing = (name == "stop" and kind == IDLE and block.get("kind") == IDLE
+                      and block.get("state") in ("open", "skipped") and ts - block.get("updated", 0) < CONTINUE_SECONDS)
+        if continuing and block.get("state") == "skipped" and not any(
+                denial.get("at", 0) > block.get("skipped_at", 0) for denial in block.get("denials", [])):
+            # Left for the person and nothing new was refused: stay left.
+            block = {**block, "updated": ts}
+            self.write(key, block)
+            return {"block": block, "escalate": False}
+        opens = not is_open or block.get("kind") != kind or (name == "stop" and not continuing)
         updated = {**block, "session_id": session, "provider": event.get("provider") or session.split(":")[0],
                    "kind": kind, "state": "open", "updated": ts,
                    "cwd": clean_text(event.get("cwd"), 1024) or block.get("cwd", ""),
@@ -879,7 +891,8 @@ class BlockStore:
             raise BlockError(f"reason must be 1 to {MAX_REASON} characters")
         if block.get("state") != "open" or block.get("block_id") != arguments["block_id"]:
             raise BlockError("This block is no longer open", "block_closed")
-        updated = {**block, "state": "skipped", "updated": self.clock(), "skip_reason": reason}
+        updated = {**block, "state": "skipped", "updated": self.clock(), "skip_reason": reason,
+                   "skipped_at": self.clock()}
         self.write(KEY_PREFIX + block["session_id"], updated)
         return {"block": self.public(updated)}
 

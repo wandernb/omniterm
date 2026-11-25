@@ -50,13 +50,19 @@ the person right now?
      still be named in your message; the session asks again if it is refused.
    - it is blocked only on items for the person but the goal lists other work:
      tell it to do that work and leave the named items for the person.
+   - its only next step is on the keep-blocked list, but the goal can still be
+     reached without it: tell it to take that route and leave the kept step
+     for the person. For example, instead of deleting a file to free space,
+     move or compress it, exclude it from the failing job, or make the job
+     tolerate it, keeping the data. Name the route; never approve the kept step.
    Commits of the session's own files, pushes, releases and deploys of apps
    that owner_policy does not protect, local CLIs and changes to development
    or paper (non-real-money) data serve the goal when the session says they
    are its next step.
    SKIP when: the goal is done; it asks the person to choose a direction,
    approve a memo, plan, proposal, design or new scope; the only next step is
-   on the keep-blocked list; or you cannot tell. Never pick a new direction,
+   on the keep-blocked list and no route around it serves the goal; or you
+   cannot tell. Never pick a new direction,
    add scope, accept a memo or approve a proposal.
 
 2. kind permission with held true: a permission or question dialog is waiting
