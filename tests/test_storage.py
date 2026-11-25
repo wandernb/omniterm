@@ -41,7 +41,16 @@ def stamp(days_ago):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - days_ago * DAY))
 
 
+def has_dbstat():
+    try:
+        sqlite3.connect(":memory:").execute("SELECT 1 FROM dbstat LIMIT 1").close()
+        return True
+    except sqlite3.Error:
+        return False
+
+
 class MeasureTests(unittest.TestCase):
+    @unittest.skipUnless(has_dbstat(), "this SQLite build has no dbstat")
     def test_report_splits_bytes_by_category_read_only(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "index.sqlite"
