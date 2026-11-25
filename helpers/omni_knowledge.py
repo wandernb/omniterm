@@ -123,7 +123,8 @@ PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "k
                         "record_block", "list_blocked", "get_block", "answer_block", "skip_block",
                         "get_unblock", "set_unblock", "rename_session", "get_system_prompt",
                         "consume_grant", "record_unblock_audit", "unblocker_audit", "get_unblocker_policy",
-                        "set_unblocker_policy", "list_projects", "get_project", "get_project_file"))
+                        "set_unblocker_policy", "list_projects", "get_project", "get_project_file",
+                        "list_project_folder", "project_of"))
 INTERNAL_OPS = frozenset(("restore", "scan", "ack_writes", "drain_writes", "update_live_sessions",
                           "update_memory_sessions", "memory_tick", "embed"))
 
@@ -1544,6 +1545,10 @@ class KnowledgeStore:
             if state is None or session["state"] == state:
                 sessions.append(session)
         self._annotate_projects(sessions)
+        if arguments.get("project") is not None:
+            # Live sessions not indexed yet skipped the SQL filter.
+            sessions = [s for s in sessions if s.get("source_count")
+                        or (s.get("project") or {}).get("id") == arguments["project"]]
         return {"sessions": sessions, "next_offset": offset + limit if more else None, "next_cursor": None,
                 "indexing": self._discovery is not None or bool(self._pending_jsonl_rows(1)) or self._pending_native_history()}
 
@@ -1552,6 +1557,11 @@ class KnowledgeStore:
         conditions, bindings = self._filters(arguments, "s")
         if arguments.get("order") is not None and arguments.get("order") not in ("id", "recent"):
             raise KnowledgeError("order must be id or recent")
+        if arguments.get("project") is not None:
+            # One forge project's sessions, worktrees included (the project page).
+            condition, extra = self._projects().session_filter(arguments["project"])
+            conditions.append(condition)
+            bindings.extend(extra)
         if arguments.get("order") == "recent":
             state = arguments.get("state")
             if state is not None and state not in ("running", "unknown", "archived"):
@@ -2795,6 +2805,15 @@ class KnowledgeStore:
             return self._projects().get_project(arguments)
         except self._helper_module("omni_projects").ForgeUnavailable as exc:
             raise KnowledgeError(str(exc), "forge_unavailable")
+
+    def list_project_folder(self, arguments):
+        try:
+            return self._projects().list_project_folder(arguments)
+        except self._helper_module("omni_projects").ForgeUnavailable as exc:
+            raise KnowledgeError(str(exc), "forge_unavailable")
+
+    def project_of(self, arguments):
+        return self._projects().project_of(arguments)
 
     def get_project_file(self, arguments):
         try:
