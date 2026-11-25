@@ -687,10 +687,10 @@ index 0000000000000000000000000000000000000000..4a612dc5d42a720ee4b4c6d3be50e191
 +}
 diff --git a/ModernTests/OmniInboxViewControllerTests.swift b/ModernTests/OmniInboxViewControllerTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2e7e80979
+index 0000000000000000000000000000000000000000..58099cff6e9765f1851145d97f4f42941a246977
 --- /dev/null
 +++ b/ModernTests/OmniInboxViewControllerTests.swift
-@@ -0,0 +1,504 @@
+@@ -0,0 +1,549 @@
 +//
 +//  OmniInboxViewControllerTests.swift
 +//  ModernTests
@@ -858,10 +858,12 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +// page tests: its model's mapping, and that a change is one `set_settings`.
 +final class OmniSettingsPaneTests: XCTestCase {
 +    private var requests: [[String: Any]] = []
++    private var responders: [String: ([String: Any]) -> [AnyHashable: Any]] = [:]
 +
 +    override func setUp() {
 +        super.setUp()
 +        requests = []
++        responders = [:]
 +        let settings: [String: Any] = [
 +            "timezone": "Europe/Paris", "default_timeout_seconds": 7200, "retained_run_tabs": 10,
 +            "notifications": ["muted_until": 0,
@@ -875,8 +877,10 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +        ]
 +        OmniSchedulerClient.testTransport = { [unowned self] request, completion in
 +            self.requests.append(request)
-+            let response: [AnyHashable: Any]
++            var response: [AnyHashable: Any]
 +            switch request["op"] as? String {
++            case let op? where self.responders[op] != nil:
++                response = self.responders[op]!(request)
 +            case "get_settings", "set_settings":
 +                response = ["ok": true, "settings": settings]
 +            case "list_agents":
@@ -930,8 +934,13 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +        pane.frame = NSRect(x: 0, y: 0, width: 800, height: 900)
 +        pane.reload()
 +        wait("the page loads") { !pane.zones.isEmpty }
-+        XCTAssertEqual(pane.zones.map(\.title),
-+                       ["Notifications", "Notification kinds", "General", "New agents", "Memory", "Per agent"])
++        var titles: [String] = []
++        for tab in OmniSettingsTab.allCases where tab != .accounts {
++            pane.show(tab: tab)
++            titles += pane.zones.map(\.title)
++        }
++        XCTAssertEqual(titles, ["General", "New agents", "Notifications", "Notification kinds", "Per agent", "Memory"])
++        pane.show(tab: .agents)
 +        let agentKeys = pane.zones.first { $0.title == "Per agent" }?.zone.keys ?? []
 +        XCTAssertEqual(agentKeys, ["agent-Gone", "agent-Nightly"], "agents and leftover overrides are listed")
 +        pane.save(["notifications": ["muted_until": "forever"]])
@@ -949,6 +958,7 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +        window.contentView = pane
 +        pane.reload()
 +        wait("the page loads") { !pane.zones.isEmpty }
++        pane.show(tab: .general)
 +        return (window, pane)
 +    }
 +
@@ -964,7 +974,12 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +    func testEverySectionRendersInLightAndDark() throws {
 +        let (window, pane) = loadedPane(height: 3000)
 +        defer { window.close() }
-+        let texts = Self.texts(in: pane)
++        var texts: [String] = []
++        for tab in OmniSettingsTab.allCases where tab != .accounts {
++            pane.show(tab: tab)
++            texts += Self.texts(in: pane)
++        }
++        pane.show(tab: .general)
 +        for expected in ["Mute Omni", "Urgent", "Agent messages", "Show or hide OmniTerm", "Launch at login",
 +                         "Double Escape delay", "Provider", "Claude model", "Codex permissions",
 +                         "Scheduling time zone", "Run summaries", "Summary model", "Nightly"] {
@@ -981,6 +996,36 @@ index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2
 +            try data.write(to: url)
 +            print("OMNI_SETTINGS_RENDER \(url.path)")
 +        }
++    }
++
++    // The Accounts tab lists each provider's accounts with their usage, and
++    // removing one asks first, then sends the request.
++    func testAccountsTabListsUsageAndRemovesAfterAsking() throws {
++        let (window, pane) = loadedPane(height: 1200)
++        defer { window.close() }
++        responders["list_accounts"] = { _ in
++            ["ok": true, "providers": [
++                "claude": ["router": true, "accounts": [
++                    ["name": "work", "email": "me@example.com", "plan": "Max", "active": true, "sessions": 2,
++                     "usage": ["five_hour": ["percent": 42.0], "seven_day": ["percent": 10.0]]]]],
++                "codex": ["router": true, "accounts": []]]]
++        }
++        pane.show(tab: .accounts)
++        wait("the accounts load") { Self.texts(in: pane).contains { $0.hasPrefix("work · me@example.com") } }
++        XCTAssertTrue(Self.texts(in: pane).contains("Max · 5h 42% · 7d 10% · 2 sessions"))
++        XCTAssertEqual(pane.zones.map(\.title), ["Claude accounts", "Codex accounts", "Routers"])
++        OmniSettingsPane.confirm = { _, _, _ in true }
++        func popUps(_ view: NSView) -> [NSPopUpButton] {
++            return ((view as? NSPopUpButton).map { [$0] } ?? []) + view.subviews.flatMap(popUps)
++        }
++        let manage = try XCTUnwrap(popUps(pane).first { $0.itemTitles.contains("Remove…") })
++        let remove = try XCTUnwrap(manage.menu?.items.first { $0.title == "Remove…" })
++        NSApp.sendAction(remove.action!, to: remove.target, from: remove)
++        wait("the removal is sent") { self.requests.contains { $0["op"] as? String == "remove_account" } }
++        let request = requests.first { $0["op"] as? String == "remove_account" }
++        XCTAssertEqual(request?["provider"] as? String, "claude")
++        XCTAssertEqual(request?["name"] as? String, "work")
++        pane.show(tab: .general)
 +    }
 +
 +    // Only rows the settings banner, changed after the cursor and not shown
@@ -26419,10 +26464,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..e70b13addbcda79d3549a3952a57fcfdd3323a1c
+index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66ad26da47
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4252 @@
+@@ -0,0 +1,4257 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -26536,7 +26581,9 @@ index 0000000000000000000000000000000000000000..e70b13addbcda79d3549a3952a57fcfd
 +                                                    @"record_unblock_audit", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"set_unblocker_policy",
 +                                                    @"list_projects", @"get_project", @"get_project_file",
-+                                                    @"list_project_folder", @"project_of" ]];
++                                                    @"list_project_folder", @"project_of",
++                                                    @"list_accounts", @"add_account", @"login_account", @"remove_account", @"rename_account",
++                                                    @"set_account_email", @"refresh_accounts", @"install_routers" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -26556,7 +26603,10 @@ index 0000000000000000000000000000000000000000..e70b13addbcda79d3549a3952a57fcfd
 +                                                    @"explain_memory", @"list_blocked", @"get_block",
 +                                                    @"get_unblock", @"get_system_prompt", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"list_projects", @"get_project",
-+                                                    @"get_project_file", @"list_project_folder", @"project_of" ]];
++                                                    @"get_project_file", @"list_project_folder", @"project_of",
++                                                    // Account ops never touch the index: no drain.
++                                                    @"list_accounts", @"add_account", @"login_account", @"remove_account", @"rename_account",
++                                                    @"set_account_email", @"refresh_accounts", @"install_routers" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -33247,10 +33297,10 @@ index 0000000000000000000000000000000000000000..4d3472cc3d434a08666cf7e2404a0184
 +}
 diff --git a/sources/OmniTerm/OmniSettingsPane.swift b/sources/OmniTerm/OmniSettingsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1252bf8f4
+index 0000000000000000000000000000000000000000..00938bd13b4feadaa66dab946c75a1c391d0d22b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSettingsPane.swift
-@@ -0,0 +1,785 @@
+@@ -0,0 +1,1035 @@
 +import AppKit
 +import Foundation
 +
@@ -33476,6 +33526,35 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +// The Settings page (the `.settings` route): notifications, the app's own
 +// behaviour and the defaults for new agents. Every change saves at once
 +// through `set_settings`; the app applies the shortcut and login launch.
++// The Settings page's tabs, as on a project page.
++enum OmniSettingsTab: Int, CaseIterable {
++    case general
++    case notifications
++    case agents
++    case memory
++    case accounts
++
++    var label: String {
++        switch self {
++        case .general: return "General"
++        case .notifications: return "Notifications"
++        case .agents: return "Agents"
++        case .memory: return "Memory"
++        case .accounts: return "Accounts"
++        }
++    }
++
++    var symbol: SFSymbol {
++        switch self {
++        case .general: return .gearshape
++        case .notifications: return .bell
++        case .agents: return .sparkles
++        case .memory: return .brain
++        case .accounts: return .person2
++        }
++    }
++}
++
 +final class OmniSettingsPane: OmniPane, NSTextFieldDelegate, NSComboBoxDelegate, iTermShortcutInputViewDelegate {
 +    private let scroll = OmniColumnScrollView()
 +    private let statusLabel = OmniTheme.meta()
@@ -33488,13 +33567,18 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +    // Fields commit when editing ends; each knows how to turn its text into a change.
 +    private var fieldCommits: [ObjectIdentifier: (String) -> [String: Any]?] = [:]
 +    var now: () -> Date = Date.init
++    private(set) var tab = OmniSettingsTab(rawValue: UserDefaults.standard.integer(forKey: "NoSyncOmniSettingsTab")) ?? .general
++    private var tabsZone: OmniButtonZone?
++    // Accounts tab: the routers' accounts per provider, from `list_accounts`.
++    private(set) var accounts: [String: [String: Any]] = [:]
++    private var accountsError: String?
 +
 +    override var contentViews: [NSView] {
 +        return [scroll]
 +    }
 +
 +    override var focusZones: [OmniFocusZone] {
-+        return zones.map(\.zone)
++        return [tabsZone].compactMap { $0 } + zones.map(\.zone)
 +    }
 +
 +    override init() {
@@ -33512,6 +33596,9 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +    }
 +
 +    override func reload() {
++        if tab == .accounts {
++            loadAccounts(refresh: false)
++        }
 +        var settingsResponse: [AnyHashable: Any]?
 +        var agentsResponse: [AnyHashable: Any]?
 +        let group = DispatchGroup()
@@ -33599,17 +33686,230 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +            built = true
 +        }
 +        column.addText(statusLabel, spacing: 10)
++        let tabs = OmniTabBar(tabs: OmniSettingsTab.allCases.map { (title: $0.label, symbol: $0.symbol) },
++                              selected: tab.rawValue, target: self, action: #selector(tabClicked(_:)))
++        tabsZone = tabs.zone
++        column.add(tabs, spacing: 16) { _ in OmniTabBar.height }
 +
-+        section("Notifications", previous: previousZones, rows: notificationRows())
-+        section("Notification kinds", previous: previousZones, rows: kindRows())
-+        section("General", previous: previousZones, rows: generalRows())
-+        section("New agents", previous: previousZones, rows: newAgentRows())
-+        section("Memory", previous: previousZones, rows: memoryRows())
-+        // One row per agent, so the longest section comes last.
-+        section("Per agent", previous: previousZones, rows: agentRows())
++        switch tab {
++        case .general:
++            section("General", previous: previousZones, rows: generalRows())
++            section("New agents", previous: previousZones, rows: newAgentRows())
++        case .notifications:
++            section("Notifications", previous: previousZones, rows: notificationRows())
++            section("Notification kinds", previous: previousZones, rows: kindRows())
++        case .agents:
++            section("Per agent", previous: previousZones, rows: agentRows())
++        case .memory:
++            section("Memory", previous: previousZones, rows: memoryRows())
++        case .accounts:
++            buildAccounts(previousZones)
++            return
++        }
 +
 +        let hint = OmniTheme.meta("Stored in ~/.omni/settings.json. Notifications you mute or quiet still reach the Inbox.")
 +        column.addText(hint, spacing: 8)
++    }
++
++    @objc private func tabClicked(_ sender: NSButton) {
++        show(tab: OmniSettingsTab(rawValue: sender.tag) ?? .general)
++    }
++
++    func show(tab chosen: OmniSettingsTab) {
++        tab = chosen
++        UserDefaults.standard.set(chosen.rawValue, forKey: "NoSyncOmniSettingsTab")
++        if chosen == .accounts {
++            loadAccounts(refresh: false)
++        }
++        apply(settings)
++    }
++
++    // MARK: Accounts
++
++    private static let providers = [("claude", "Claude"), ("codex", "Codex")]
++
++    func loadAccounts(refresh: Bool) {
++        OmniSchedulerClient.request(["op": refresh ? "refresh_accounts" : "list_accounts"]) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response) {
++                self.accounts = response["providers"] as? [String: [String: Any]] ?? [:]
++                self.accountsError = nil
++            } else {
++                self.accountsError = response["error"] as? String ?? "The accounts could not be read."
++            }
++            if self.tab == .accounts {
++                self.apply(self.settings)
++            }
++        }
++    }
++
++    private func buildAccounts(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        if let accountsError {
++            column.addText(OmniTheme.meta(accountsError), spacing: 8)
++        }
++        for (provider, title) in Self.providers {
++            let info = accounts[provider] ?? [:]
++            let list = info["accounts"] as? [[String: Any]] ?? []
++            var rows: [(key: String, row: OmniSettingRow)] = list.map { account in
++                let name = account["name"] as? String ?? ""
++                return (key: "\(provider)|\(name)", row: accountRow(provider, account))
++            }
++            let add = NSButton(title: "Add Account…", target: self, action: #selector(addAccount(_:)))
++            add.bezelStyle = .rounded
++            add.identifier = NSUserInterfaceItemIdentifier(provider)
++            let router = info["router"] as? Bool ?? false
++            rows.append((key: "\(provider)|add", row: OmniSettingRow(
++                title: "Add a \(title) account",
++                detail: router ? "Signs in in your browser; new sessions then pick the account with the most room."
++                    : "The \(title) router is not installed: Install Routers below.",
++                control: add, controlWidth: 150)))
++            section("\(title) accounts", previous: previous, rows: rows)
++        }
++        let refresh = NSButton(title: "Refresh Usage", target: self, action: #selector(refreshAccounts(_:)))
++        refresh.bezelStyle = .rounded
++        let install = NSButton(title: "Install Routers", target: self, action: #selector(installRouters(_:)))
++        install.bezelStyle = .rounded
++        section("Routers", previous: previous, rows: [
++            (key: "refresh", row: OmniSettingRow(title: "Usage", detail: "Asks each account for its current limits.",
++                                                 control: refresh, controlWidth: 150)),
++            (key: "install", row: OmniSettingRow(
++                title: "claude and codex commands",
++                detail: "Puts OmniTerm’s routers first on your PATH, so every session picks an account with room.",
++                control: install, controlWidth: 150))])
++        column.addText(OmniTheme.meta("claude --usage and codex --usage show the same in a terminal."), spacing: 8)
++    }
++
++    static func usageLine(_ account: [String: Any]) -> String {
++        var parts: [String] = []
++        if let plan = account["plan"] as? String, !plan.isEmpty {
++            parts.append(plan)
++        }
++        let usage = account["usage"] as? [String: Any] ?? [:]
++        for (key, label) in [("five_hour", "5h"), ("seven_day", "7d")] {
++            guard let window = usage[key] as? [String: Any],
++                  let percent = (window["percent"] as? NSNumber)?.doubleValue else { continue }
++            var text = "\(label) \(Int(percent.rounded()))%"
++            if let reset = (window["resets_at"] as? NSNumber)?.doubleValue, reset > Date().timeIntervalSince1970 {
++                text += " (resets in \(OmniSessionText.age(2 * Date().timeIntervalSince1970 - reset)))"
++            }
++            parts.append(text)
++        }
++        if let sessions = (account["sessions"] as? NSNumber)?.intValue, sessions > 0 {
++            parts.append(sessions == 1 ? "1 session" : "\(sessions) sessions")
++        }
++        if let error = account["error"] as? String, !error.isEmpty {
++            parts.append(error)
++        }
++        return parts.isEmpty ? "No usage yet" : parts.joined(separator: " · ")
++    }
++
++    private func accountRow(_ provider: String, _ account: [String: Any]) -> OmniSettingRow {
++        let name = account["name"] as? String ?? ""
++        let email = account["email"] as? String ?? ""
++        let manage = NSPopUpButton(frame: .zero, pullsDown: true)
++        manage.addItem(withTitle: "Manage")
++        for (title, action) in [("Log In Again", #selector(loginAccount(_:))), ("Rename…", #selector(renameAccount(_:))),
++                                ("Edit Email…", #selector(editAccountEmail(_:))), ("Remove…", #selector(removeAccount(_:)))] {
++            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
++            item.target = self
++            item.representedObject = [provider, name, email]
++            manage.menu?.addItem(item)
++        }
++        var title = name
++        if !email.isEmpty {
++            title += " · " + email
++        }
++        if account["active"] as? Bool == true {
++            title += " · active"
++        }
++        return OmniSettingRow(title: title, detail: Self.usageLine(account), control: manage, controlWidth: 130)
++    }
++
++    private func accountRequest(_ request: [String: Any], done: String) {
++        setStatus("Working…", error: false)
++        OmniSchedulerClient.request(request) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response) {
++                self.setStatus(done, error: false)
++            } else {
++                self.setStatus(response["error"] as? String ?? "That did not work.", error: true)
++            }
++            self.loadAccounts(refresh: false)
++        }
++    }
++
++    // A one-field question; nil when cancelled.
++    static var ask: (String, String, String, NSWindow?) -> String? = { heading, prompt, value, window in
++        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
++        field.stringValue = value
++        field.placeholderString = prompt
++        let selection = iTermWarning.show(withTitle: prompt, actions: ["OK", "Cancel"], actionMapping: nil,
++                                          accessory: field, identifier: nil, silenceable: .kiTermWarningTypePersistent,
++                                          heading: heading, cancelLabel: "Cancel", window: window)
++        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        return selection == .kiTermWarningSelection0 && !text.isEmpty ? text : nil
++    }
++
++    static var confirm: (String, String, NSWindow?) -> Bool = { heading, detail, window in
++        return iTermWarning.show(withTitle: detail, actions: ["Remove", "Cancel"], actionMapping: nil, accessory: nil,
++                                 identifier: nil, silenceable: .kiTermWarningTypePersistent, heading: heading,
++                                 cancelLabel: "Cancel", window: window) == .kiTermWarningSelection0
++    }
++
++    private static func target(_ sender: NSMenuItem) -> (provider: String, name: String, email: String)? {
++        guard let parts = sender.representedObject as? [String], parts.count == 3 else { return nil }
++        return (parts[0], parts[1], parts[2])
++    }
++
++    @objc private func addAccount(_ sender: NSButton) {
++        let provider = sender.identifier?.rawValue ?? "claude"
++        guard let name = Self.ask("Add a \(provider == "codex" ? "Codex" : "Claude") account",
++                                  "A short name for the account, such as work or personal", "", window) else { return }
++        let email = Self.ask("Email for “\(name)”", "The email to sign in with (optional)", "", window) ?? ""
++        var request: [String: Any] = ["op": "add_account", "provider": provider, "name": name]
++        if !email.isEmpty {
++            request["email"] = email
++        }
++        accountRequest(request, done: "Finish signing in in your browser; the account appears here once it is done.")
++    }
++
++    @objc private func loginAccount(_ sender: NSMenuItem) {
++        guard let target = Self.target(sender) else { return }
++        accountRequest(["op": "login_account", "provider": target.provider, "name": target.name],
++                       done: "Finish signing in in your browser.")
++    }
++
++    @objc private func renameAccount(_ sender: NSMenuItem) {
++        guard let target = Self.target(sender),
++              let newName = Self.ask("Rename “\(target.name)”", "New name", target.name, window),
++              newName != target.name else { return }
++        accountRequest(["op": "rename_account", "provider": target.provider, "name": target.name, "new_name": newName],
++                       done: "Renamed.")
++    }
++
++    @objc private func editAccountEmail(_ sender: NSMenuItem) {
++        guard let target = Self.target(sender),
++              let email = Self.ask("Email for “\(target.name)”", "Email", target.email, window) else { return }
++        accountRequest(["op": "set_account_email", "provider": target.provider, "name": target.name, "email": email],
++                       done: "Saved.")
++    }
++
++    @objc private func removeAccount(_ sender: NSMenuItem) {
++        guard let target = Self.target(sender),
++              Self.confirm("Remove the account “\(target.name)”?",
++                           "Its saved sign-in is deleted from OmniTerm’s router. Running sessions keep going.", window)
++        else { return }
++        accountRequest(["op": "remove_account", "provider": target.provider, "name": target.name], done: "Removed.")
++    }
++
++    @objc private func refreshAccounts(_ sender: Any?) {
++        setStatus("Checking usage…", error: false)
++        loadAccounts(refresh: true)
++    }
++
++    @objc private func installRouters(_ sender: Any?) {
++        accountRequest(["op": "install_routers"], done: "Routers installed. New terminals use them.")
 +    }
 +
 +    private func section(_ title: String, previous: [(title: String, zone: OmniListZone)],

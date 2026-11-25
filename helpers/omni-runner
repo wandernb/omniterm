@@ -154,6 +154,8 @@ MODEL_TIERS = {"fable": "top", "opus": "top", "astra": "top",
                "sonnet": "mid", "sol": "mid", "terra": "mid",
                "haiku": "small", "luna": "small"}
 CLAUDE_TIER_MODELS = {"top": ["fable", "opus"], "mid": ["sonnet"], "small": ["haiku"]}
+MEMORY_MANAGED_ID = "memory_consolidator:v1"
+MEMORY_FALLBACK_MODEL = "haiku"
 CLAUDE_MODEL_LIMIT = re.compile(r"hit your (fable|opus|sonnet|haiku) limit", re.IGNORECASE)
 
 
@@ -1591,6 +1593,26 @@ def main():
         return
     code, error_text, _ = result
     state, reason = run_outcome(code, closed.is_set(), error_text, tracker.check())
+    if state == "failed" and falls_back and agent.get("omni_managed") == MEMORY_MANAGED_ID \
+            and launch["provider"] == "codex" and shutil.which("claude", path=environment["PATH"]):
+        # Memory consolidation is cheap, routine work: when Codex is unavailable
+        # (usage, sign-in, a failed start) the same run continues on Claude Haiku.
+        save_run_log(run_id, error_text)
+        cause = f"{model_label('codex', launch.get('model') or '')} failed ({reason})"
+        moves.append(model_label("claude", MEMORY_FALLBACK_MODEL))
+        try:
+            print(f"\n── OmniTerm: {cause}. Continuing on {moves[-1]}. ──\n", flush=True)
+        except OSError:
+            pass
+        launch = dict(fallback_agent(launch, "claude", MEMORY_FALLBACK_MODEL, cause, tracker.transcript()),
+                      permission_mode="auto")
+        session_id = str(uuid.uuid4())
+        tracker = TurnTracker("claude", session_id)
+        result = attempt(launch, tracker, None, False, session_id=session_id, first=False)
+        if result is None:
+            return
+        code, error_text, _ = result
+        state, reason = run_outcome(code, closed.is_set(), error_text, tracker.check())
     if moves:
         reason = f"{reason} · fell back to {moves[-1]}"
     if state == "failed" and error_text:

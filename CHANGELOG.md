@@ -7,6 +7,29 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-25
+
+### Added
+
+- Account routers for Claude and Codex, part of OmniTerm: `claude` and
+  `codex` start each session on the account with the most room. `--usage`,
+  `--accounts`, `--add-account`, `--remove-account`, `--rename-account` and
+  `--account NAME` work the same for both. Existing Claude accounts carry
+  over without signing in again; the current Codex login becomes `main`.
+- Settings › Accounts lists every Claude and Codex account with its plan,
+  usage and running sessions, and adds, signs in again, renames, edits the
+  email of, or removes an account. Refresh Usage and Install Routers sit
+  there too.
+- Installing OmniTerm installs the routers (`--skip-routers` to leave them
+  out); a replaced command is kept as a dated backup.
+
+### Changed
+
+- Settings is split into tabs, as on a project page: General,
+  Notifications, Agents, Memory and Accounts.
+- When Codex fails or hits its usage limit, the Unblocker's quick check and
+  the memory agent fall back to Claude Haiku; the audit and the run say so.
+
 ## [0.6.2] - 2026-11-25
 
 ### Fixed
@@ -939,7 +962,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/wandernb/omniterm/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/wandernb/omniterm/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/wandernb/omniterm/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/wandernb/omniterm/compare/v0.5.0...v0.6.0

@@ -1,0 +1,31 @@
+#!/bin/sh
+# omni-accounts-shim: routes `claude` through OmniTerm's account router (helpers/omni_accounts.py).
+depth=${OMNI_ACCOUNTS_DEPTH:-0}
+if [ "$depth" -gt 3 ]; then
+  echo "claude: account router loop detected; set CLAUDE_REAL_BIN" >&2
+  exit 126
+fi
+OMNI_ACCOUNTS_DEPTH=$((depth + 1))
+export OMNI_ACCOUNTS_DEPTH
+script=$0
+while [ -L "$script" ]; do
+  link=$(readlink "$script")
+  case $link in
+    /*) script=$link ;;
+    *) script=$(dirname "$script")/$link ;;
+  esac
+done
+router=""  # baked in by install_routers; otherwise next to this script
+[ -n "$router" ] || router="$(cd "$(dirname "$script")/.." && pwd)/omni_accounts.py"
+if [ -f "$router" ] && [ -x /usr/bin/python3 ]; then
+  exec /usr/bin/python3 "$router" claude "$@"
+fi
+# The app moved or is gone: run the real binary, skipping router shims on PATH.
+for dir in "$HOME/.local/bin" $(printf %s "$PATH" | tr ':' ' ') /opt/homebrew/bin /usr/local/bin; do
+  candidate=$dir/claude
+  [ -x "$candidate" ] && [ ! -d "$candidate" ] || continue
+  head -c 1024 "$candidate" 2>/dev/null | grep -aq -e omni-accounts-shim -e claude-account-router && continue
+  exec "$candidate" "$@"
+done
+echo "claude: not found" >&2
+exit 127

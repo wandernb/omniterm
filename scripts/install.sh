@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: install.sh [--app PATH] [--destination DIR] [--bin-dir DIR]
-                  [--skip-launch] [--skip-mcp]
+                  [--skip-launch] [--skip-mcp] [--skip-routers]
 
 Installs OmniTerm, its `omni` CLI, and its `omni-mcp` adapter. Existing agent
 configuration and run history are preserved.
@@ -22,6 +22,7 @@ destination="/Applications"
 bin_dir="$HOME/.local/bin"
 launch=1
 install_mcp=1
+install_routers=1
 
 while (( $# )); do
   case "$1" in
@@ -30,6 +31,7 @@ while (( $# )); do
     --bin-dir) bin_dir="${2:A}"; shift 2 ;;
     --skip-launch) launch=0; shift ;;
     --skip-mcp) install_mcp=0; shift ;;
+    --skip-routers) install_routers=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) print -u2 "Unknown option: $1"; usage >&2; exit 2 ;;
   esac
@@ -122,6 +124,12 @@ if (( launch )); then
 fi
 if (( install_mcp )); then
   "$bin_dir/omni" mcp install
+fi
+
+if (( install_routers )); then
+  # The claude and codex account routers; skipped quietly when the check fails.
+  /usr/bin/python3 "$installed_app/Contents/Resources/Helpers/omni_accounts.py" --install-routers >/dev/null \
+    || print "The claude and codex routers were not installed; Settings › Accounts can retry."
 fi
 
 print "Installed OmniTerm at $installed_app"

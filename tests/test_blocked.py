@@ -742,6 +742,8 @@ class ListenerPassTests(unittest.TestCase):
             reply = verdicts.get(link, subprocess.TimeoutExpired(command, 60))
             if isinstance(reply, BaseException):
                 raise reply
+            if isinstance(reply, subprocess.CompletedProcess):
+                return reply
             if provider == "codex":
                 return subprocess.CompletedProcess(command, 0, reply, "")
             return subprocess.CompletedProcess(command, 0, json.dumps({"type": "result", "result": reply}), "")
@@ -775,19 +777,33 @@ class ListenerPassTests(unittest.TestCase):
 
     def test_an_unsure_turn_is_screened_once_by_the_cheap_model(self):
         calls, audits = self.pass_with([self.block("Deploy needs a manual step on the server.")],
-                                       {"claude/haiku": "NO, it is working"})
-        self.assertEqual(calls, ["claude/haiku"])
-        self.assertEqual((audits[0]["tier"], audits[0]["model"]), ("cheap", "claude/haiku"))
+                                       {"codex/gpt-6-luna": "NO, it is working"})
+        self.assertEqual(calls, ["codex/gpt-6-luna"])
+        self.assertEqual((audits[0]["tier"], audits[0]["model"]), ("cheap", "codex/gpt-6-luna"))
 
     def test_a_failed_cheap_model_falls_back_to_the_next_then_to_words(self):
         prompt = "Deploy needs a manual step on the server."
-        calls, audits = self.pass_with([self.block(prompt)], {"codex/gpt-6-luna": "YES, it lists a command"})
-        self.assertEqual(calls[:3], ["claude/haiku", "codex/gpt-6-luna", "decide"])
-        self.assertIn("cheap codex/gpt-6-luna: YES", audits[0]["screen"])
+        calls, audits = self.pass_with([self.block(prompt)], {"claude/haiku": "YES, it lists a command"})
+        self.assertEqual(calls[:3], ["codex/gpt-6-luna", "claude/haiku", "decide"])
+        self.assertIn("cheap claude/haiku: YES", audits[0]["screen"])
         calls, audits = self.pass_with([self.block(prompt)], {"claude/haiku": OSError("no claude")})
-        self.assertEqual(calls[:3], ["claude/haiku", "codex/gpt-6-luna", "decide"])
+        self.assertEqual(calls[:3], ["codex/gpt-6-luna", "claude/haiku", "decide"])
         self.assertTrue(audits[0]["screen"].startswith("cheap tiers failed"))
         self.assertEqual(audits[0]["tier"], "smart")
+
+    def test_a_failing_codex_falls_through_to_haiku_whatever_the_order(self):
+        prompt = "Deploy needs a manual step on the server."
+        limited = subprocess.CompletedProcess([], 1, "", "ERROR: You've hit your usage limit. Try again later.")
+        crashed = subprocess.CompletedProcess([], 2, "YES", "boom")
+        for order in (UNBLOCKER.CHEAP_MODELS, tuple(reversed(UNBLOCKER.CHEAP_MODELS))):
+            for codex in (limited, crashed, subprocess.TimeoutExpired("codex", 60)):
+                with self.subTest(order=order, codex=codex), mock.patch.object(UNBLOCKER, "CHEAP_MODELS", order):
+                    calls, audits = self.pass_with([self.block(prompt)],
+                                                   {"codex/gpt-6-luna": codex, "claude/haiku": "NO, it is working"})
+                    self.assertEqual(calls, ["codex/gpt-6-luna", "claude/haiku"])
+                    self.assertEqual(audits[0]["model"], "claude/haiku")
+        calls, audits = self.pass_with([self.block(prompt)], {"codex/gpt-6-luna": limited})
+        self.assertIn("codex/gpt-6-luna hit its usage limit (ERROR: You've hit your usage limit", audits[0]["screen"])
 
     def test_cheap_calls_name_an_explicit_model(self):
         block = self.block("x")

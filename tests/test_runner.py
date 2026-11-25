@@ -1040,6 +1040,44 @@ class RunnerLifecycleTests(unittest.TestCase):
         self.assertIn({"op": "runner_finished", "run_id": "run-4", "state": "failed",
                        "reason": "exit 1: Session ID in use"}, requests)
 
+    def test_memory_run_moves_to_claude_haiku_when_codex_fails(self):
+        for codex_code, agent_extra, expected_calls in ((1, {"omni_managed": "memory_consolidator:v1"}, 2),
+                                                        (1, {}, 1), (0, {"omni_managed": "memory_consolidator:v1"}, 1)):
+            with self.subTest(code=codex_code, managed=bool(agent_extra)):
+                response, _ = self.base_response()
+                response["agent"].update(provider="codex", model="gpt-6-luna", advanced_args=["-c", "x"],
+                                         **agent_extra)
+                requests, argvs = [], []
+                children = iter([mock.Mock(pid=1, wait=mock.Mock(return_value=codex_code)),
+                                 mock.Mock(pid=2, wait=mock.Mock(return_value=0))])
+
+                def popen(argv, **_):
+                    argvs.append(argv)
+                    return next(children)
+
+                with mock.patch.object(RUNNER.sys, "argv", ["omni-runner", "run-m"]), \
+                        mock.patch.object(RUNNER, "request", side_effect=lambda payload: requests.append(payload)
+                                          or (response if payload["op"] == "run_spec" else {"ok": True})), \
+                        mock.patch.object(RUNNER, "provider_search_path", return_value="/bin"), \
+                        mock.patch.object(RUNNER.shutil, "which", return_value="/bin/claude"), \
+                        mock.patch.object(RUNNER.subprocess, "Popen", side_effect=popen), \
+                        mock.patch.object(RUNNER, "codex_session_files", return_value=set()), \
+                        mock.patch.object(RUNNER, "save_run_log"), \
+                        mock.patch.object(RUNNER.threading, "Thread"), \
+                        mock.patch.object(RUNNER.signal, "signal"), \
+                        redirect_stdout(io.StringIO()):
+                    RUNNER.main()
+                self.assertEqual(len(argvs), expected_calls)
+                finished = [item for item in requests if item["op"] == "runner_finished"][-1]
+                if expected_calls == 2:
+                    self.assertEqual(argvs[1][0], "claude")
+                    self.assertEqual(argvs[1][argvs[1].index("--model") + 1], "haiku")
+                    self.assertNotIn("-c", argvs[1])
+                    self.assertEqual(finished["state"], "completed")
+                    self.assertIn("fell back to claude haiku", finished["reason"])
+                else:
+                    self.assertNotIn("fell back", finished["reason"])
+
     def test_unstartable_provider_is_reported_instead_of_crashing_the_runner(self):
         failures = (FileNotFoundError(2, "No such file or directory", "claude"),
                     PermissionError(13, "Permission denied", "claude"))

@@ -109,9 +109,13 @@ install -m 0755 "$project_dir/helpers/omni" "$app_dir/Contents/Resources/Helpers
 install -m 0755 "$project_dir/helpers/omni-runner" "$app_dir/Contents/Resources/Helpers/omni-runner"
 install -m 0755 "$project_dir/helpers/omni-mcp" "$app_dir/Contents/Resources/Helpers/omni-mcp"
 install -m 0755 "$project_dir/helpers/omni-knowledge" "$app_dir/Contents/Resources/Helpers/omni-knowledge"
-for module in omni_knowledge.py omni_messages.py omni_embeddings.py omni_semantics.py omni_memory.py omni_json_stream.py omni_hippocampus.py omni_kb.py omni_episodes.py omni_redact.py omni_concepts.py omni_vectors.py omni_query.py omni_topics.py omni_storage.py omni_explain.py omni_summaries.py omni_blocks.py omni_unblocker.py omni_projects.py; do
+for module in omni_knowledge.py omni_messages.py omni_embeddings.py omni_semantics.py omni_memory.py omni_json_stream.py omni_hippocampus.py omni_kb.py omni_episodes.py omni_redact.py omni_concepts.py omni_vectors.py omni_query.py omni_topics.py omni_storage.py omni_explain.py omni_summaries.py omni_blocks.py omni_unblocker.py omni_projects.py omni_accounts.py; do
     install -m 0644 "$project_dir/helpers/$module" "$app_dir/Contents/Resources/Helpers/$module"
 done
+# Account router shims: install_routers links ~/.omni/bin/{claude,codex} here.
+mkdir -p "$app_dir/Contents/Resources/Helpers/shims"
+install -m 0755 "$project_dir/helpers/shims/claude" "$app_dir/Contents/Resources/Helpers/shims/claude"
+install -m 0755 "$project_dir/helpers/shims/codex" "$app_dir/Contents/Resources/Helpers/shims/codex"
 install -m 0644 "$project_dir/helpers/omni_knowledge_schema.sql" "$app_dir/Contents/Resources/Helpers/omni_knowledge_schema.sql"
 # Forge, OmniTerm's project layer, ships inside the app as a dependency
 # (Contents/Resources/Forge): helpers/omni_projects.py runs an installed forge

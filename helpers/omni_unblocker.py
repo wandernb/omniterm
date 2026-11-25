@@ -231,8 +231,11 @@ def keyword_verdict(block):
 
 # Tier 1: an explicit cheap model, never a provider's default; the next link
 # is tried when one fails, and words decide when all do. Codex names come from
-# its models list (the "luna" line is its fast, affordable tier).
-CHEAP_MODELS = (("claude", "haiku"), ("codex", "gpt-6-luna"))
+# its models list (the "luna" line is its fast, affordable tier). Claude Haiku
+# is always the last cheap resort: a Codex failure (exit, usage limit, timeout)
+# falls through to it before the smart decision.
+CHEAP_MODELS = (("codex", "gpt-6-luna"), ("claude", "haiku"))
+USAGE_LIMIT = re.compile(r"hit your (?:\w+ )?(?:usage )?limit|usage[ _]limit|rate[ _]limit|quota", re.IGNORECASE)
 TRIAGE_SECONDS = 60
 TRIAGE_PROMPT = """You screen waiting coding-agent sessions for OmniTerm. Given the goal the
 person set and the session's last message, decide whether the session needs
@@ -251,7 +254,7 @@ def triage_payload(block):
             f"Last message:\n{(block.get('prompt') or '')[-3000:]}")
 
 
-def triage_command(block, provider="claude", model=CHEAP_MODELS[0][1], output=None):
+def triage_command(block, provider="claude", model="haiku", output=None):
     if provider == "codex":
         # No notify hook (it would record this call as a session), no saved
         # session, low effort and a read-only sandbox: one short answer.
@@ -268,7 +271,8 @@ def screen(block, run, workspace, env, dead):
     failures): verdict is "YES", "NO" or None when every link failed. A link
     that fails is skipped for the rest of the pass (`dead`)."""
     failures = []
-    for provider, model in CHEAP_MODELS:
+    # Codex first, Claude last, whatever order CHEAP_MODELS lists them in.
+    for provider, model in sorted(CHEAP_MODELS, key=lambda link: link[0] == "claude"):
         link = f"{provider}/{model}"
         if link in dead:
             continue
@@ -303,7 +307,12 @@ def screen(block, run, workspace, env, dead):
         if not is_error and word in ("YES", "NO"):
             return word, {"link": link, "why": text[len(word):].strip(" .,:;-—")[:300]}, failures
         lines = (completed.stderr or "").strip().splitlines()
-        failures.append(f"{link} gave no verdict" + (f" ({lines[-1][:160]})" if is_error and lines else ""))
+        limit = next((line.strip() for line in (text.splitlines() + lines) if USAGE_LIMIT.search(line)), None)
+        if limit:
+            failures.append(f"{link} hit its usage limit ({limit[:160]})")
+        else:
+            failures.append(f"{link} gave no verdict" + (f" (exit {completed.returncode})" if completed.returncode else "")
+                            + (f" ({lines[-1][:160]})" if is_error and lines else ""))
         dead.add(link)
     return None, None, failures
 

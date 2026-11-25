@@ -113,6 +113,8 @@ SYSTEM_PROMPT_SCAN = 64 * 1024 * 1024
 ECHO_LOOKAHEAD = 40
 ECHO_LINES = 15
 CLAUDE_CONVERSATION_TYPES = frozenset(("user", "assistant", "system", "summary"))
+ACCOUNT_OPS = ("list_accounts", "add_account", "login_account", "remove_account", "rename_account",
+               "set_account_email", "refresh_accounts", "install_routers")
 PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "knowledge_status",
                         "upsert_memory", "search_memories", "delete_memory", "send_session_message",
                         "get_session_message", "memory_candidates", "dismiss_memory_candidate",
@@ -124,7 +126,7 @@ PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "k
                         "get_unblock", "set_unblock", "rename_session", "get_system_prompt",
                         "consume_grant", "record_unblock_audit", "unblocker_audit", "get_unblocker_policy",
                         "set_unblocker_policy", "list_projects", "get_project", "get_project_file",
-                        "list_project_folder", "project_of"))
+                        "list_project_folder", "project_of", *ACCOUNT_OPS))
 INTERNAL_OPS = frozenset(("restore", "scan", "ack_writes", "drain_writes", "update_live_sessions",
                           "update_memory_sessions", "memory_tick", "embed"))
 
@@ -2821,6 +2823,16 @@ class KnowledgeStore:
         except self._helper_module("omni_projects").ForgeUnavailable as exc:
             raise KnowledgeError(str(exc), "forge_unavailable")
 
+    def _accounts(self, op, arguments):
+        """Claude/Codex accounts and router shims (helpers/omni_accounts.py); never touches the index."""
+        accounts = self._helper_module("omni_accounts")
+        try:
+            return accounts.OPS[op](arguments)
+        except accounts.AccountError as exc:
+            raise KnowledgeError(str(exc), exc.code)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise KnowledgeError(str(exc), "account_io")
+
     def _helper_module(self, name):
         modules = self.__dict__.setdefault("_helper_modules", {})
         if name not in modules:
@@ -4279,6 +4291,8 @@ class KnowledgeStore:
                                        {"session_id": identifier, "excluded_at": time.time()})
                 self.connection.commit()
                 result = {"updated": len(self._memory_sessions)}
+            elif op in ACCOUNT_OPS:
+                result = self._accounts(op, arguments)
             else:
                 result = getattr(self, op)(arguments)
             return {"ok": True, **result, **self._batch()}
