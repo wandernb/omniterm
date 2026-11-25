@@ -323,8 +323,7 @@ def run_pass(request, home=None, environ=None, run=subprocess.run, clock=time.ti
             if text[:2].upper() == "NO" and not verdict.get("is_error"):
                 screened[block["block_id"]] = {"key": key, "at": clock()}
                 audit({**base, "outcome": "no_action", "detail": "Quick check: nothing for the person. " +
-                       text[2:].strip(" .:-—")[:300], "model": TRIAGE_MODEL, "seconds": clock() - started,
-                       "cost_usd": verdict.get("total_cost_usd")})
+                       text[2:].strip(" .:-—")[:300], "model": TRIAGE_MODEL, "seconds": clock() - started})
                 summary["outcomes"].append({"block_id": block["block_id"], "outcome": "screened"})
                 save_state(home, {**state, "attempts": attempts, "screened": screened, "last_pass": clock()})
                 continue
@@ -347,8 +346,7 @@ def run_pass(request, home=None, environ=None, run=subprocess.run, clock=time.ti
         unreachable = bool(failure) or (outcome == "error" and "API" in detail)
         if failure and outcome in ("error", "no_action"):
             outcome, detail = "error", failure
-        audit({**base, "outcome": outcome, "detail": detail, "seconds": clock() - started,
-               "cost_usd": result.get("total_cost_usd")})
+        audit({**base, "outcome": outcome, "detail": detail, "seconds": clock() - started})
         summary["handled"] += 1
         summary["outcomes"].append({"block_id": block["block_id"], "outcome": outcome})
         if outcome in ("answered", "allowed", "skipped"):

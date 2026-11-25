@@ -44,6 +44,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Command-Return for all results; `omniterm://quicknav`). Command-F goes to the
   search field and Command-, to OmniTerm's Settings; these take the place of
   iTerm2's Find, Clear Buffer and Settings keys in the terminal window.
+- The Unblocker's audit entries open in full over the page (what happened,
+  the goal, the facts) with an Open Session button; the list shows each
+  outcome's icon and no longer shows a cost. `omniterm://unblocker?audit=N`
+  opens entry N.
 - The search options sit in a button right of the search field, in every
   mode: provider and grouping for sessions, new agent or folder for agents,
   view all, new folder and refresh for projects.

@@ -10200,7 +10200,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d6b52d7c8 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a56253fa85 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11256,14 +11256,14 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,91 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,101 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
 +    // omniterm://inbox opens the Inbox, for the widget. omniterm://memory opens
 +    // the Memory page, optionally on a tab (omniterm://memory/graph?mode=mindmap,
 +    // omniterm://memory/search?q=words, omniterm://memory/graph?select=ID or ?open=ID).
-+    // omniterm://unblocker opens the Unblocker page. omniterm://projects opens the
++    // omniterm://unblocker opens the Unblocker page (?audit=N with audit entry N open). omniterm://projects opens the
 +    // Projects page, omniterm://project/<root path> one project.
 +    // omniterm://search?q=words opens every result of a search on a page;
 +    // omniterm://quicknav?q=words the Command-K navigator.
@@ -11279,7 +11279,17 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
 +            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
-+            [terminal omniShowUnblocker];
++            NSString *audit = nil;
++            for (NSURLQueryItem *item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
++                if ([item.name isEqualToString:@"audit"]) {
++                    audit = item.value;
++                }
++            }
++            if (audit.length) {
++                [terminal omniShowUnblockerAuditEntry:audit.integerValue];
++            } else {
++                [terminal omniShowUnblocker];
++            }
 +        } else if ([url.host isEqualToString:@"search"] || [url.host isEqualToString:@"quicknav"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -11348,7 +11358,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3505,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3515,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11371,7 +11381,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3651,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3661,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11380,7 +11390,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4115,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4125,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11396,7 +11406,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4881,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4891,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11417,7 +11427,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5127,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5137,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -33369,10 +33379,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..887fdd32f693ad841aaa5a85cf13071e570dddb2
+index 0000000000000000000000000000000000000000..9b830b2f03f0dc16ace8ce4be118b2a9cb7fb598
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4268 @@
+@@ -0,0 +1,4277 @@
 +import AppKit
 +import Foundation
 +import os
@@ -36847,6 +36857,15 @@ index 0000000000000000000000000000000000000000..887fdd32f693ad841aaa5a85cf13071e
 +        showPane(.unblocker)
 +    }
 +
++    // omniterm://unblocker?audit=N: the page, with audit entry N open.
++    @objc(showUnblockerAuditEntry:)
++    func showUnblocker(auditEntry index: Int) {
++        showPane(.unblocker)
++        guard let pane = contentHost.pane as? OmniUnblockerPane else { return }
++        pane.pendingAuditIndex = index
++        pane.reload()
++    }
++
 +    // omniterm://projects, and omniterm://project/<root path>.
 +    @objc func showProjects(_ root: String?) {
 +        if let root, !root.isEmpty {
@@ -38307,10 +38326,10 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d00b87f5b6
+index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a6539f939
 --- /dev/null
 +++ b/sources/OmniTerm/OmniUnblockerPane.swift
-@@ -0,0 +1,290 @@
+@@ -0,0 +1,484 @@
 +import AppKit
 +import Foundation
 +
@@ -38347,6 +38366,25 @@ index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d0
 +        let outcome = outcomeTitle(entry["outcome"] as? String ?? "")
 +        let project = project(entry["cwd"] as? String)
 +        return [formatter.string(from: when), outcome, project].filter { !$0.isEmpty }.joined(separator: " · ")
++    }
++
++    static func symbol(_ outcome: String) -> SFSymbol {
++        switch outcome {
++        case "answered": return .arrowshapeTurnUpLeft
++        case "allowed", "granted_call": return .checkmarkCircle
++        case "skipped": return .personCropCircle
++        case "error": return .exclamationmarkTriangle
++        default: return .circle
++        }
++    }
++
++    static func color(_ outcome: String) -> NSColor? {
++        switch outcome {
++        case "answered", "allowed", "granted_call": return OmniTheme.running
++        case "skipped": return OmniTheme.waiting
++        case "error": return OmniTheme.failed
++        default: return nil
++        }
 +    }
 +
 +    static func detail(for entry: [String: Any]) -> String {
@@ -38422,6 +38460,12 @@ index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d0
 +            }
 +            self.settings = settings
 +            self.audit = responses["audit"]?["entries"] as? [[String: Any]] ?? []
++            if let index = self.pendingAuditIndex {
++                self.pendingAuditIndex = nil
++                if self.audit.indices.contains(index) {
++                    DispatchQueue.main.async { self.showAuditEntry(self.audit[index]) }
++                }
++            }
 +            let blocks = responses["blocked"]?["blocks"] as? [[String: Any]] ?? []
 +            self.waiting = blocks.filter { $0["answerable"] as? Bool == true }
 +            if let policyResponse = responses["policy"], OmniPane.isOK(policyResponse) {
@@ -38507,12 +38551,16 @@ index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d0
 +                                             control: revert, controlWidth: 110)),
 +        ], header: false)
 +
++        // Each decision opens in full over the page, with its session.
 +        let reference = now()
-+        let rows: [(key: String, row: OmniSettingRow)] = audit.enumerated().map { index, entry in
-+            let cost = (entry["cost_usd"] as? NSNumber).map { String(format: "$%.3f", $0.doubleValue) } ?? ""
-+            let row = OmniSettingRow(title: OmniUnblockerModel.title(for: entry, now: reference),
-+                                     detail: OmniUnblockerModel.detail(for: entry),
-+                                     control: OmniTheme.meta(cost), controlWidth: 70)
++        let rows: [(key: String, row: OmniZoneItem)] = audit.enumerated().map { index, entry in
++            let outcome = entry["outcome"] as? String ?? ""
++            let row = OmniFolderEntryRow(icon: .symbol(OmniUnblockerModel.symbol(outcome).rawValue),
++                                         iconColor: OmniUnblockerModel.color(outcome),
++                                         title: OmniUnblockerModel.title(for: entry, now: reference),
++                                         detail: OmniUnblockerModel.detail(for: entry), badge: "", status: nil) { [weak self] in
++                self?.showAuditEntry(entry)
++            }
 +            row.toolTip = OmniUnblockerModel.detail(for: entry)
 +            return (key: "audit-\(index)", row: row)
 +        }
@@ -38521,8 +38569,44 @@ index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d0
 +            column.addText(OmniTheme.meta("Nothing yet. Every decision, and every failure, is listed here for 14 days."),
 +                           spacing: 8)
 +        } else {
-+            section("Audit", previous: previous, rows: rows)
++            column.addSection("Audit")
++            let zone = previous.first { $0.title == "Audit" }?.zone ?? OmniListZone()
++            let list = OmniColumnView()
++            list.inset = 0
++            list.topPadding = 0
++            list.bottomPadding = 0
++            list.overlay = zone
++            for (_, row) in rows {
++                list.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
++            }
++            zone.setItems(rows.map { (key: $0.key, view: $0.row) })
++            column.add(list, spacing: 8) { [weak list] width in list?.layoutColumn(width: width) ?? 0 }
++            zones.append((title: "Audit", zone: zone))
 +        }
++    }
++
++    // MARK: Audit entry
++
++    private weak var auditOverlay: OmniAuditEntryView?
++    // omniterm://unblocker?audit=N: the entry to open once the audit loads.
++    var pendingAuditIndex: Int?
++
++    func showAuditEntry(_ entry: [String: Any]) {
++        auditOverlay?.removeFromSuperview()
++        guard let content = window?.contentView else { return }
++        let overlay = OmniAuditEntryView(entry: entry, now: now()) { [weak self] sessionID in
++            self?.actions?.paneOpenSearchHit(OmniSearchHit(key: sessionID, title: "", detail: "", icon: .symbol(""),
++                                                           iconColor: nil, target: .session(sessionID, message: nil)))
++        }
++        overlay.frame = content.bounds
++        overlay.autoresizingMask = [.width, .height]
++        content.addSubview(overlay, positioned: .above, relativeTo: nil)
++        window?.makeFirstResponder(overlay)
++        auditOverlay = overlay
++    }
++
++    var shownAuditEntry: OmniAuditEntryView? {
++        return auditOverlay
 +    }
 +
 +    private func section(_ title: String, previous: [(title: String, zone: OmniListZone)],
@@ -38600,6 +38684,135 @@ index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d0
 +        policyEditor.text = policy
 +        setStatus("Edits discarded.", error: false)
 +    }
++}
++
++// One audit entry in full, over the window: what happened, the goal, the
++// session (a link to its page), and the facts. Escape, Close or a click
++// outside the card closes it.
++final class OmniAuditEntryView: NSView {
++    private let card = OmniAuditCard()
++    private let openSession: (String) -> Void
++    let sessionID: String?
++    private let text = NSTextView()
++    private let scroll = NSScrollView()
++    private let titleLabel = NSTextField(labelWithString: "")
++    private let sessionButton: NSButton
++    private let closeButton: NSButton
++
++    override var isFlipped: Bool { true }
++    override var acceptsFirstResponder: Bool { true }
++
++    init(entry: [String: Any], now: Date, openSession: @escaping (String) -> Void) {
++        self.openSession = openSession
++        sessionID = entry["session_id"] as? String
++        sessionButton = OmniTheme.button("Open Session", target: nil, action: nil)
++        closeButton = OmniTheme.button("Close", target: nil, action: nil)
++        super.init(frame: .zero)
++        wantsLayer = true
++        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
++        card.wantsLayer = true
++        card.layer?.cornerRadius = 12
++        card.layer?.masksToBounds = true
++        card.layer?.borderWidth = 1
++        card.layer?.borderColor = OmniTheme.cardBorder.cgColor
++        let blur = NSVisualEffectView()
++        blur.material = .popover
++        blur.blendingMode = .withinWindow
++        blur.state = .active
++        card.addSubview(blur)
++        titleLabel.stringValue = OmniUnblockerModel.title(for: entry, now: now)
++        titleLabel.font = OmniTheme.Font.subtitle
++        titleLabel.lineBreakMode = .byTruncatingTail
++        card.addSubview(titleLabel)
++        text.isEditable = false
++        text.drawsBackground = false
++        text.textContainerInset = NSSize(width: 2, height: 4)
++        text.textStorage?.setAttributedString(Self.body(entry))
++        text.isVerticallyResizable = true
++        text.autoresizingMask = [.width]
++        scroll.documentView = text
++        scroll.drawsBackground = false
++        scroll.hasVerticalScroller = true
++        scroll.autohidesScrollers = true
++        card.addSubview(scroll)
++        sessionButton.target = self
++        sessionButton.action = #selector(openSessionClicked(_:))
++        sessionButton.isEnabled = sessionID != nil
++        card.addSubview(sessionButton)
++        closeButton.target = self
++        closeButton.action = #selector(close(_:))
++        closeButton.keyEquivalent = "\u{1b}"
++        card.addSubview(closeButton)
++        addSubview(card)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    // What the person reads: the outcome's reason, the goal, then the facts.
++    static func body(_ entry: [String: Any]) -> NSAttributedString {
++        let result = NSMutableAttributedString()
++        let heading: [NSAttributedString.Key: Any] = [.font: OmniTheme.Font.sectionHeader, .foregroundColor: OmniTheme.secondaryText]
++        let body: [NSAttributedString.Key: Any] = [.font: OmniTheme.Font.body, .foregroundColor: NSColor.labelColor]
++        func add(_ title: String, _ value: String) {
++            guard !value.isEmpty else { return }
++            result.append(NSAttributedString(string: title.uppercased() + "\n", attributes: heading))
++            result.append(NSAttributedString(string: OmniReportText.sanitized(value) + "\n\n", attributes: body))
++        }
++        add("What happened", entry["detail"] as? String ?? "")
++        add("Goal", entry["goal"] as? String ?? "")
++        var facts: [String] = []
++        facts.append("Outcome: " + OmniUnblockerModel.outcomeTitle(entry["outcome"] as? String ?? ""))
++        if let session = entry["session_id"] as? String { facts.append("Session: " + session) }
++        if let cwd = entry["cwd"] as? String { facts.append("Folder: " + OmniProjectsModel.abbreviated(cwd)) }
++        if let kind = entry["kind"] as? String { facts.append("Waiting on: " + kind) }
++        if let model = entry["model"] as? String { facts.append("Model: " + model) }
++        if let seconds = (entry["seconds"] as? NSNumber)?.doubleValue { facts.append(String(format: "Took: %.0f s", seconds)) }
++        add("Details", facts.joined(separator: "\n"))
++        return result
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        let width = min(640, bounds.width - 40)
++        let height = min(520, bounds.height - 80)
++        card.frame = NSRect(x: (bounds.width - width) / 2, y: max(40, (bounds.height - height) / 3), width: width, height: height)
++        card.subviews.first?.frame = card.bounds
++        titleLabel.frame = NSRect(x: 20, y: 18, width: width - 40, height: 22)
++        scroll.frame = NSRect(x: 18, y: 50, width: width - 36, height: height - 50 - 56)
++        text.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: max(scroll.contentSize.height, text.frame.height))
++        text.textContainer?.containerSize = NSSize(width: scroll.contentSize.width, height: .greatestFiniteMagnitude)
++        closeButton.sizeToFit()
++        sessionButton.sizeToFit()
++        closeButton.frame = NSRect(x: width - 20 - closeButton.frame.width - 8, y: height - 42, width: closeButton.frame.width + 8, height: 28)
++        sessionButton.frame = NSRect(x: closeButton.frame.minX - sessionButton.frame.width - 18, y: height - 42,
++                                     width: sessionButton.frame.width + 8, height: 28)
++    }
++
++    override func mouseDown(with event: NSEvent) {
++        if !card.frame.contains(convert(event.locationInWindow, from: nil)) {
++            removeFromSuperview()
++        }
++    }
++
++    override func cancelOperation(_ sender: Any?) {
++        removeFromSuperview()
++    }
++
++    @objc private func close(_ sender: Any?) {
++        removeFromSuperview()
++    }
++
++    @objc func openSessionClicked(_ sender: Any?) {
++        guard let sessionID else { return }
++        removeFromSuperview()
++        openSession(sessionID)
++    }
++}
++
++private final class OmniAuditCard: NSView {
++    override var isFlipped: Bool { true }
 +}
 diff --git a/sources/PTYSession/PTYSession.h b/sources/PTYSession/PTYSession.h
 index ce73d2698257237277903ae664d5720458239e89..b82b761848dae839259e7d5878244e0d6194365a 100644
@@ -38726,10 +38939,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..d4b8d181eda09f02d66d5113238ebc0308ed928c 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..2451ab552b1dfd7cc1ac03f03b54baba2cbe5058 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,50 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,51 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -38752,6 +38965,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..d4b8d181eda09f02d66d5113238ebc03
 +- (id)omniSidebarForTesting;
 +- (void)omniShowSettings;
 +- (void)omniShowUnblocker;
++- (void)omniShowUnblockerAuditEntry:(NSInteger)index;
 +- (void)omniShowProjects:(NSString *)root;
 +- (void)omniShowSearchResults:(NSString *)query;
 +- (void)omniShowQuickNav:(NSString *)query;
@@ -38781,7 +38995,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..d4b8d181eda09f02d66d5113238ebc03
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815d780e7ee 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..722937f5044995ca1db37e4fdf9535b7766a539c 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -38943,7 +39157,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,137 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,141 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -39029,6 +39243,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
 +    [_omniSidebar showUnblocker];
 +}
 +
++- (void)omniShowUnblockerAuditEntry:(NSInteger)index {
++    [_omniSidebar showUnblockerAuditEntry:index];
++}
++
 +- (void)omniShowProjects:(NSString *)root {
 +    [_omniSidebar showProjects:root];
 +}
@@ -39082,7 +39300,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7115,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7119,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -39092,7 +39310,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7431,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7435,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -39104,7 +39322,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7641,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7645,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -39112,7 +39330,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7757,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7761,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -39124,7 +39342,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8379,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8383,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -39132,7 +39350,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8388,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8392,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -39145,7 +39363,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8540,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8544,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -39154,7 +39372,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8879,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8883,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -39171,7 +39389,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8917,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8921,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -39180,7 +39398,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9168,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9172,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -39189,7 +39407,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12482,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12486,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -39205,7 +39423,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13442,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13446,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -39221,7 +39439,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14019,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14023,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
