@@ -165,6 +165,18 @@ def transcript_request(path, home=None, max_bytes=1048576):
     return ""
 
 
+# A turn that ends by handing something to the person. Such a session is looked
+# at as soon as it stops, instead of after the usual wait.
+ASKS_PERSON = re.compile(
+    r"\bblocked\b|\bneeds? you\b|\bneeds your\b|\bwaiting (?:for|on) (?:you|your)\b|\bover to you\b|"
+    r"\bwhen you(?:'|\u2019)?re back\b|\byour (?:go-ahead|go ahead|call|decision|approval|yes)\b|"
+    r"\btell me (?:to|whether|if|which)\b|\bshould i\b|^\s*!\s*\S", re.IGNORECASE | re.MULTILINE)
+
+
+def asks_person(text):
+    return bool(isinstance(text, str) and ASKS_PERSON.search(text[-4000:]))
+
+
 def transcript_size(path):
     try:
         return os.stat(path).st_size if path else None
@@ -511,6 +523,7 @@ def holdable(event):
 
 
 # A go-ahead for a refused call pre-approves exactly that call, once, for this long.
+ASK_SETTLE_SECONDS = 5  # lets a goal hook re-run the turn before the unblocker looks
 SKIP_HOLD_SECONDS = 1800  # a goal loop left for the person is looked at again after this
 CONTINUE_SECONDS = 600  # a Stop this soon after the last one, with no prompt between, is the same wait
 GRANT_SECONDS = 1800
@@ -709,6 +722,7 @@ class BlockStore:
             "grants": [{"tool_name": grant.get("tool_name"), "expires": grant.get("expires"),
                         "used": bool(grant.get("used"))} for grant in block.get("grants", [])[-5:]],
             "answerable": idle or self.held(block),
+            "asks_person": asks_person(block.get("prompt")),
             "answers_last_hour": len(answers)}
 
     def list(self, arguments):
@@ -721,8 +735,10 @@ class BlockStore:
             raise BlockError("min_age_seconds and limit must be bounded integers")
         blocks = [self.public(block) for block in self._all()
                   if state == "all" or block.get("state") == "open"]
-        # A held dialog is answered at once: the session waits on it inside a hook.
-        blocks = [block for block in blocks if block["age_seconds"] >= min_age or block["held"]]
+        # A held dialog, and a turn that ends by asking for the person, are looked
+        # at once: there is nothing to wait for.
+        blocks = [block for block in blocks if block["age_seconds"] >= min_age or block["held"] or
+                  (block["asks_person"] and block["age_seconds"] >= ASK_SETTLE_SECONDS)]
         if arguments.get("answerable_only") is True:
             blocks = [block for block in blocks if block["answerable"]]
         blocks.sort(key=lambda block: block.get("created") or 0)

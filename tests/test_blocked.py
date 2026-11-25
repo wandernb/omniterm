@@ -2,6 +2,8 @@ import importlib.util
 import json
 import tempfile
 import unittest
+import uuid
+import subprocess
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from unittest import mock
@@ -700,6 +702,46 @@ class HeldDialogTests(unittest.TestCase):
         self.assertIn(BLOCKS.DELEGATION, updated)
         self.assertNotIn("old words", updated)
         self.assertEqual(BLOCKS.codex_agents(updated), (updated, False))
+
+
+class ListenerPassTests(unittest.TestCase):
+    def pass_with(self, blocks, verdict):
+        calls, audits = [], []
+
+        def request(payload):
+            op = payload["op"]
+            if op == "list_blocked":
+                return {"blocks": blocks}
+            if op == "record_unblock_audit":
+                audits.append(payload["entry"])
+            return {}
+
+        def run(command, **_):
+            calls.append("triage" if TRIAGE in command else "decide")
+            result = {"type": "result", "result": verdict if TRIAGE in command else "done"}
+            return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+
+        TRIAGE = UNBLOCKER.TRIAGE_PROMPT
+        with tempfile.TemporaryDirectory() as home:
+            environ = {"PATH": "/usr/bin", "SHELL": "/bin/false"}
+            UNBLOCKER.run_pass(request, home=home, environ=environ, run=run)
+            UNBLOCKER.run_pass(request, home=home, environ=environ, run=run)
+        return calls, audits
+
+    def block(self, prompt, **extra):
+        return {"block_id": str(uuid.uuid4()), "session_id": "claude:s", "kind": "idle", "prompt": prompt,
+                "goal": {"command": "/goal", "objective": "ship it"}, "denials": [], **extra}
+
+    def test_a_quiet_turn_is_screened_once_and_never_escalated(self):
+        calls, audits = self.pass_with([self.block("Built and tested.")], "NO, it is working")
+        self.assertEqual(calls, ["triage"])
+        self.assertTrue(audits[0]["detail"].startswith("Quick check"))
+
+    def test_a_turn_asking_for_the_person_goes_straight_to_the_decision(self):
+        block = self.block("Blocked, needs you: run ! git push", asks_person=True)
+        calls, _ = self.pass_with([block], "NO")
+        self.assertEqual(calls[0], "decide")
+        self.assertNotIn("triage", calls)
 
 
 if __name__ == "__main__":

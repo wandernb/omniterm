@@ -20,6 +20,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- The Omni Unblocker reacts within seconds when a goal session's turn ends by
+  asking for you ("Blocked", "needs you", "waiting for you", a `!` command).
+  Other waiting turns get a fast check on a small model first, and the full
+  decision runs only when that check sees someone is needed. Your own Claude
+  hooks no longer run inside its calls.
 - Pin the window (the pin beside the sidebar's mode switch, or **Pin Window**
   in the menu bar) to keep it on its own Space; it always reopens where you left
   it. OmniTerm starts as a menu-bar app, so launching never flashes a Dock icon.
