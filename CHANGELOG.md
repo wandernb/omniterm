@@ -48,6 +48,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the goal, the facts) with an Open Session button; the list shows each
   outcome's icon and no longer shows a cost. `omniterm://unblocker?audit=N`
   opens entry N.
+- Sessions mode has three views, chosen from its options button: By Project
+  (your project folders, then each project with its sessions, the rest under
+  Other by folder), My Folders (folders and subfolders you make; file sessions
+  with Move to or drag and drop, the rest under Other; saved as
+  `session_folders`), and Live, Recent, All.
+- Agents mode can show agents By Project (under their workspace's project,
+  in your project folders, the rest under Other) or in your own folders as
+  before.
+- The All Projects page groups projects by your folders and subfolders, each
+  under a heading with its icon, colour and count.
 - The search options sit in a button right of the search field, in every
   mode: provider and grouping for sessions, new agent or folder for agents,
   view all, new folder and refresh for projects.
