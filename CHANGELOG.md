@@ -36,7 +36,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   only the selected mode's name, the others as icons.
 - One search for everything: the sidebar's search field finds projects,
   sessions (by title and folder, and inside transcripts), agents, runs,
-  terminals and memories in any mode, each under its own heading.
+  terminals and memories in any mode, each under its own heading. It filters
+  as you type; Return or See All Results opens every result on a page
+  (`omniterm://search?q=…`).
+- Command-K opens a quick navigator over the window: the pages, recent
+  projects and sessions, and a search over everything (arrows, Return,
+  Command-Return for all results; `omniterm://quicknav`). Command-F goes to the
+  search field and Command-, to OmniTerm's Settings; these take the place of
+  iTerm2's Find, Clear Buffer and Settings keys in the terminal window.
+- The search options sit in a button right of the search field, in every
+  mode: provider and grouping for sessions, new agent or folder for agents,
+  view all, new folder and refresh for projects.
 - The Dashboard shows recent projects and recent sessions above the agent runs,
   with an All Projects button.
 - The Projects header has View All (the page listing every project) and a +

@@ -6756,10 +6756,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f78653377
+index 0000000000000000000000000000000000000000..0045d4d39f89fc2a6ae410c6bb47bdaaa82a43d5
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1829 @@
+@@ -0,0 +1,1852 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7123,6 +7123,29 @@ index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f
 +        sidebar.handleDoubleClick(row: alpha, at: alphaCell.convert(NSPoint(x: title.frame.midX, y: title.frame.midY),
 +                                                                     to: outlineView))
 +        wait("a double-click on the name starts a rename") { editor(alpha) != nil }
++    }
++
++    // Agent folders take an icon and colour from the agents' picker,
++    // saved as `agent_folders` in settings and shown on the folder's row.
++    func testAFolderTakesAColourFromTheSamePicker() throws {
++        fake.groups = ["Ops"]
++        fake.agents[0]["group"] = "Ops"
++        fake.handlers["set_settings"] = { request in ["ok": true, "settings": request["settings"] ?? [:]] }
++        showSidebar()
++        let ops = try XCTUnwrap(row(titled: "Ops"))
++        let opsCell = try XCTUnwrap(cell(ops))
++        let icon = try XCTUnwrap(subviews(NSImageView.self, of: opsCell).first { !$0.isHidden })
++        sidebar.handleDoubleClick(row: ops, at: opsCell.convert(NSPoint(x: icon.frame.midX, y: icon.frame.midY), to: outlineView))
++        let picker = try XCTUnwrap(sidebar.appearancePopover?.contentViewController as? OmniAppearancePicker)
++        _ = picker.view
++        let swatch = try XCTUnwrap(Self.all(NSButton.self, in: picker.view).first { $0.action == NSSelectorFromString("pickColor:") })
++        swatch.performClick(nil)
++        wait("the folder's colour is saved") { !fake.requests("set_settings").isEmpty }
++        let saved = (fake.requests("set_settings").last?["settings"] as? [String: Any])?["agent_folders"] as? [String: Any]
++        let colors = try XCTUnwrap(saved?["colors"] as? [String: String])
++        XCTAssertNotNil(colors["Ops"].flatMap(OmniAgentColor.color), "A named colour for the Ops folder")
++        let tinted = try XCTUnwrap(subviews(NSImageView.self, of: try XCTUnwrap(cell(try XCTUnwrap(row(titled: "Ops"))))).first { !$0.isHidden })
++        XCTAssertEqual(tinted.contentTintColor, OmniAgentColor.color(colors["Ops"]), "The row shows it")
 +    }
 +
 +    func testRunRowsShowTheAgentIconWithTheDotAfterTheSubline() throws {
@@ -7991,7 +8014,7 @@ index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f
 +    func testOneSearchFindsAgentsInEveryMode() throws {
 +        showSidebarWithPages()
 +        XCTAssertEqual(searchField.placeholderString, "Search")
-+        XCTAssertNil(searchField.searchMenuTemplate, "The provider menu is for sessions")
++        XCTAssertNotNil(sidebar.optionsMenu.items.first { $0.title == "New Folder" }, "Agents mode has its own options")
 +        search("zzz-no-such-agent")
 +        XCTAssertNil(row(titled: "Alpha"))
 +        XCTAssertNotNil(row(titled: "Dashboard"), "The shared pages stay")
@@ -8000,7 +8023,7 @@ index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f
 +        search("")
 +        sidebar.setMode(.sessions)
 +        XCTAssertEqual(searchField.placeholderString, "Search")
-+        XCTAssertNotNil(searchField.searchMenuTemplate)
++        XCTAssertNotNil(sidebar.optionsMenu.items.first { $0.title == "Codex" }, "Sessions mode's options filter by provider")
 +        XCTAssertNil(row(titled: "Alpha"), "Sessions mode lists no agents")
 +        search("alp")
 +        XCTAssertNotNil(row(titled: "Alpha"), "but its search finds them")
@@ -8239,13 +8262,13 @@ index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f
 +            fake.requests("list_sessions").compactMap { $0["offset"] as? Int }.max() ?? 0 >= 300
 +        }
 +
-+        let menu = try XCTUnwrap(searchField.searchMenuTemplate)
++        let menu = sidebar.optionsMenu
 +        let codex = try XCTUnwrap(menu.items.first { $0.title == "Codex" })
 +        NSApp.sendAction(codex.action!, to: codex.target, from: codex)
 +        wait("the list is asked for Codex only") {
 +            fake.requests("list_sessions").last?["provider"] as? String == "codex"
 +        }
-+        let group = try XCTUnwrap(searchField.searchMenuTemplate?.items.first { $0.title == "Group by Project" })
++        let group = try XCTUnwrap(sidebar.optionsMenu.items.first { $0.title == "Group by Project" })
 +        XCTAssertEqual(group.state, .on, "Grouping is on by default")
 +        wait("folders are sections") { row(titled: "ws-a") != nil && row(titled: "ws-b") != nil }
 +        NSApp.sendAction(group.action!, to: group.target, from: group)
@@ -8994,10 +9017,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..61b7ae205b7565b1914950656464d296
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b0acfc4d4 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843fed7caff 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,30 @@
+@@ -7,6 +7,31 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -9013,6 +9036,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
 +		5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */; };
 +		5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */; };
 +		5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */; };
++		5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
 +		0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */; };
@@ -9028,7 +9052,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5162,31 @@
+@@ -5138,6 +5163,32 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -9045,6 +9069,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
 +		5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSettingsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniUnblockerPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniProjectsPane.swift; sourceTree = "<group>"; };
++		5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSearch.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTerminalSnapshotView.swift; sourceTree = "<group>"; };
@@ -9060,7 +9085,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10656,31 @@
+@@ -10607,6 +10658,32 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -9077,6 +9102,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
 +				5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */,
 +				5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */,
 +				5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */,
++				5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
 +				0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */,
@@ -9092,7 +9118,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18642,7 @@
+@@ -18568,7 +18645,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -9101,7 +9127,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18652,7 @@
+@@ -18578,7 +18655,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -9110,7 +9136,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18839,29 @@
+@@ -18765,6 +18842,30 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -9125,6 +9151,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
 +				5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */,
++				5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
 +				0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */,
@@ -9140,7 +9167,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20845,7 @@
+@@ -20748,6 +20849,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -9148,7 +9175,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21657,7 @@
+@@ -21559,7 +21661,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9157,7 +9184,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21690,7 @@
+@@ -21592,7 +21694,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9166,7 +9193,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21827,8 @@
+@@ -21729,8 +21831,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9177,7 +9204,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22915,8 @@
+@@ -22817,8 +22919,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9188,7 +9215,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24781,7 @@
+@@ -24683,7 +24785,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -9197,7 +9224,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24868,7 @@
+@@ -24770,7 +24872,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9206,7 +9233,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24955,7 @@
+@@ -24857,7 +24959,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9215,7 +9242,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25042,7 @@
+@@ -24944,7 +25046,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9224,7 +9251,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25338,8 @@
+@@ -25240,8 +25342,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9235,7 +9262,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25433,8 @@
+@@ -25335,8 +25437,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9246,7 +9273,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25638,7 @@
+@@ -25540,7 +25642,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9255,7 +9282,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..6267fa994526915969f7428c258ff27b
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25671,7 @@
+@@ -25573,7 +25675,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -10173,7 +10200,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a09b0fe5b1 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..4e3c608d8bfa2474048dfe391fc70a2d6b52d7c8 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11229,7 +11256,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,74 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,91 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -11238,6 +11265,8 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
 +    // omniterm://memory/search?q=words, omniterm://memory/graph?select=ID or ?open=ID).
 +    // omniterm://unblocker opens the Unblocker page. omniterm://projects opens the
 +    // Projects page, omniterm://project/<root path> one project.
++    // omniterm://search?q=words opens every result of a search on a page;
++    // omniterm://quicknav?q=words the Command-K navigator.
 +    // omniterm://sessions shows the sidebar's Sessions mode, omniterm://session/claude:ID
 +    // one session's page (?message=ID: from that message; ?system=1: with its system
 +    // prompt open). Nothing else is accepted.
@@ -11251,6 +11280,21 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
 +            [self openOmniTerm:nil];
 +            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
 +            [terminal omniShowUnblocker];
++        } else if ([url.host isEqualToString:@"search"] || [url.host isEqualToString:@"quicknav"]) {
++            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
++            [self openOmniTerm:nil];
++            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
++            NSString *query = nil;
++            for (NSURLQueryItem *item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
++                if ([item.name isEqualToString:@"q"]) {
++                    query = item.value;
++                }
++            }
++            if ([url.host isEqualToString:@"search"]) {
++                [terminal omniShowSearchResults:query ?: @""];
++            } else {
++                [terminal omniShowQuickNav:query ?: @""];
++            }
 +        } else if ([url.host isEqualToString:@"projects"] || [url.host isEqualToString:@"project"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -11304,7 +11348,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3488,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3505,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11327,7 +11371,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3634,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3651,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11336,7 +11380,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4098,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4115,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11352,7 +11396,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4864,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4881,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11373,7 +11417,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..ded89c79c07e993dfc97bb29d47186a0
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5110,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5127,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -13092,7 +13136,7 @@ index 0000000000000000000000000000000000000000..285b59c9505d5df83f3be7e14d37a9d7
 +}
 diff --git a/sources/OmniTerm/OmniCardPane.swift b/sources/OmniTerm/OmniCardPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f63d745a2
+index 0000000000000000000000000000000000000000..0a90c7a7246a100da9deecea92a7ede4f8d5ca84
 --- /dev/null
 +++ b/sources/OmniTerm/OmniCardPane.swift
 @@ -0,0 +1,1115 @@
@@ -13202,7 +13246,7 @@ index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f
 +        case .run(let id):
 +            previewRunID = id
 +            details = OmniRunReportPane(runID: id, compact: true)
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session, .search:
 +            details = NSView()
 +        }
 +        super.init()
@@ -13308,7 +13352,7 @@ index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f
 +            OmniSchedulerClient.request(["op": "get_run", "id": id]) { [weak self] response in
 +                self?.renderRun(response)
 +            }
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .session, .search:
 +            break
 +        }
 +    }
@@ -14213,10 +14257,10 @@ index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..2fb14955da5543fcaf54e6b32006395883a926da
+index 0000000000000000000000000000000000000000..38c83c2683a420e298937b4cbeae0e17add0c1ab
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,798 @@
+@@ -0,0 +1,804 @@
 +import AppKit
 +import Foundation
 +
@@ -14241,6 +14285,8 @@ index 0000000000000000000000000000000000000000..2fb14955da5543fcaf54e6b320063958
 +    // A Claude or Codex session from the machine's history, by its
 +    // provider-qualified ID (`claude:<id>`).
 +    case session(String)
++    // Every result of a search, on one page.
++    case search(String)
 +}
 +
 +// What a folder page asks the sidebar to do with its folder.
@@ -14276,6 +14322,8 @@ index 0000000000000000000000000000000000000000..2fb14955da5543fcaf54e6b320063958
 +    func paneSessionsChanged()
 +    // A project's name or folder changed on its page: the sidebar reloads.
 +    func paneProjectsChanged()
++    // Opens what a search found: a page, a session at a message, a memory.
++    func paneOpenSearchHit(_ hit: OmniSearchHit)
 +}
 +
 +// Hosts the native content of the right panel. Overview covers the whole tab
@@ -14380,6 +14428,8 @@ index 0000000000000000000000000000000000000000..2fb14955da5543fcaf54e6b320063958
 +            pane = OmniSettingsPane()
 +        case .unblocker:
 +            pane = OmniUnblockerPane()
++        case .search(let query):
++            pane = OmniSearchPane(query: query)
 +        case .projects:
 +            pane = OmniProjectsPane(projectID: nil)
 +        case .project(let root):
@@ -16729,10 +16779,10 @@ index 0000000000000000000000000000000000000000..4565041a7bc13738fdc0d6d1db1a81c0
 +}
 diff --git a/sources/OmniTerm/OmniKeyboardMap.swift b/sources/OmniTerm/OmniKeyboardMap.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7653eca1ac2870dd416b88b835d4d21061a33aa7
+index 0000000000000000000000000000000000000000..1d6c0eeb0f46cb007052ec260f5f3ff7567c894b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniKeyboardMap.swift
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,236 @@
 +import AppKit
 +import Foundation
 +
@@ -16779,6 +16829,9 @@ index 0000000000000000000000000000000000000000..7653eca1ac2870dd416b88b835d4d210
 +            Shortcut(keys: "Esc", action: "Back to the sidebar"),
 +        ]),
 +        Group(title: "Window", shortcuts: [
++            Shortcut(keys: "⌘K", action: "Quick navigation: search and go anywhere"),
++            Shortcut(keys: "⌘F", action: "Search everything from the sidebar (Return: all results)"),
++            Shortcut(keys: "⌘,", action: "OmniTerm Settings"),
 +            Shortcut(keys: "⌃⌘S", action: "Focus the sidebar"),
 +            Shortcut(keys: "⇧⌘1 ⇧⌘2 ⇧⌘3", action: "Sidebar: Projects, Sessions or Agents"),
 +            Shortcut(keys: "⌃⌘1", action: "Show or hide the sidebar"),
@@ -29254,6 +29307,609 @@ index 0000000000000000000000000000000000000000..36ee4287771a3f6c780a3b6b7aaf0b56
 +}
 +
 +@end
+diff --git a/sources/OmniTerm/OmniSearch.swift b/sources/OmniTerm/OmniSearch.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6466af36a74fd4388ba32470a5887f51f4e717e
+--- /dev/null
++++ b/sources/OmniTerm/OmniSearch.swift
+@@ -0,0 +1,597 @@
++import AppKit
++import Foundation
++
++// MARK: - Model
++
++// One thing a search found, and where it leads.
++struct OmniSearchHit: Equatable {
++    enum Target: Equatable {
++        case route(OmniPaneRoute)
++        // A session, at a matching message when the hit came from its transcript.
++        case session(String, message: String?)
++        case memory(String)
++    }
++
++    let key: String
++    let title: String
++    let detail: String
++    let icon: OmniAgentIcon
++    let iconColor: NSColor?
++    let target: Target
++}
++
++struct OmniSearchSection: Equatable {
++    let title: String
++    var hits: [OmniSearchHit]
++}
++
++// What the search looks through, as the scheduler answered it.
++struct OmniSearchSources {
++    var projects: [[String: Any]] = []
++    var layout = OmniProjectLayout()
++    var sessions: [[AnyHashable: Any]] = []
++    var transcripts: [[AnyHashable: Any]] = []
++    var agents: [[AnyHashable: Any]] = []
++    var memories: [[AnyHashable: Any]] = []
++}
++
++// Turns a query and its sources into sections: pages, projects, sessions,
++// transcript matches, agents and memories. With no query it is the quick
++// navigator's start: the pages, then recent projects and sessions. Pure, so
++// tests check it without a window.
++enum OmniSearchModel {
++    static let pages: [(title: String, symbol: SFSymbol, route: OmniPaneRoute)] = [
++        ("Dashboard", .squareGrid2x2, .overview),
++        ("Inbox", .tray, .inbox),
++        ("Memory", .brain, .memory),
++        ("Unblocker", .forwardCircle, .unblocker),
++        ("Settings", .gearshape, .settings),
++        ("All Projects", .shippingbox, .projects),
++    ]
++
++    static func sections(query raw: String, sources: OmniSearchSources, limit: Int) -> [OmniSearchSection] {
++        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
++        func matches(_ texts: String?...) -> Bool {
++            return query.isEmpty || texts.contains { ($0 ?? "").lowercased().contains(query) }
++        }
++        var sections: [OmniSearchSection] = []
++        func add(_ title: String, _ hits: [OmniSearchHit]) {
++            if !hits.isEmpty {
++                sections.append(OmniSearchSection(title: title, hits: Array(hits.prefix(limit))))
++            }
++        }
++
++        add(query.isEmpty ? "Go to" : "Pages", pages.filter { matches($0.title) }.map { page in
++            OmniSearchHit(key: "page|\(page.title)", title: page.title, detail: "", icon: .symbol(page.symbol.rawValue),
++                          iconColor: nil, target: .route(page.route))
++        })
++
++        let layout = sources.layout
++        let projects = sources.projects.sorted {
++            (($0["updated"] as? NSNumber)?.doubleValue ?? 0) > (($1["updated"] as? NSNumber)?.doubleValue ?? 0)
++        }
++        add(query.isEmpty ? "Recent projects" : "Projects", projects.compactMap { project in
++            guard let root = project["root"] as? String else { return nil }
++            let name = layout.name(root) ?? OmniProjectsModel.name(project)
++            guard matches(name, project["name"] as? String, root) else { return nil }
++            let look = layout.appearance(root)
++            let folder = layout.folders[root].map { $0.replacingOccurrences(of: "/", with: " / ") }
++            let detail = [folder, OmniProjectsModel.abbreviated(root)].compactMap { $0 }.joined(separator: " · ")
++            return OmniSearchHit(key: "project|\(root)", title: name, detail: detail,
++                                 icon: look.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
++                                 iconColor: OmniAgentColor.color(look.color), target: .route(.project(root)))
++        })
++
++        func projectName(_ session: [AnyHashable: Any]) -> String? {
++            guard let project = session["project"] as? [String: Any],
++                  let root = project["root"] as? String ?? project["id"] as? String else { return nil }
++            return layout.name(root) ?? project["name"] as? String
++        }
++        var seen = Set<String>()
++        add(query.isEmpty ? "Recent sessions" : "Sessions", sources.sessions.compactMap { session in
++            guard let id = session["session_id"] as? String, !seen.contains(id) else { return nil }
++            let project = projectName(session)
++            guard matches(session["title"] as? String, session["workspace"] as? String, project) else { return nil }
++            seen.insert(id)
++            return OmniSearchHit(key: "session|\(id)", title: OmniSessionText.title(session["title"] as? String),
++                                 detail: OmniSessionText.detail(session, project: project),
++                                 icon: .symbol(OmniSessionText.providerSymbol(session["provider"] as? String)),
++                                 iconColor: OmniSessionText.isLive(session) ? OmniTheme.running : nil,
++                                 target: .session(id, message: nil))
++        })
++
++        if !query.isEmpty {
++            var matched = Set<String>()
++            add("In transcripts", sources.transcripts.compactMap { match in
++                guard let id = match["session_id"] as? String, matched.insert(id).inserted else { return nil }
++                let known = sources.sessions.first { $0["session_id"] as? String == id } ?? match
++                return OmniSearchHit(key: "match|\(id)", title: OmniSessionText.title(known["title"] as? String),
++                                     detail: OmniSessionText.title(match["snippet"] as? String ?? match["text"] as? String),
++                                     icon: .symbol(OmniSessionText.providerSymbol(known["provider"] as? String)),
++                                     iconColor: nil, target: .session(id, message: match["message_id"] as? String))
++            })
++        }
++
++        add("Agents", sources.agents.compactMap { agent in
++            guard let name = agent["name"] as? String, !query.isEmpty,
++                  matches(name, agent["workspace"] as? String, agent["group"] as? String) else { return nil }
++            let detail = [OmniSessionText.providerName(agent["provider"] as? String),
++                          (agent["workspace"] as? String).map { OmniProjectsModel.abbreviated($0) } ?? ""]
++                .filter { !$0.isEmpty }.joined(separator: " · ")
++            return OmniSearchHit(key: "agent|\(name)", title: name, detail: detail,
++                                 icon: OmniAgentIcon(spec: agent["icon"] as? String) ?? .symbol(OmniAgentIcon.defaultSymbol),
++                                 iconColor: OmniAgentColor.color(agent["color"] as? String), target: .route(.agent(name)))
++        })
++
++        if !query.isEmpty {
++            add("Memory", sources.memories.compactMap { result in
++                guard let memory = OmniMemoryItem(result) else { return nil }
++                return OmniSearchHit(key: "memory|\(memory.id)", title: OmniSessionText.title(memory.title),
++                                     detail: memory.memoryType, icon: .symbol(SFSymbol.brain.rawValue), iconColor: nil,
++                                     target: .memory(memory.id))
++            })
++        }
++        return sections
++    }
++}
++
++// MARK: - Engine
++
++// Asks the scheduler for what the search looks through and answers each
++// query as results arrive: local lists at once, transcripts and memories a
++// moment after typing pauses. Used by the results page and the quick navigator.
++final class OmniSearchEngine {
++    var onResults: (([OmniSearchSection]) -> Void)?
++    var limit: Int
++    private var sources = OmniSearchSources()
++    private var query = ""
++    private var generation = 0
++    private var pending: DispatchWorkItem?
++
++    init(limit: Int) {
++        self.limit = limit
++        load()
++    }
++
++    private func load() {
++        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
++            self?.sources.layout = OmniProjectLayout((response["settings"] as? [String: Any])?["projects"])
++            self?.publish()
++        }
++        sources.projects = OmniProjectsCache.load()
++        OmniSchedulerClient.request(["op": "list_projects"]) { [weak self] response in
++            guard OmniPane.isOK(response) else { return }
++            self?.sources.projects = response["projects"] as? [[String: Any]] ?? []
++            self?.publish()
++        }
++        OmniSchedulerClient.request(["op": "list_sessions", "order": "recent", "limit": 100]) { [weak self] response in
++            self?.sources.sessions = response["sessions"] as? [[AnyHashable: Any]] ?? []
++            self?.publish()
++        }
++        OmniSchedulerClient.request(["op": "list_agents"]) { [weak self] response in
++            let agents = response["agents"] as? [[AnyHashable: Any]] ?? []
++            let background = OmniBackgroundAgents.names(agents)
++            self?.sources.agents = agents.filter { !background.contains($0["name"] as? String ?? "") }
++            self?.publish()
++        }
++    }
++
++    func search(_ text: String) {
++        query = text.trimmingCharacters(in: .whitespacesAndNewlines)
++        generation += 1
++        sources.transcripts = []
++        sources.memories = []
++        publish()
++        pending?.cancel()
++        guard query.count >= 2 else { return }
++        let generation = self.generation
++        let query = self.query
++        let work = DispatchWorkItem { [weak self] in
++            OmniSchedulerClient.request(["op": "search_transcripts", "query": query, "limit": 30]) { [weak self] response in
++                guard let self, generation == self.generation, OmniPane.isOK(response) else { return }
++                let matches = response["matches"] as? [[AnyHashable: Any]] ?? []
++                self.sources.transcripts = matches.filter { ["claude", "codex"].contains($0["provider"] as? String ?? "") }
++                self.publish()
++            }
++            OmniSchedulerClient.request(["op": "search_memories", "query": query, "mode": "lexical", "limit": 20]) { [weak self] response in
++                guard let self, generation == self.generation, OmniPane.isOK(response) else { return }
++                self.sources.memories = response["memories"] as? [[AnyHashable: Any]] ?? []
++                self.publish()
++            }
++        }
++        pending = work
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
++    }
++
++    private func publish() {
++        onResults?(OmniSearchModel.sections(query: query, sources: sources, limit: limit))
++    }
++}
++
++// MARK: - Results page
++
++// Every result of a search on one page (`.search(query)`): what Enter in the
++// sidebar's search field, or See All Results, opens.
++final class OmniSearchPane: OmniPane, NSSearchFieldDelegate {
++    private let scroll = OmniColumnScrollView()
++    private let field = NSSearchField()
++    private let engine = OmniSearchEngine(limit: 50)
++    private var sections: [OmniSearchSection] = []
++    private var zones: [OmniListZone] = []
++
++    override var contentViews: [NSView] {
++        return [field, scroll]
++    }
++
++    override var focusZones: [OmniFocusZone] {
++        return zones
++    }
++
++    init(query: String) {
++        super.init()
++        field.stringValue = query
++        field.placeholderString = "Search projects, sessions, agents and memory"
++        field.controlSize = .large
++        field.font = NSFont.systemFont(ofSize: 15)
++        field.sendsSearchStringImmediately = true
++        field.target = self
++        field.action = #selector(queryChanged(_:))
++        addSubview(field)
++        addSubview(scroll)
++        engine.onResults = { [weak self] sections in
++            self?.sections = sections
++            self?.rebuild()
++        }
++        engine.search(query)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    var query: String {
++        return field.stringValue
++    }
++
++    override func layoutPane() {
++        super.layoutPane()
++        field.frame = NSRect(x: 28, y: 20, width: max(100, min(720, bounds.width - 56)), height: 30)
++        scroll.frame = NSRect(x: 0, y: 60, width: bounds.width, height: max(0, bounds.height - 60))
++    }
++
++    override func reload() {
++    }
++
++    @objc private func queryChanged(_ sender: NSSearchField) {
++        engine.search(sender.stringValue)
++    }
++
++    private func rebuild() {
++        preservingZoneFocus {
++            scroll.rebuildKeepingScroll {
++                let column = scroll.column
++                column.removeAll()
++                zones = []
++                let total = sections.reduce(0) { $0 + $1.hits.count }
++                let trimmed = query.trimmingCharacters(in: .whitespaces)
++                column.addText(OmniTheme.title(trimmed.isEmpty ? "Search" : "Results for “\(trimmed)”"), spacing: 4)
++                column.addText(OmniTheme.meta(total == 1 ? "1 result" : "\(total) results"), spacing: 10)
++                for section in sections {
++                    column.addSection("\(section.title) · \(section.hits.count)")
++                    let zone = OmniListZone()
++                    let list = OmniColumnView()
++                    list.inset = 0
++                    list.topPadding = 0
++                    list.bottomPadding = 0
++                    list.overlay = zone
++                    var items: [(key: String, view: OmniZoneItem)] = []
++                    for hit in section.hits {
++                        let row = OmniFolderEntryRow(icon: hit.icon, iconColor: hit.iconColor, title: hit.title,
++                                                     detail: hit.detail, badge: "", status: nil) { [weak self] in
++                            self?.actions?.paneOpenSearchHit(hit)
++                        }
++                        items.append((hit.key, row))
++                        list.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
++                    }
++                    zone.setItems(items)
++                    column.add(list, spacing: 8) { [weak list] width in list?.layoutColumn(width: width) ?? 0 }
++                    zones.append(zone)
++                }
++            }
++        }
++        showContent()
++    }
++}
++
++// MARK: - Quick navigator
++
++// Command-K: a search over everything and a way to go anywhere, floating
++// over the window. Arrows pick, Return opens, Command-Return opens every
++// result on a page, Escape or a click outside closes it.
++final class OmniQuickNav: NSView, NSSearchFieldDelegate {
++    static let width: CGFloat = 620
++    private static let rowHeight: CGFloat = 40
++    private static let headerHeight: CGFloat = 24
++    private static let maxListHeight: CGFloat = 420
++
++    let field = NSSearchField()
++    private let card = OmniQuickNavCard()
++    private let list = OmniQuickNavList()
++    private let listScroll = NSScrollView()
++    private let footer = NSTextField(labelWithString: "↑↓ to move · ⏎ to open · ⌘⏎ for all results · esc to close")
++    private let engine = OmniSearchEngine(limit: 6)
++    private let open: (OmniSearchHit) -> Void
++    private let openAll: (String) -> Void
++    private var hits: [OmniSearchHit] = []
++    private var selected = 0
++
++    override var isFlipped: Bool { true }
++
++    init(open: @escaping (OmniSearchHit) -> Void, openAll: @escaping (String) -> Void) {
++        self.open = open
++        self.openAll = openAll
++        super.init(frame: .zero)
++        wantsLayer = true
++        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.28).cgColor
++        card.wantsLayer = true
++        card.layer?.cornerRadius = 12
++        card.layer?.masksToBounds = true
++        card.layer?.borderWidth = 1
++        card.layer?.borderColor = OmniTheme.cardBorder.cgColor
++        let blur = NSVisualEffectView()
++        blur.material = .popover
++        blur.blendingMode = .withinWindow
++        blur.state = .active
++        blur.autoresizingMask = [.width, .height]
++        card.addSubview(blur)
++        field.placeholderString = "Search or jump to…"
++        field.font = NSFont.systemFont(ofSize: 17)
++        field.controlSize = .large
++        field.focusRingType = .none
++        field.isBordered = false
++        field.drawsBackground = false
++        field.sendsSearchStringImmediately = true
++        field.delegate = self
++        field.target = self
++        field.action = #selector(queryChanged(_:))
++        card.addSubview(field)
++        list.pick = { [weak self] index in self?.activate(index) }
++        listScroll.documentView = list
++        listScroll.drawsBackground = false
++        listScroll.hasVerticalScroller = true
++        listScroll.autohidesScrollers = true
++        card.addSubview(listScroll)
++        footer.font = OmniTheme.Font.rowDetail
++        footer.textColor = OmniTheme.secondaryText
++        card.addSubview(footer)
++        addSubview(card)
++        engine.onResults = { [weak self] sections in self?.show(sections) }
++        engine.search("")
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    // Shown over `view`, the window's content, with the keyboard in its field.
++    func present(in view: NSView, query: String = "") {
++        frame = view.bounds
++        autoresizingMask = [.width, .height]
++        view.addSubview(self, positioned: .above, relativeTo: nil)
++        field.stringValue = query
++        engine.search(query)
++        window?.makeFirstResponder(field)
++    }
++
++    func dismiss() {
++        removeFromSuperview()
++    }
++
++    var shownHits: [OmniSearchHit] {
++        return hits
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        let width = min(Self.width, bounds.width - 40)
++        let listHeight = min(Self.maxListHeight, list.contentHeight)
++        let height = 56 + listHeight + 30
++        card.frame = NSRect(x: (bounds.width - width) / 2, y: min(110, bounds.height * 0.14), width: width, height: height)
++        card.subviews.first?.frame = card.bounds
++        field.frame = NSRect(x: 14, y: 14, width: width - 28, height: 28)
++        listScroll.frame = NSRect(x: 6, y: 56, width: width - 12, height: listHeight)
++        list.frame = NSRect(x: 0, y: 0, width: listScroll.contentSize.width, height: list.contentHeight)
++        footer.frame = NSRect(x: 16, y: height - 24, width: width - 32, height: 16)
++    }
++
++    override func mouseDown(with event: NSEvent) {
++        if !card.frame.contains(convert(event.locationInWindow, from: nil)) {
++            dismiss()
++        }
++    }
++
++    @objc private func queryChanged(_ sender: NSSearchField) {
++        engine.search(sender.stringValue)
++    }
++
++    private func show(_ sections: [OmniSearchSection]) {
++        hits = sections.flatMap(\.hits)
++        selected = min(selected, max(0, hits.count - 1))
++        if field.stringValue != "" && hits.first.map({ _ in true }) == true && selected >= hits.count {
++            selected = 0
++        }
++        list.show(sections, selected: selected)
++        resizeSubviews(withOldSize: bounds.size)
++    }
++
++    private func move(_ delta: Int) {
++        guard !hits.isEmpty else { return }
++        selected = (selected + delta + hits.count) % hits.count
++        list.select(selected)
++        if let rect = list.rectForHit(selected) {
++            list.scrollToVisible(rect)
++        }
++    }
++
++    private func activate(_ index: Int) {
++        guard hits.indices.contains(index) else { return }
++        let hit = hits[index]
++        dismiss()
++        open(hit)
++    }
++
++    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
++        switch commandSelector {
++        case #selector(NSResponder.moveDown(_:)):
++            move(1)
++        case #selector(NSResponder.moveUp(_:)):
++            move(-1)
++        case #selector(NSResponder.insertNewline(_:)):
++            if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
++                let query = field.stringValue
++                dismiss()
++                openAll(query)
++            } else {
++                activate(selected)
++            }
++        case #selector(NSResponder.cancelOperation(_:)):
++            dismiss()
++        default:
++            return false
++        }
++        return true
++    }
++
++    func controlTextDidChange(_ notification: Notification) {
++        selected = 0
++    }
++}
++
++// The navigator's card: laid out top down.
++private final class OmniQuickNavCard: NSView {
++    override var isFlipped: Bool { true }
++}
++
++// The navigator's results: section headings and rows, the chosen one lit.
++private final class OmniQuickNavList: NSView {
++    var pick: ((Int) -> Void)?
++    private(set) var contentHeight: CGFloat = 0
++    private var rows: [(frame: NSRect, index: Int)] = []
++    private var selected = 0
++
++    override var isFlipped: Bool { true }
++
++    func show(_ sections: [OmniSearchSection], selected: Int) {
++        subviews.forEach { $0.removeFromSuperview() }
++        rows = []
++        self.selected = selected
++        var y: CGFloat = 4
++        var index = 0
++        let width = max(200, bounds.width)
++        if sections.isEmpty {
++            let none = NSTextField(labelWithString: "No matches")
++            none.font = OmniTheme.Font.rowTitle
++            none.textColor = OmniTheme.secondaryText
++            none.frame = NSRect(x: 14, y: 10, width: width - 28, height: 18)
++            addSubview(none)
++            y = 36
++        }
++        for section in sections {
++            let header = OmniTheme.sectionHeader(section.title)
++            header.frame = NSRect(x: 12, y: y + 6, width: width - 24, height: 16)
++            header.autoresizingMask = [.width]
++            addSubview(header)
++            y += 24
++            for hit in section.hits {
++                let row = OmniQuickNavRow(hit: hit)
++                row.frame = NSRect(x: 0, y: y, width: width, height: 40)
++                row.autoresizingMask = [.width]
++                row.isSelected = index == selected
++                let chosen = index
++                row.onClick = { [weak self] in self?.pick?(chosen) }
++                addSubview(row)
++                rows.append((row.frame, index))
++                y += 40
++                index += 1
++            }
++        }
++        contentHeight = y + 4
++    }
++
++    func select(_ index: Int) {
++        selected = index
++        for case let row as OmniQuickNavRow in subviews {
++            row.isSelected = rows.first { $0.frame == row.frame }?.index == index
++        }
++    }
++
++    func rectForHit(_ index: Int) -> NSRect? {
++        return rows.first { $0.index == index }?.frame
++    }
++}
++
++private final class OmniQuickNavRow: NSView {
++    var onClick: (() -> Void)?
++    var isSelected = false {
++        didSet { needsDisplay = true }
++    }
++    private let iconView = NSImageView()
++    private let emoji = NSTextField(labelWithString: "")
++    private let title = NSTextField(labelWithString: "")
++    private let detail = NSTextField(labelWithString: "")
++
++    override var isFlipped: Bool { true }
++
++    init(hit: OmniSearchHit) {
++        super.init(frame: .zero)
++        switch hit.icon {
++        case .symbol(let name):
++            iconView.image = OmniIconImage.image(name)
++            iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
++            iconView.contentTintColor = hit.iconColor ?? OmniTheme.secondaryText
++            addSubview(iconView)
++        case .emoji(let value):
++            emoji.stringValue = value
++            emoji.font = OmniTheme.Font.emoji(16)
++            emoji.alignment = .center
++            addSubview(emoji)
++        }
++        title.stringValue = hit.title
++        title.font = OmniTheme.Font.rowTitle
++        title.lineBreakMode = .byTruncatingTail
++        addSubview(title)
++        detail.stringValue = hit.detail
++        detail.font = OmniTheme.Font.rowDetail
++        detail.textColor = OmniTheme.secondaryText
++        detail.lineBreakMode = .byTruncatingTail
++        addSubview(detail)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        iconView.frame = NSRect(x: 12, y: 10, width: 20, height: 20)
++        emoji.frame = NSRect(x: 10, y: 9, width: 24, height: 22)
++        let titleWidth = min(ceil(title.attributedStringValue.size().width) + 4, bounds.width * 0.55)
++        title.frame = NSRect(x: 42, y: 11, width: titleWidth, height: 18)
++        detail.frame = NSRect(x: title.frame.maxX + 10, y: 12, width: max(0, bounds.width - title.frame.maxX - 22), height: 16)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        guard isSelected else { return }
++        NSColor.controlAccentColor.withAlphaComponent(0.28).setFill()
++        NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 7, yRadius: 7).fill()
++    }
++
++    override func mouseDown(with event: NSEvent) {
++    }
++
++    override func mouseUp(with event: NSEvent) {
++        if bounds.contains(convert(event.locationInWindow, from: nil)) {
++            onClick?()
++        }
++    }
++}
 diff --git a/sources/OmniTerm/OmniSessionChat.swift b/sources/OmniTerm/OmniSessionChat.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..cb8345ed2133052247beb942dee597102b824aa5
@@ -32006,10 +32662,10 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a965fc9cdfa5f5e46694cdad7abb058e3f6bd953
+index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f540437919a292b7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
-@@ -0,0 +1,698 @@
+@@ -0,0 +1,701 @@
 +import AppKit
 +import Foundation
 +
@@ -32458,6 +33114,9 @@ index 0000000000000000000000000000000000000000..a965fc9cdfa5f5e46694cdad7abb058e
 +// list it.
 +enum OmniSidebarShortcuts {
 +    static let list: [(keys: String, action: String)] = [
++        ("⌘K", "Quick navigation"),
++        ("⌘F", "Search; Return shows all results"),
++        ("⌘,", "Settings"),
 +        ("⌃⌘S", "Focus the sidebar"),
 +        ("↑ ↓", "Move through the sidebar"),
 +        ("→", "Open a closed folder; otherwise go into the page"),
@@ -32710,10 +33369,10 @@ index 0000000000000000000000000000000000000000..a965fc9cdfa5f5e46694cdad7abb058e
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd519817b0d3c01
+index 0000000000000000000000000000000000000000..887fdd32f693ad841aaa5a85cf13071e570dddb2
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4113 @@
+@@ -0,0 +1,4268 @@
 +import AppKit
 +import Foundation
 +import os
@@ -32764,6 +33423,8 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        case modeSwitch
 +        // A memory the search found; opens on the Memory page.
 +        case memoryResult
++        // The search's last row: every result on a page.
++        case searchAll
 +    }
 +
 +    let kind: Kind
@@ -32909,7 +33570,7 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +// view instead.
 +@objc(OmniSidebarViewController)
 +final class OmniSidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, OmniPaneActions,
-+                                       NSMenuDelegate, NSTextFieldDelegate {
++                                       NSMenuDelegate, NSTextFieldDelegate, NSSearchFieldDelegate {
 +    @objc static let defaultWidth: CGFloat = 240
 +
 +    private static let refreshInterval: TimeInterval = 2
@@ -32945,6 +33606,8 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +    private let revealButton = NSButton()
 +    // Pins the window where it is, at its size, beside the mode bar.
 +    private let pinButton = NSButton()
++    // The search's options, right of the field: what each mode offers.
++    private let optionsButton = NSButton()
 +    // The hairline under the title bar, across the sidebar and the content.
 +    private let titlebarLine = OmniTheme.titlebarSeparatorLine()
 +    private let agentsSection = OmniSidebarItem(kind: .section, key: "agents", title: "Agents")
@@ -32979,6 +33642,12 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +    private let memoriesSection = OmniSidebarItem(kind: .section, key: "search-memories", title: "Memory")
 +    private let searchEmptyItem = OmniSidebarItem(kind: .section, key: "search-empty", title: "No matches")
 +    private var memoryMatches: [[AnyHashable: Any]] = []
++    // The transcript and memory search waiting for a pause in typing.
++    private var remoteSearch: DispatchWorkItem?
++    // The last row of a search: every result on a page.
++    private let searchAllItem = OmniSidebarItem(kind: .searchAll, key: "search-all", title: "See All Results")
++    // Command-K's navigator while it is open.
++    private weak var quickNav: OmniQuickNav?
 +    private var memorySearchGeneration = 0
 +    private let moreSessionsItem = OmniSidebarItem(kind: .loadMore, key: "more-sessions", title: "Show More…")
 +    private static let sessionsProviderKey = "OmniSessionsProvider" as CFString
@@ -33127,7 +33796,10 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        sessionSearchField.focusRingType = .default
 +        sessionSearchField.target = self
 +        sessionSearchField.action = #selector(sessionSearchChanged(_:))
-+        sessionSearchField.sendsSearchStringImmediately = false
++        // Filters as the person types; transcript and memory searches wait
++        // for a pause. Return opens every result on a page.
++        sessionSearchField.sendsSearchStringImmediately = true
++        sessionSearchField.delegate = self
 +        updateSearchFieldForMode()
 +        root.addSubview(sessionSearchField)
 +        separator.boxType = .separator
@@ -33191,6 +33863,16 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        pinButton.action = #selector(togglePinButton(_:))
 +        root.addSubview(pinButton)
 +        updatePinButton()
++        optionsButton.bezelStyle = .inline
++        optionsButton.isBordered = false
++        optionsButton.refusesFirstResponder = true
++        optionsButton.image = NSImage(systemSymbolName: SFSymbol.line3HorizontalDecreaseCircle.rawValue,
++                                      accessibilityDescription: "View options")
++        optionsButton.contentTintColor = OmniTheme.secondaryText
++        optionsButton.toolTip = "View options"
++        optionsButton.target = self
++        optionsButton.action = #selector(showOptionsMenu(_:))
++        root.addSubview(optionsButton)
 +        root.resizeHandle.dragged = { [weak self] point, finished in self?.dragSidebarEdge(to: point, finished: finished) }
 +        root.didResize = { [weak self] size in self?.layout(size) }
 +        // The window adds the sidebar to its root view, beside the tab view;
@@ -33245,10 +33927,13 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        let headerHidden = scrollView.isHidden
 +        sessionSearchField.isHidden = headerHidden
 +        pinButton.isHidden = headerHidden
++        optionsButton.isHidden = headerHidden
 +        sessionSearchField.frame = NSRect(x: 10, y: titleTop + 6,
-+                                          width: max(60, size.width - 23 - Self.pinButtonWidth),
++                                          width: max(60, size.width - 25 - 2 * Self.pinButtonWidth),
 +                                          height: Self.searchFieldHeight)
-+        pinButton.frame = NSRect(x: sessionSearchField.frame.maxX + 2, y: titleTop + 6 + (Self.searchFieldHeight - 22) / 2,
++        optionsButton.frame = NSRect(x: sessionSearchField.frame.maxX + 2, y: titleTop + 6 + (Self.searchFieldHeight - 22) / 2,
++                                     width: Self.pinButtonWidth, height: 22)
++        pinButton.frame = NSRect(x: optionsButton.frame.maxX, y: titleTop + 6 + (Self.searchFieldHeight - 22) / 2,
 +                                 width: Self.pinButtonWidth, height: 22)
 +        // The rows scroll below the search bar, never under it.
 +        let bars = headerHidden ? 0 : 6 + Self.searchFieldHeight + Self.searchFieldGap
@@ -33804,7 +34489,7 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        case .agent(let name): return agentTab(name)
 +        case .run(let id): return runTab(id)
 +        case .session(let id): return sessionTab(id)
-+        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, nil: return nil
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .projects, .project, .search, nil: return nil
 +        }
 +    }
 +
@@ -34111,7 +34796,52 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        syncSelection()
 +    }
 +
-+    // The search field's menu: provider filter, grouping, agent runs.
++    // The options button's menu, for the current mode.
++    var optionsMenu: NSMenu {
++        switch mode {
++        case .sessions: return sessionsFilterMenu()
++        case .agents: return agentsOptionsMenu()
++        case .projects: return projectsOptionsMenu()
++        }
++    }
++
++    @objc private func showOptionsMenu(_ sender: NSButton) {
++        optionsMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
++    }
++
++    private func menuItem(_ title: String, _ action: Selector, _ object: Any? = nil, on: Bool = false) -> NSMenuItem {
++        let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
++        entry.target = self
++        entry.representedObject = object
++        entry.state = on ? .on : .off
++        return entry
++    }
++
++    private func agentsOptionsMenu() -> NSMenu {
++        let menu = NSMenu(title: "Agents")
++        menu.addItem(menuItem("New Agent…", #selector(newAgent(_:))))
++        menu.addItem(menuItem("New Folder", #selector(newGroup(_:))))
++        return menu
++    }
++
++    private func projectsOptionsMenu() -> NSMenu {
++        let menu = NSMenu(title: "Projects")
++        menu.addItem(menuItem("View All Projects", #selector(showAllProjects(_:))))
++        menu.addItem(menuItem("New Folder", #selector(newTopLevelProjectFolder(_:))))
++        menu.addItem(.separator())
++        menu.addItem(menuItem("Refresh Projects", #selector(refreshProjects(_:))))
++        return menu
++    }
++
++    @objc private func refreshProjects(_ sender: Any?) {
++        OmniSchedulerClient.request(["op": "list_projects", "refresh": true]) { [weak self] response in
++            guard let self, response["ok"] as? Bool == true else { return }
++            self.forgeProjects = response["projects"] as? [[String: Any]] ?? []
++            self.rebuild()
++        }
++    }
++
++    // The Sessions options: provider filter, grouping, agent runs.
 +    private func sessionsFilterMenu() -> NSMenu {
 +        let menu = NSMenu(title: "Sessions")
 +        let provider = CFPreferencesCopyAppValue(Self.sessionsProviderKey, Self.preferencesDomain) as? String
@@ -34137,7 +34867,6 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +    private func setSessionsPreference(_ key: CFString, _ value: CFPropertyList?) {
 +        CFPreferencesSetAppValue(key, value, Self.preferencesDomain)
 +        CFPreferencesAppSynchronize(Self.preferencesDomain)
-+        sessionSearchField.searchMenuTemplate = sessionsFilterMenu()
 +    }
 +
 +    @objc private func chooseSessionsProvider(_ sender: NSMenuItem) {
@@ -34165,11 +34894,16 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        sessionMatches = []
 +        memoryMatches = []
 +        rebuild()
++        remoteSearch?.cancel()
 +        if !query.isEmpty {
 +            requestProjects()
 +            requestSessions()
-+            searchTranscripts()
-+            searchMemories()
++            let work = DispatchWorkItem { [weak self] in
++                self?.searchTranscripts()
++                self?.searchMemories()
++            }
++            remoteSearch = work
++            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
 +        }
 +    }
 +
@@ -34193,14 +34927,12 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        }
 +    }
 +
-+    // Placeholder, label and menu follow the mode; only Sessions has the
-+    // provider and grouping menu.
++    // One search for every mode; its options live in the button beside it.
 +    private func updateSearchFieldForMode() {
-+        let sessions = mode == .sessions
 +        sessionSearchField.placeholderString = "Search"
 +        sessionSearchField.toolTip = "Searches projects, sessions and their transcripts, agents, runs, terminals and memory"
 +        sessionSearchField.setAccessibilityLabel("Search projects, sessions, agents and memory")
-+        sessionSearchField.searchMenuTemplate = sessions ? sessionsFilterMenu() : nil
++        sessionSearchField.searchMenuTemplate = nil
 +    }
 +
 +    private func searchTranscripts() {
@@ -34437,6 +35169,8 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        if sections.isEmpty {
 +            items.append(searchEmptyItem)
 +        }
++        searchAllItem.route = .search(sessionQuery)
++        items.append(searchAllItem)
 +        applyUpdate(items: items, structure: "search;" + items.map(Self.structure).joined(separator: ";"))
 +        followCurrentTab(tabs: built.tabs, dashboardTabIDs: built.dashboardTabIDs, backgroundAgents: built.background)
 +        layoutContent()
@@ -34912,6 +35646,7 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        case .settings: title = "Settings"
 +        case .unblocker: title = "Unblocker"
 +        case .projects: title = "Projects"
++        case .search(let query): title = query.isEmpty ? "Search" : "Search · \(query)"
 +        case .project(let root): title = (root as NSString).lastPathComponent
 +        case .agent(let name): title = name
 +        case .run(let id): title = recentRuns.first { $0.id == id }.map { "\($0.agent) · Run" } ?? "Run"
@@ -35096,6 +35831,51 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        guard let row = sender.representedObject as? OmniSidebarItem, let route = row.route else { return }
 +        showPane(route)
 +        (contentHost.pane as? OmniSessionPane)?.renameWhenLoaded()
++    }
++
++    func paneOpenSearchHit(_ hit: OmniSearchHit) {
++        switch hit.target {
++        case .route(let route):
++            showPane(route)
++        case .session(let id, let message):
++            showSession(id: id, message: message)
++        case .memory(let id):
++            showPane(.memory)
++            if let pane = contentHost.pane as? OmniMemoryPane {
++                pane.memory.show(named: OmniMemoryTab.browse.title, mindMap: false)
++                pane.memory.selectMemory(id)
++            }
++        }
++    }
++
++    // Command-K, and omniterm://quicknav: the navigator over the window.
++    @objc(showQuickNavWithQuery:)
++    func showQuickNav(query: String?) {
++        if let quickNav {
++            quickNav.dismiss()
++            return
++        }
++        guard let content = view.window?.contentView else { return }
++        let nav = OmniQuickNav(open: { [weak self] hit in self?.paneOpenSearchHit(hit) },
++                               openAll: { [weak self] query in self?.showPane(.search(query)) })
++        nav.present(in: content, query: query ?? "")
++        quickNav = nav
++    }
++
++    // omniterm://search?q=…: every result on a page.
++    @objc(showSearchResults:)
++    func showSearchResults(_ query: String?) {
++        quickNav?.dismiss()
++        showPane(.search(query ?? ""))
++    }
++
++    // Command-F: the sidebar's search field, its text selected.
++    func focusSearch() {
++        if panelLayout.layout.sidebarCollapsed {
++            panelLayout.update { $0.sidebarCollapsed = false }
++        }
++        view.window?.makeFirstResponder(sessionSearchField)
++        sessionSearchField.currentEditor()?.selectAll(nil)
 +    }
 +
 +    func paneSearchMemory(_ query: String) {
@@ -35310,6 +36090,17 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +    }
 +
 +    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
++        if control === sessionSearchField {
++            if commandSelector == #selector(NSResponder.insertNewline(_:)), !sessionQuery.isEmpty {
++                showPane(.search(sessionQuery))
++                return true
++            }
++            if commandSelector == #selector(NSResponder.moveDown(_:)) {
++                focusSidebar()
++                return true
++            }
++            return false
++        }
 +        guard let editing, control === editing.field else { return false }
 +        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
 +            self.editing?.cancelled = true
@@ -35958,6 +36749,9 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        case .memoryResult:
 +            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.brain.rawValue),
 +                           iconColor: nil, status: nil, pulses: false)
++        case .searchAll:
++            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.magnifyingglass.rawValue),
++                           iconColor: .linkColor, status: nil, pulses: false)
 +        case .group, .projectFolder:
 +            let open = outlineView.isItemExpanded(item)
 +            cell.configure(title: item.title, detail: "",
@@ -36145,6 +36939,26 @@ index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd51981
 +        if let window = view.window, isKeyboardMapKey(event) {
 +            OmniKeyboardMap.show(for: window)
 +            return true
++        }
++        // Command-, Settings; Command-K the navigator; Command-F the search
++        // (an editor's own Find keeps it while it has the keyboard).
++        if flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() {
++            switch key {
++            case ",":
++                showSettings()
++                return true
++            case "k":
++                showQuickNav(query: nil)
++                return true
++            case "f":
++                if let editor = view.window?.firstResponder as? NSTextView, editor.isEditable, !editor.isFieldEditor {
++                    return false
++                }
++                focusSearch()
++                return true
++            default:
++                break
++            }
 +        }
 +        // Control-Command-1 to 4 show and hide the panels from anywhere in
 +        // the window (Command-0 is iTerm2's Make Text Normal Size).
@@ -37912,10 +38726,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..4ee3692b351eb352b7f2bc979a4ca8b8eff4b9fe 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..d4b8d181eda09f02d66d5113238ebc0308ed928c 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,48 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,50 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -37939,6 +38753,8 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..4ee3692b351eb352b7f2bc979a4ca8b8
 +- (void)omniShowSettings;
 +- (void)omniShowUnblocker;
 +- (void)omniShowProjects:(NSString *)root;
++- (void)omniShowSearchResults:(NSString *)query;
++- (void)omniShowQuickNav:(NSString *)query;
 +// Saves the frame of the window if it is on screen (for quitting).
 +- (void)omniSaveWindowFrame;
 +// Pinned, the window keeps its frame: no moving or resizing, and showing it
@@ -37965,7 +38781,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..4ee3692b351eb352b7f2bc979a4ca8b8
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7c0761145 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0069dbd5e7dedf55017f35335cf92815d780e7ee 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -38127,7 +38943,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,129 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,137 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -38217,6 +39033,14 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
 +    [_omniSidebar showProjects:root];
 +}
 +
++- (void)omniShowSearchResults:(NSString *)query {
++    [_omniSidebar showSearchResults:query];
++}
++
++- (void)omniShowQuickNav:(NSString *)query {
++    [_omniSidebar showQuickNavWithQuery:query];
++}
++
 +- (BOOL)omniRestoreWindowFrameOnScreen:(NSScreen *)screen centered:(BOOL)centered {
 +    // Only the person's ways of showing the window come here.
 +    [_omniSidebar noteWindowShownByPerson];
@@ -38258,7 +39082,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7107,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7115,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -38268,7 +39092,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7423,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7431,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -38280,7 +39104,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7633,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7641,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -38288,7 +39112,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7749,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7757,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -38300,7 +39124,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8371,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8379,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -38308,7 +39132,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8380,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8388,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -38321,7 +39145,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8532,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8540,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -38330,7 +39154,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8871,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8879,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -38347,7 +39171,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8909,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8917,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -38356,7 +39180,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9160,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9168,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -38365,7 +39189,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12474,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12482,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -38381,7 +39205,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13434,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13442,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -38397,7 +39221,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..051c14905e0fbaf099933b6fa5a96fe7
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14011,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14019,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
