@@ -1,6 +1,6 @@
 # OmniTerm 0.6.2
 
-This is the latest OmniTerm distribution.
+This release is superseded by [OmniTerm 0.7.0](../0.7.0/README.md).
 
 - [Download the DMG](https://github.com/wandernb/omniterm/releases/download/v0.6.2/OmniTerm-0.6.2.dmg)
 - [Download the ZIP](https://github.com/wandernb/omniterm/releases/download/v0.6.2/OmniTerm-0.6.2.zip)
