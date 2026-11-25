@@ -6756,10 +6756,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d4f4bab709674f2d6f2d984bd8a2a97dea0d02c
+index 0000000000000000000000000000000000000000..0cf757b5876e43ce7086def3807eda001dcfeb48
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1928 @@
+@@ -0,0 +1,1959 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7325,6 +7325,37 @@ index 0000000000000000000000000000000000000000..3d4f4bab709674f2d6f2d984bd8a2a97
 +            XCTAssertFalse(options?.isHidden ?? true)
 +            XCTAssertGreaterThan(options?.frame.minX ?? 0, searchField.frame.maxX - 1, "right of the search field")
 +        }
++    }
++
++    // A click on an Unblocker audit row opens the entry over the window,
++    // with its session one button away; the list shows no cost.
++    func testClickingAnAuditRowOpensItWithItsSession() throws {
++        fake.handlers["get_settings"] = { _ in ["ok": true, "settings": ["unblocker": ["enabled": true]]] }
++        fake.handlers["unblocker_audit"] = { _ in
++            ["ok": true, "entries": [["at": 1_700_000_000, "outcome": "answered", "cwd": "/tmp/proj", "detail": "Yes, go on.",
++                                      "goal": "/goal ship it", "session_id": "claude:s1", "cost_usd": 0.5]]]
++        }
++        fake.handlers["get_unblocker_policy"] = { _ in ["ok": true, "policy": "# Policy", "path": "/tmp/policy.md"] }
++        fake.handlers["list_blocked"] = { _ in ["ok": true, "blocks": []] }
++        let pane = OmniUnblockerPane()
++        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 900), styleMask: [.titled],
++                          backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        let content = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 900))
++        window.contentView = content
++        pane.frame = content.bounds
++        content.addSubview(pane)
++        pane.reload()
++        wait("the audit lists") { Self.all(OmniFolderEntryRow.self, in: pane).contains { $0.titleText.contains("Answered") } }
++        XCTAssertFalse(Self.all(NSTextField.self, in: pane).contains { $0.stringValue.contains("$") }, "No cost")
++        let row = try XCTUnwrap(Self.all(OmniFolderEntryRow.self, in: pane).first { $0.titleText.contains("Answered") })
++        row.mouseUp(with: try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: row.convert(NSPoint(x: 20, y: 20), to: nil),
++                                                           modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
++                                                           context: nil, eventNumber: 0, clickCount: 1, pressure: 0)))
++        let overlay = try XCTUnwrap(pane.shownAuditEntry, "A click opens the entry")
++        XCTAssertEqual(overlay.sessionID, "claude:s1")
++        let open = try XCTUnwrap(Self.all(NSButton.self, in: overlay).first { $0.title == "Open Session" })
++        XCTAssertTrue(open.isEnabled)
 +    }
 +
 +    func testControlCommandSFocusesTheSidebarAndPlainKeysAreLeftAlone() {
