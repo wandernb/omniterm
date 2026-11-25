@@ -126,17 +126,22 @@ Sessions and Agents, switched at its top or with Shift-Command-1, 2 and 3.
 **Dashboard**, **Inbox**, **Memory**, **Unblocker** and **Settings** sit on a
 panel above the switch, the same in every mode. The Dashboard shows recent
 projects and sessions, then scheduled and latest agent runs. The search field
-at the top searches everything, whatever the mode: projects, sessions by title
-and folder and inside their transcripts, agents, runs, terminals and memories.
-In Projects mode, **View All** opens the list of every project and **+** adds a
+at the top (Command-F) searches everything as you type, whatever the mode:
+projects, sessions by title and folder and inside their transcripts, agents,
+runs, terminals and memories; Return or **See All Results** opens every result
+on a page. Command-K opens a quick navigator over the window to search and jump
+anywhere, and Command-, opens OmniTerm's Settings. The button right of the
+search field holds each mode's view options. In Projects mode, **View All**
+opens the list of every project, grouped by your folders, and **+** adds a
 folder.
 
-- **Agents**: **Dashboard**, then your agents in their folders, their live
-  runs, and every other terminal tab under Terminals. Choosing an agent, run or
+- **Agents**: your agents in their folders (or by project, from the options
+  button), their live runs, and every other terminal tab under Terminals. Choosing an agent, run or
   folder opens its page beside the sidebar.
 - **Sessions**: every Claude Code and Codex session on this Mac, whoever started
-  it, live ones first, then the most recent. In this mode the search field's
-  menu filters by provider, groups by folder or hides OmniTerm's agent runs. A session's page
+  it, live ones first, then by project (in your project folders), in folders
+  you make yourself, or as Live, Recent and All; the options button switches
+  view, filters by provider or hides OmniTerm's agent runs. A session's page
   reads as a chat, laid out like Claude's own apps: your prompts in bubbles on
   the right, the agent's replies in a serif face across the column, tool runs as
   one muted line ("Ran 3 commands, edited a file"), slash commands as tinted
