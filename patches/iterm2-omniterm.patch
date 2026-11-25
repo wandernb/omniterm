@@ -6747,10 +6747,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6761e49c1
+index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c2be1a32d
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1575 @@
+@@ -0,0 +1,1746 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7185,6 +7185,8 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +        XCTAssertEqual(sidebar.paneTitle, "Dashboard")
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .inbox, "The Inbox is next to Overview")
++        outlineView.keyDown(with: down)
++        XCTAssertEqual(sidebar.shownRoute, .projects, "Projects follows the Inbox")
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .memory)
 +        XCTAssertEqual(sidebar.paneTitle, "Memory")
@@ -7852,7 +7854,8 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +        sidebar.setMode(.sessions)
 +        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
 +        XCTAssertEqual(cell(1)?.textField?.stringValue, "Inbox")
-+        XCTAssertEqual(cell(2)?.textField?.stringValue, "Memory")
++        XCTAssertEqual(cell(2)?.textField?.stringValue, "Projects")
++        XCTAssertEqual(cell(3)?.textField?.stringValue, "Memory")
 +        XCTAssertNotNil(row(titled: "Settings"))
 +        XCTAssertNil(row(titled: "Alpha"))
 +        XCTAssertEqual(OmniSidebarMode.stored(in: OmniSidebarViewController.preferencesDomain), .sessions)
@@ -7870,7 +7873,7 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +
 +    func testSharedPagesAreOrdinaryRowsSetApartByTheModeSwitch() throws {
 +        showSidebarWithPages()
-+        let titles = ["Dashboard", "Inbox", "Memory", "Unblocker", "Settings"]
++        let titles = ["Dashboard", "Inbox", "Projects", "Memory", "Unblocker", "Settings"]
 +        for (index, title) in titles.enumerated() {
 +            XCTAssertEqual(cell(index)?.textField?.stringValue, title)
 +            XCTAssertEqual(outlineView.rect(ofRow: index).height, OmniTheme.Sidebar.topRowHeight)
@@ -7887,7 +7890,7 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +
 +        sidebar.focusSidebar()
 +        XCTAssertEqual(sidebar.shownRoute, .overview)
-+        for route: OmniPaneRoute in [.inbox, .memory, .unblocker, .settings] {
++        for route: OmniPaneRoute in [.inbox, .projects, .memory, .unblocker, .settings] {
 +            XCTAssertTrue(sidebar.handleWindowKeyDown(down))
 +            XCTAssertEqual(sidebar.shownRoute, route)
 +        }
@@ -8056,7 +8059,8 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +
 +    // Each test starts in Agents mode with no Sessions filters.
 +    private static func clearSessionsPreferences() {
-+        for key in ["OmniSidebarMode", "OmniSessionsProvider", "OmniSessionsGroupByFolder", "OmniSessionsHideAgentRuns"] {
++        for key in ["OmniSidebarMode", "OmniSessionsProvider", "OmniSessionsGroupByProject", "OmniSessionsHideAgentRuns",
++                    "OmniSidebarCollapsedProjectFolders"] {
 +            CFPreferencesSetAppValue(key as CFString, nil, scratchDomain)
 +        }
 +        CFPreferencesAppSynchronize(scratchDomain)
@@ -8094,8 +8098,10 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +                      session("codex:b2", title: "Fix flaky spec", workspace: "/tmp/ws-b"),
 +                      session("claude:c3", title: "Write docs")])
 +        let live = try XCTUnwrap(row(titled: "Deploy the API"))
-+        let recent = try XCTUnwrap(row(titled: "Recent"))
-+        XCTAssertLessThan(live, recent, "Live sessions lead")
++        // Grouped by project by default; without forge, by folder.
++        let folder = try XCTUnwrap(row(titled: "ws-a"))
++        XCTAssertLessThan(live, folder, "Live sessions lead")
++        XCTAssertNil(row(titled: "Recent"))
 +        XCTAssertNotNil(row(titled: "Fix flaky spec"))
 +        XCTAssertEqual(cell(try XCTUnwrap(row(titled: "Fix flaky spec")))?.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
 +                        .contains { $0.hasPrefix("Codex · ws-b") }, true)
@@ -8122,7 +8128,7 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +        XCTAssertNil(row(titled: "In Transcripts"))
 +    }
 +
-+    func testShowMoreLoadsTheNextPageAndTheMenuFiltersByProviderAndGroupsByFolder() throws {
++    func testShowMoreLoadsTheNextPageAndTheMenuFiltersByProviderAndGroupsByProject() throws {
 +        fake.handlers["list_sessions"] = { request in
 +            let offset = request["offset"] as? Int ?? 0
 +            let page = (0..<100).map { index in
@@ -8147,10 +8153,12 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +        wait("the list is asked for Codex only") {
 +            fake.requests("list_sessions").last?["provider"] as? String == "codex"
 +        }
-+        let group = try XCTUnwrap(searchField.searchMenuTemplate?.items.first { $0.title == "Group by Folder" })
++        let group = try XCTUnwrap(searchField.searchMenuTemplate?.items.first { $0.title == "Group by Project" })
++        XCTAssertEqual(group.state, .on, "Grouping is on by default")
++        wait("folders are sections") { row(titled: "ws-a") != nil && row(titled: "ws-b") != nil }
 +        NSApp.sendAction(group.action!, to: group.target, from: group)
-+        wait("folders become sections") { row(titled: "ws-a") != nil && row(titled: "ws-b") != nil }
-+        XCTAssertNil(row(titled: "Recent"))
++        wait("turned off, one Recent list") { row(titled: "Recent") != nil }
++        XCTAssertNil(row(titled: "ws-a"))
 +    }
 +
 +    func testShiftCommandOneAndTwoSwitchModes() throws {
@@ -8325,6 +8333,169 @@ index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6
 +        XCTAssertEqual(terminalSidebar.paneResumeSession(session("claude:x", title: "Live", live: true)),
 +                       "This session is running in another terminal.")
 +    }
++    // MARK: - Projects mode
++
++    private static let projectDrag = NSPasteboard.PasteboardType("com.omniterm.sidebar.project")
++    private static let projectFolderDrag = NSPasteboard.PasteboardType("com.omniterm.sidebar.project-folder")
++
++    // Three forge projects; /p/web sits in the folder Work, with Clients inside it.
++    private func showProjects(layout: [String: Any] = ["groups": ["Work", "Work/Clients"],
++                                                       "folders": ["/p/web": "Work"]]) {
++        var saved = layout
++        fake.handlers["list_projects"] = { _ in
++            ["ok": true, "forge": ["available": true], "projects": ["web", "api", "docs"].map { name in
++                ["id": "/p/\(name)", "root": "/p/\(name)", "name": name, "display_name": name, "checkouts": []]
++            }]
++        }
++        fake.handlers["get_settings"] = { [unowned self] _ in
++            ["ok": true, "settings": ["sidebar_groups": self.fake.groups, "sidebar_order": self.fake.order,
++                                      "layout": self.fake.layout, "projects": saved]]
++        }
++        fake.handlers["set_settings"] = { request in
++            saved = (request["settings"] as? [String: Any])?["projects"] as? [String: Any] ?? saved
++            return ["ok": true, "settings": ["projects": saved]]
++        }
++        showSidebar()
++        sidebar.setMode(.projects)
++        wait("the projects load in their folders") { row(titled: "Work") != nil && row(titled: "web") != nil && row(titled: "docs") != nil }
++    }
++
++    private var savedProjects: [String: Any]? {
++        return (fake.requests("set_settings").last?["settings"] as? [String: Any])?["projects"] as? [String: Any]
++    }
++
++    func testShiftCommandThreeShowsProjectsInTheirFolders() throws {
++        showProjects()
++        sidebar.setMode(.agents)
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(20, "3", [.shift, .command])))
++        XCTAssertEqual(sidebar.mode, .projects)
++        let work = try XCTUnwrap(row(titled: "Work"))
++        let web = try XCTUnwrap(row(titled: "web"))
++        XCTAssertTrue(outlineView.parent(forItem: outlineView.item(atRow: web)) as AnyObject? === outlineView.item(atRow: work) as AnyObject?,
++                      "web is inside Work")
++        XCTAssertNotNil(row(titled: "Clients"), "A subfolder is listed")
++        XCTAssertNil(row(titled: "Alpha"), "Agents are not listed")
++        outlineView.selectRowIndexes(IndexSet(integer: try XCTUnwrap(row(titled: "api"))), byExtendingSelection: false)
++        XCTAssertEqual(sidebar.shownRoute, .project("/p/api"), "Selecting a project opens its page")
++    }
++
++    func testDoubleClickRenamesAProjectAndTheNameIsSaved() throws {
++        showProjects()
++        let api = try XCTUnwrap(row(titled: "api"))
++        doubleClick(api)
++        wait("the name becomes editable") { editor(api) != nil }
++        let textView = try XCTUnwrap(editor(api))
++        textView.string = "Public API"
++        textView.insertNewline(nil)
++        wait("the name is saved") { (savedProjects?["names"] as? [String: String])?["/p/api"] == "Public API" }
++        wait("the row shows it") { row(titled: "Public API") != nil }
++        XCTAssertNil(row(titled: "api"))
++    }
++
++    func testReturnRenamesAProjectFolderAndItsProjectsFollow() throws {
++        showProjects()
++        sidebar.focusSidebar()
++        try select("Work")
++        outlineView.keyDown(with: returnKey)
++        let work = try XCTUnwrap(row(titled: "Work"))
++        wait("the folder name becomes editable") { editor(work) != nil }
++        let textView = try XCTUnwrap(editor(work))
++        textView.string = "Clients Inc"
++        textView.insertNewline(nil)
++        wait("the folder is saved under its new name") { (savedProjects?["groups"] as? [String])?.contains("Clients Inc") == true }
++        XCTAssertEqual((savedProjects?["folders"] as? [String: String])?["/p/web"], "Clients Inc")
++        XCTAssertEqual(savedProjects?["groups"] as? [String], ["Clients Inc", "Clients Inc/Clients"], "Its subfolder moves with it")
++        wait("the row shows it") { row(titled: "Clients Inc") != nil }
++    }
++
++    func testArrowKeysCloseAndOpenAProjectFolderAndItStaysClosed() throws {
++        showProjects()
++        sidebar.focusSidebar()
++        try select("Work")
++        let work = try XCTUnwrap(outlineView.item(atRow: try XCTUnwrap(row(titled: "Work"))))
++        XCTAssertTrue(outlineView.isItemExpanded(work))
++        outlineView.keyDown(with: left)
++        XCTAssertFalse(outlineView.isItemExpanded(work))
++        XCTAssertNil(row(titled: "web"))
++        let stored = CFPreferencesCopyAppValue("OmniSidebarCollapsedProjectFolders" as CFString, Self.scratchDomain) as? [String]
++        XCTAssertEqual(stored, ["Work"], "The closed folder is remembered")
++        outlineView.keyDown(with: right)
++        XCTAssertTrue(outlineView.isItemExpanded(work))
++        XCTAssertNotNil(row(titled: "web"))
++        let reopened = CFPreferencesCopyAppValue("OmniSidebarCollapsedProjectFolders" as CFString, Self.scratchDomain) as? [String]
++        XCTAssertEqual(reopened ?? [], [], "Opening it forgets it was closed")
++        outlineView.keyDown(with: down)
++        XCTAssertEqual(outlineView.selectedRow, row(titled: "Clients"), "Down walks into the open folder")
++    }
++
++    func testDraggingAProjectOntoAFolderMovesItThere() throws {
++        showProjects()
++        let clients = try XCTUnwrap(outlineView.item(atRow: try XCTUnwrap(row(titled: "Clients"))))
++        let drag = FakeDrag(Self.projectDrag, "/p/docs")
++        XCTAssertEqual(sidebar.outlineView(outlineView, validateDrop: drag, proposedItem: clients,
++                                           proposedChildIndex: NSOutlineViewDropOnItemIndex), .move)
++        XCTAssertTrue(sidebar.outlineView(outlineView, acceptDrop: drag, item: clients, childIndex: NSOutlineViewDropOnItemIndex))
++        wait("the move is saved") { (savedProjects?["folders"] as? [String: String])?["/p/docs"] == "Work/Clients" }
++        let docs = try XCTUnwrap(row(titled: "docs"))
++        XCTAssertTrue(outlineView.parent(forItem: outlineView.item(atRow: docs)) as AnyObject? === clients as AnyObject)
++    }
++
++    func testDraggingAFolderToTheTopAndAProjectOntoAnAgentIsRefused() throws {
++        showProjects()
++        // The Projects header: in Projects mode the shared Projects page row is left out.
++        let header = try XCTUnwrap((0..<outlineView.numberOfRows).first { cell($0)?.textField?.stringValue.lowercased() == "projects" })
++        let section = try XCTUnwrap(outlineView.item(atRow: header))
++        let drag = FakeDrag(Self.projectFolderDrag, "Work/Clients")
++        XCTAssertTrue(sidebar.outlineView(outlineView, acceptDrop: drag, item: section, childIndex: 0))
++        wait("the folder moves to the top level") { (savedProjects?["groups"] as? [String])?.contains("Clients") == true }
++        XCTAssertEqual((savedProjects?["order"] as? [String])?.first, "group:Clients", "Dropped first, it leads")
++        let web = try XCTUnwrap(outlineView.item(atRow: try XCTUnwrap(row(titled: "web"))))
++        XCTAssertEqual(sidebar.outlineView(outlineView, validateDrop: FakeDrag(Self.projectDrag, "/p/api"), proposedItem: web,
++                                           proposedChildIndex: NSOutlineViewDropOnItemIndex), [], "A project is not a folder")
++    }
++
++    func testProjectLayoutDeletesAFolderIntoItsParent() {
++        var layout = OmniProjectLayout(["groups": ["Work", "Work/Clients"], "folders": ["/p/a": "Work/Clients", "/p/b": "Work"],
++                                        "order": ["group:Work", "group:Work/Clients"]])
++        layout.delete(folder: "Work", tree: layout.tree(roots: ["/p/a", "/p/b"]))
++        XCTAssertEqual(layout.groups, [])
++        XCTAssertEqual(layout.folders.filter { !$0.value.isEmpty }, [:], "Everything inside moves to the top level")
++        XCTAssertEqual(layout.order, [])
++        var named = OmniProjectLayout()
++        named.rename(project: "/p/a", to: "  Alpha  ")
++        XCTAssertEqual(named.name("/p/a"), "Alpha")
++        named.rename(project: "/p/a", to: "")
++        XCTAssertNil(named.name("/p/a"), "A blank name goes back to the folder name")
++    }
++}
++
++// The drag AppKit hands a drop: only its pasteboard matters to the sidebar.
++private final class FakeDrag: NSObject, NSDraggingInfo {
++    let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.omniterm.tests.drag.\(UUID().uuidString)"))
++
++    init(_ type: NSPasteboard.PasteboardType, _ value: String) {
++        super.init()
++        pasteboard.clearContents()
++        pasteboard.setString(value, forType: type)
++    }
++
++    var draggingDestinationWindow: NSWindow? { nil }
++    var draggingSourceOperationMask: NSDragOperation { .move }
++    var draggingLocation: NSPoint { .zero }
++    var draggedImageLocation: NSPoint { .zero }
++    var draggedImage: NSImage? { nil }
++    var draggingPasteboard: NSPasteboard { pasteboard }
++    var draggingSource: Any? { nil }
++    var draggingSequenceNumber: Int { 1 }
++    func slideDraggedImage(to screenPoint: NSPoint) {}
++    var draggingFormation: NSDraggingFormation = .default
++    var animatesToDestination = false
++    var numberOfValidItemsForDrop = 1
++    func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?,
++                                classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
++                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
++    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
++    func resetSpringLoading() {}
 +}
 diff --git a/ModernTests/OmniTerminalSnapshotTests.swift b/ModernTests/OmniTerminalSnapshotTests.swift
 new file mode 100644
@@ -31608,10 +31779,10 @@ index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12cfc542ab
+index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91bebab9d5a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3727 @@
+@@ -0,0 +1,3756 @@
 +import AppKit
 +import Foundation
 +import os
@@ -31886,6 +32057,8 @@ index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12
 +    private var projectLayout = OmniProjectLayout()
 +    private var projectTree = OmniGroupTree()
 +    private var projectsRequestInFlight = false
++    // The page shown when a project folder was selected; see syncSelection.
++    private var projectFolderSelectedOver: OmniPaneRoute??
 +    private static let collapsedProjectFoldersKey = "OmniSidebarCollapsedProjectFolders" as CFString
 +    private static let projectDragType = NSPasteboard.PasteboardType("com.omniterm.sidebar.project")
 +    private static let projectFolderDragType = NSPasteboard.PasteboardType("com.omniterm.sidebar.project-folder")
@@ -33464,6 +33637,19 @@ index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12
 +        rememberExpansion(notification, collapsed: false)
 +    }
 +
++    // The project folder being closed, while AppKit closes its subfolders with it.
++    private weak var collapsingProjectFolder: OmniSidebarItem?
++
++    func outlineViewItemWillCollapse(_ notification: Notification) {
++        if let row = notification.userInfo?["NSObject"] as? OmniSidebarItem, row.kind == .projectFolder,
++           collapsingProjectFolder == nil {
++            collapsingProjectFolder = row
++            DispatchQueue.main.async { [weak self] in
++                self?.collapsingProjectFolder = nil
++            }
++        }
++    }
++
 +    func outlineViewItemDidCollapse(_ notification: Notification) {
 +        rememberExpansion(notification, collapsed: true)
 +    }
@@ -33472,6 +33658,11 @@ index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12
 +        guard !restoringExpansion,
 +              let row = notification.userInfo?["NSObject"] as? OmniSidebarItem, row.isFolder else { return }
 +        if row.kind == .projectFolder {
++            // Closing a folder hides its subfolders too; only the folder itself is remembered.
++            if collapsed, let parent = outlineView.parent(forItem: row) as? OmniSidebarItem, parent.kind == .projectFolder,
++               !outlineView.isItemExpanded(parent) || parent === collapsingProjectFolder {
++                return
++            }
 +            var folders = collapsedProjectFolders
 +            if collapsed {
 +                folders.insert(row.groupPath)
@@ -33646,6 +33837,12 @@ index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12
 +            paneTitle = title
 +            paneTitleDidChange?()
 +        }
++        // A project folder has no page: once chosen it keeps the selection
++        // (for the arrow keys and rename) until another page opens.
++        if let folder = selectedItem, folder.kind == .projectFolder, route == projectFolderSelectedOver {
++            return
++        }
++        projectFolderSelectedOver = nil
 +        let current = terminal?.currentTab()
 +        for index in 0..<outlineView.numberOfRows {
 +            guard let item = outlineView.item(atRow: index) as? OmniSidebarItem, item.isSelectable else {
@@ -34610,6 +34807,9 @@ index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12
 +            loadMoreSessions()
 +            syncSelection()
 +            return
++        }
++        if item?.kind == .projectFolder {
++            projectFolderSelectedOver = .some(contentHost.route)
 +        }
 +        if let route = item?.route {
 +            showPane(route)

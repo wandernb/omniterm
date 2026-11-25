@@ -60,6 +60,10 @@ def find_forge(environ=None):
     environ = os.environ if environ is None else environ
     explicit = environ.get("OMNI_FORGE")
     launchers = [explicit] if explicit else [os.path.expanduser(path) for path in LAUNCHERS]
+    # The installed forge first (the person's own, kept current); then the copy a development build
+    # bundles at Contents/Resources/Forge, beside these helpers.
+    bundled = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Forge", "bin", "forge")
+    launchers = launchers + ([bundled] if not explicit else [])
     launcher = next((path for path in launchers if path and os.path.isfile(path)), None)
     if launcher is None:
         raise ForgeUnavailable("forge is not installed (no forge launcher on this Mac)")

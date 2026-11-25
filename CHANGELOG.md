@@ -19,6 +19,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   recent sessions, README), Worktrees & Branches, Sessions & Agents,
   Knowledge, Files (a folder browser) and Settings. ⌘1 to ⌘6 switch tabs.
   Env files, secrets and keys are listed but never opened.
+- Development builds bundle Forge inside the app (Contents/Resources/Forge),
+  so the Projects features work on a Mac without Forge installed; an installed
+  Forge is used first. Public release builds leave it out unless
+  `OMNI_BUNDLE_FORGE=1`, since Forge is a separate, private repository.
 
 ### Fixed
 
@@ -27,6 +31,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Sessions in Documents, Desktop or Downloads no longer make OmniTerm ask for
   access to those folders.
 - A project's sessions are its own, not a filter of the newest sessions.
+- Selecting a project folder in the sidebar no longer jumps back to the page
+  shown, so the arrow keys and Return work on it.
 
 - The Omni Unblocker no longer nudges a session that is waiting on its own
   running build, test, deploy or background task.
