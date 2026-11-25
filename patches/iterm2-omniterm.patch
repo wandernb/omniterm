@@ -8447,10 +8447,10 @@ index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cc
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376deb55b799 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..61b7ae205b7565b1914950656464d2962514ddcd 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -5,6 +5,53 @@ right-to-left rendering, selection, and copy
+@@ -5,6 +5,59 @@ right-to-left rendering, selection, and copy
  improvements in this release.
  
  Major New Features:
@@ -8463,6 +8463,12 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376d
 +  worktree or @head checkout counts as its
 +  project; turn it off with Group by Project in
 +  the sessions search menu.
++- The sidebar has a Projects mode (Shift-
++  Command-3) with your own folders of projects:
++  drag and drop, collapse, rename in place. A
++  project’s page has tabs: Home, Worktrees &
++  Branches, Sessions & Agents, Knowledge, Files
++  and Settings.
 +- OmniTerm has a Settings page in its sidebar for
 +  notifications, the global shortcut, login
 +  startup, window behavior and defaults for new
@@ -8504,7 +8510,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376d
  - Support for the Program Status Protocol
    (OSC 7501), which lets a program report that it
    is working, waiting on you, done, or failed.
-@@ -45,6 +92,10 @@ Major New Features:
+@@ -45,6 +98,10 @@ Major New Features:
    3.8).
  
  New Features:
@@ -8515,7 +8521,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376d
  - `it2` can now target a session by the tmux pane
    it is showing. From inside a tmux Integration
    pane, pass --tmux "$TMUX" --tmux-pane
-@@ -680,6 +731,10 @@ Improvements:
+@@ -680,6 +737,10 @@ Improvements:
    General > Magic.
  
  Bug Fixes:
@@ -8526,7 +8532,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..2c1eac1055ed90e0ca3d3d9a1af7376d
  - Commands saved to Command History no longer
    include a right-hand prompt (such as zsh’s
    RPROMPT) drawn on the same line.
-@@ -2418,3 +2473,197 @@ Bug Fixes:
+@@ -2418,3 +2479,197 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
