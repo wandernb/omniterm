@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-25
+
+### Fixed
+
+- A pinned session older than the loaded part of the Sessions list now shows
+  under Pinned; it is fetched on its own.
+
 ## [0.6.0] - 2026-11-25
 
 ### Added
@@ -923,7 +930,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/wandernb/omniterm/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/wandernb/omniterm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/wandernb/omniterm/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/wandernb/omniterm/compare/v0.3.1...v0.4.0

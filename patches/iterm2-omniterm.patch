@@ -6842,10 +6842,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..75c8a49d76ce49627337df38e9e251f31e6bc94b
+index 0000000000000000000000000000000000000000..68c129be58f9a32deac78ac89fac2160df7b1b93
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1993 @@
+@@ -0,0 +1,2017 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8404,6 +8404,30 @@ index 0000000000000000000000000000000000000000..75c8a49d76ce49627337df38e9e251f3
 +        let request = try XCTUnwrap(fake.requests("rename_session").first)
 +        XCTAssertEqual(request["session_id"] as? String, "claude:s1")
 +        XCTAssertEqual(request["title"] as? String, "Renamed one")
++    }
++
++    // Live, Recent, All: live sessions lead in their own section.
++    func testTimelineKeepsLiveSessionsApart() throws {
++        CFPreferencesSetAppValue("OmniSessionsView" as CFString, "timeline" as CFString, Self.scratchDomain)
++        showSessions([session("claude:a1", title: "Live one", live: true, updated: Date().timeIntervalSince1970),
++                      session("claude:b2", title: "Idle one", updated: Date().timeIntervalSince1970 - 60)])
++        wait("the live session sits under Live") {
++            guard let section = row(titled: "Live"), let live = row(titled: "Live one") else { return false }
++            return (outlineView.parent(forItem: outlineView.item(atRow: live)) as AnyObject?) === (outlineView.item(atRow: section) as AnyObject?)
++        }
++    }
++
++    // A pinned session older than the loaded pages is fetched and shown.
++    func testAPinnedSessionOutsideTheLoadedPagesStillShows() throws {
++        CFPreferencesSetAppValue("OmniPinnedSessions" as CFString, ["claude:old"] as CFArray, Self.scratchDomain)
++        fake.handlers["get_session"] = { request in
++            ["ok": true, "session": self.session(request["session_id"] as? String ?? "", title: "Old pinned one")]
++        }
++        showSessions([session("claude:s1", title: "Recent one")])
++        wait("the old pinned session shows under Pinned") {
++            guard let pinned = row(titled: "Pinned"), let old = row(titled: "Old pinned one") else { return false }
++            return (outlineView.parent(forItem: outlineView.item(atRow: old)) as AnyObject?) === (outlineView.item(atRow: pinned) as AnyObject?)
++        }
 +    }
 +
 +    // Agents by project: under their workspace's project, the rest under Other.
@@ -34693,10 +34717,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d3a86657689fc5c83b93360970b2b1c6f0e953e
+index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e737f7adcc
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4892 @@
+@@ -0,0 +1,4914 @@
 +import AppKit
 +import Foundation
 +import os
@@ -34953,6 +34977,9 @@ index 0000000000000000000000000000000000000000..3d3a86657689fc5c83b93360970b2b1c
 +    private let liveSessionsSection = OmniSidebarItem(kind: .section, key: "live-sessions", title: "Live")
 +    private let recentSessionsSection = OmniSidebarItem(kind: .section, key: "recent-sessions", title: "Recent")
 +    private var sessions: [[AnyHashable: Any]] = []
++    // Pinned sessions older than the loaded pages, fetched one by one.
++    private var pinnedExtras: [String: [AnyHashable: Any]] = [:]
++    private var pinnedRequested = Set<String>()
 +    private var sessionsRequestInFlight = false
 +    private var lastSessionsRequest = Date.distantPast
 +    private static let sessionsRefreshInterval: TimeInterval = 10
@@ -36104,7 +36131,10 @@ index 0000000000000000000000000000000000000000..3d3a86657689fc5c83b93360970b2b1c
 +        let pinnedIDs = Set(pinnedOrder)
 +        var pinned: [String: OmniSidebarItem] = [:]
 +        var seen = Set<String>()
-+        for session in sessions {
++        let loaded = Set(sessions.compactMap { $0["session_id"] as? String })
++        requestPinnedSessions(pinnedOrder.filter { !loaded.contains($0) })
++        let extras = pinnedOrder.compactMap { loaded.contains($0) ? nil : pinnedExtras[$0] }
++        for session in sessions + extras {
 +            guard let id = session["session_id"] as? String, seen.insert(id).inserted else { continue }
 +            let raw = OmniSessionResume.rawID(session) ?? ""
 +            if hideAgentRuns, runAgents[raw] != nil || runAgents[id] != nil {
@@ -36369,6 +36399,22 @@ index 0000000000000000000000000000000000000000..3d3a86657689fc5c83b93360970b2b1c
 +    }
 +
 +    // MARK: Pinned sessions
++
++    private func requestPinnedSessions(_ ids: [String]) {
++        for id in ids where !pinnedRequested.contains(id) {
++            pinnedRequested.insert(id)
++            OmniSchedulerClient.request(["op": "get_session", "session_id": id, "limit": 1]) { [weak self] response in
++                guard let self else { return }
++                guard let session = response["session"] as? [AnyHashable: Any] else {
++                    // Asked again on a later rebuild (the worker may be starting).
++                    self.pinnedRequested.remove(id)
++                    return
++                }
++                self.pinnedExtras[id] = session
++                self.rebuild()
++            }
++        }
++    }
 +
 +    private func setPinned(_ id: String, _ pin: Bool) {
 +        var ids = Self.pinnedSessions.filter { $0 != id }
