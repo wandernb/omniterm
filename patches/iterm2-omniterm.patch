@@ -29236,10 +29236,10 @@ index 0000000000000000000000000000000000000000..36ee4287771a3f6c780a3b6b7aaf0b56
 +@end
 diff --git a/sources/OmniTerm/OmniSessionChat.swift b/sources/OmniTerm/OmniSessionChat.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..6f18276798c09c61e714bf30714d9356586d2240
+index 0000000000000000000000000000000000000000..1a252ea50397484414d59966800b5f8ddea1c551
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSessionChat.swift
-@@ -0,0 +1,1322 @@
+@@ -0,0 +1,1328 @@
 +import AppKit
 +import Foundation
 +
@@ -30343,10 +30343,13 @@ index 0000000000000000000000000000000000000000..6f18276798c09c61e714bf30714d9356
 +            return layout
 +        case .assistant:
 +            // No name over each reply: alignment and the bubble tell who spoke.
++            // The reply is parsed Markdown, so it sits on the Markdown card.
++            let pad: CGFloat = 14
 +            let text = chat.attributed(item, part: "body")
-+            let textHeight = OmniChatLayout.height(text, width: columnWidth)
-+            var layout = Layout(height: textHeight + gap + 4)
-+            layout.body = NSRect(x: x, y: gap / 2 + 2, width: columnWidth, height: textHeight)
++            let textHeight = OmniChatLayout.height(text, width: columnWidth - 2 * pad)
++            var layout = Layout(height: textHeight + 2 * pad + gap + 4)
++            layout.bubble = NSRect(x: x, y: gap / 2 + 2, width: columnWidth, height: textHeight + 2 * pad)
++            layout.body = NSRect(x: x + pad, y: gap / 2 + 2 + pad, width: columnWidth - 2 * pad, height: textHeight)
 +            layout.bodyText = text
 +            return layout
 +        case .tools, .skill, .context:
@@ -30433,7 +30436,10 @@ index 0000000000000000000000000000000000000000..6f18276798c09c61e714bf30714d9356
 +                header.textColor = .labelColor
 +                header.isHidden = false
 +            case .assistant:
-+                break
++                bubble.layer?.backgroundColor = OmniTheme.cardFill.cgColor
++                bubble.layer?.cornerRadius = OmniMarkdownCard.cornerRadius
++                bubble.layer?.borderWidth = 1
++                bubble.layer?.borderColor = OmniTheme.cardBorder.cgColor
 +            case .tools, .skill, .context:
 +                bubble.layer?.backgroundColor = Self.card.cgColor
 +                bubble.layer?.cornerRadius = 8
@@ -31974,10 +31980,10 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3402a8a054b5fdfe327582fbb2c8e0a318ee329a
+index 0000000000000000000000000000000000000000..a965fc9cdfa5f5e46694cdad7abb058e3f6bd953
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
-@@ -0,0 +1,693 @@
+@@ -0,0 +1,698 @@
 +import AppKit
 +import Foundation
 +
@@ -32610,9 +32616,13 @@ index 0000000000000000000000000000000000000000..3402a8a054b5fdfe327582fbb2c8e0a3
 +    }
 +
 +    // "Claude · OmniTerm · 3h"
-+    static func detail(_ session: [AnyHashable: Any]) -> String {
++    // "Claude · Project · @head · 5m": the project (the person's name for it)
++    // when known, then the folder when it says something more.
++    static func detail(_ session: [AnyHashable: Any], project: String? = nil) -> String {
++        let folder = folder(session["workspace"] as? String)
 +        let parts = [providerName(session["provider"] as? String),
-+                     folder(session["workspace"] as? String),
++                     project ?? "",
++                     folder == project ? "" : folder,
 +                     isLive(session) ? "Live" : age((session["updated"] as? NSNumber)?.doubleValue)]
 +        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
 +    }
@@ -32655,9 +32665,10 @@ index 0000000000000000000000000000000000000000..3402a8a054b5fdfe327582fbb2c8e0a3
 +        }
 +    }
 +
-+    // The spark from Claude's menu-bar template.
++    // The spark from Claude's menu-bar template, cropped to fill the same
++    // square as the Codex mark.
 +    private static let claudeMark = mark(claudePNG, accessibility: "Claude")
-+    // The cloud and prompt of Codex's app icon, as one shape.
++    // The cloud and prompt: the glyph layer of Codex's own app icon, as one shape.
 +    private static let codexMark = mark(codexPNG, accessibility: "Codex")
 +
 +    private static func mark(_ base64: String, accessibility: String) -> NSImage? {
@@ -32668,15 +32679,15 @@ index 0000000000000000000000000000000000000000..3402a8a054b5fdfe327582fbb2c8e0a3
 +        return image
 +    }
 +
-+    private static let claudePNG = "iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAYAAABV7bNHAAAEsWlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4KPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iWE1QIENvcmUgNS41LjAiPgogPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4KICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIgogICAgeG1sbnM6dGlmZj0iaHR0cDovL25zLmFkb2JlLmNvbS90aWZmLzEuMC8iCiAgICB4bWxuczpleGlmPSJodHRwOi8vbnMuYWRvYmUuY29tL2V4aWYvMS4wLyIKICAgIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIKICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIgogICAgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIKICAgdGlmZjpJbWFnZUxlbmd0aD0iNzIiCiAgIHRpZmY6SW1hZ2VXaWR0aD0iNzIiCiAgIHRpZmY6UmVzb2x1dGlvblVuaXQ9IjIiCiAgIHRpZmY6WFJlc29sdXRpb249IjcyLzEiCiAgIHRpZmY6WVJlc29sdXRpb249IjcyLzEiCiAgIGV4aWY6UGl4ZWxYRGltZW5zaW9uPSI3MiIKICAgZXhpZjpQaXhlbFlEaW1lbnNpb249IjcyIgogICBleGlmOkNvbG9yU3BhY2U9IjEiCiAgIHBob3Rvc2hvcDpDb2xvck1vZGU9IjMiCiAgIHBob3Rvc2hvcDpJQ0NQcm9maWxlPSJzUkdCIElFQzYxOTY2LTIuMSIKICAgeG1wOk1vZGlmeURhdGU9IjIwMjQtMTAt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"
-+    private static let codexPNG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQKADAAQAAAABAAAAQAAAAABlmWCKAAAEXUlEQVR4Ae1bS3baMBQlbefQWWb2sDMYZgY7MMPOYAdkB84Okh1AVkC6ArwD6ArsrsB01o7SexM5UYRsLFn+pXnn3Eh6ep/7noTISU8Hgw/5vzvwuaHyx8hzCfwRI9NeAUfgLxdtyUWNiQPEZoEUHxgJYHiSCD+pSwAf+AE0LnU0gIWzMBa/BOZAkUTYfABoT7l/Hpr56bIBQ1C+BhIxTjCaSALjjXDg+EvMax1cNYDFbwTTeUXGBxErwngEZkACZOJjQpufmaLK6OIRZPER4AN82KoKH8tvAB9MNmAi8F2M1BNXgA9cAta3xcUN2IMASbYhvAkbgI0iGn9IQyR97ABicFgDtwBvZCPiIUsXipc5xODEG9lIE9YdbEDWjEaakHa4AWwED6g2WSFy1u0uj8G5Dph8C3gItgT42s6BGdB1IdevLkjyxHcCXT5xHbdFlQYM4bwHUkAXvA868rcSD14x0Iciz3E0bkB28ucC92U/yOvAp5yNB+gnOXt9VOfWomvAAhXO+lilDWddA+5sAvXVR20AT39kUcwcPvydgr4R0FvZgrnpw3arVMsHNLWIY5rXxH6lcHxZqjeAJ2kqR8XhN9Y3iq7tZVSGwBRGJl3NbGNN8K7dgkDD8URFo6wo03FxEm0woM40Tl32KbiMNRzfqMIKhOM3kV4X1NdVlGlcchm+UnueqW+Aul927cMw1BgvNbq2VD4SXxclX2HTtKuyPa+Zp0mwrRhXzuFifnILMs5TB0TXWTBpHDuI66LwLMZK4vZm6jkiyoJV2UKREWh73Mnk5DeA/7hwkDct57rfJVzEtaRz4jaDhof9JHIDqNg8ae1/HOF6p3GfaXRtqvy85ENsVLmioSbwtGLMKnzyfHPfAfJnEXmORfoYfmygKjsoivza2AtVkvKaRcQWpAM5iJiz020UeC5nYQPI3QNSA/I7OinCRprEOEfa5X6gcNUup9CWTTrWRLgt6b+Gnc5fE/JF5WFWNr6uhulLpIIJjXTOqm6tieGV9I01viaqXck8j5JdKidQvwblvZm8KJgnmr2NRqdTJTqlgS4ysM1MS/uE8JA7lzffZ5HFGJT0y+INFX+TZWyYizkXcoIv8sJyPoHfDtgAnC8BEznA+AZIgLIyguE14Jd1EHZHjPdlfUIYsmPvCQu1+KI3QLXt+zpCASenX9QAXs33IqxlblPMe7j+fKQ9m+LpQ+c+N4H8q3zLdOovu6YHEfIEXUiKIKbJ27InVxbuuSg8ixFg0lZBJnkXGeE6xnXHm8CTr1WGiL4HTE6kSVseUO3S5SZ4tVcvErAJ7HaTp3suV9hU8XKeAIu4A43gx7JVYSO2wLlTqmM/Rd5h1eovqgaQ/MeYz4CRpDti/gD4YpT3oLKWAzyXgJP/NmPNwtCRDXLxsdkhTuWTN+Tu1DxEtBQw/ViweQunTFoMxhNcAVugqBFsFG1qK9zlGwCeVjKE10R4+mJMMB6BXn3GBfePoVcd+AexFYvTjbNKmAAAAABJRU5ErkJggg=="
++    private static let claudePNG = "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"
++    private static let codexPNG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQKADAAQAAAABAAAAQAAAAABlmWCKAAAEIElEQVR4Ae1Y7XHiMBDN3dx/00HcAXSgdEA6gA64DkgHpAPogFwF0IFJBaYDcxXk3rvYRoi1kWQbZJKd2ZG02q/3JJuPh4dv+doM/LgSfJXXGWCk7vP1DuPffH53wxiI1tAM+lGjG+xNoBH0LoTAU2gdaGmPRM36zABPcOkB3CQjQY7htYho6x1A8FvoqKXGD8jzlOdizjifc+DeFvoODUIIPoWaJ3mN9Rp1x7dmIbkReJ1gHoC6BRHzAMDrRCyuSUIUGPiCCN5I9ta5kO2iaGgjSehcMlQIDbjez7JLBmaBgy+IUG2SECHZAhr6yRfgOaZtETBHIj1xn+bjJiTw1JMeg+dBresIqPsqTPA7aFyXoCd7lTh/VgAg+C00ht6DqCoQVQS8IoA/Qu5FKrFIBIyBenovyHMcgyo8EgE8/S8jJgE8/dgD/RQxfNHE0Ddob2WNzl0/4xcG2gjrzCOPa10X/4nRY7k0b8BzuWM/ORiu/Jc3tMdoZ/QoLhWsLqwWvqmY7Xb/EhV96eOwoscTs/IkgIUmJ5k+F7RxLwTlI3mRhCYNpygQQU1JYAiBAPbAXs561N8BA7N7h3UM39+Cv2QT3K5iGqHKtK6SwmaT08oQ/ygU2DTM26QnM5Y9ntwC/QYIvTuZeIOkE5dsTolbdGaPz1X5yIzJmM/6USiwaSm3Tz9mTKL3p98Afn7v9E3P+VSIayOvkNbLNEJU+RjoBDDbq1fKY9AB09VxWc5YNCSp7IfMZFDz2tiuZwJK1SCfbV1XP/ZUKQThmpD+KZQEmrKBwSdflzHSQZV9E0Ti0fSkzHCcsFCXQHxzS70eu8ZsCM0cmt+cRH8uIgypQw5fMD5xSuj3zEQSbJPT15Q5DDbxS/g9msEX1iTXNr/Ug7qQ//+2LQFLIdkjbFJh05YKsS6mjWUds25Zw/wYLDcwqfyo0J0w3xtrLleCTTLtJaODbefgW7i+FZNL4xwOJnPSOoUfr2QhChPJT7Jl8NVjixw2I+NYW8pbZxvryX/pC895jDiyuoLy1kyhtjKA4w76At1DbYVxL9AY6iJ7OP+xDZjDsY7JPu6dnD6JqHsHHGyZ6onfCn1anz4xKWgfT1nqOQEWvjPOhP/l1wmT9V32ADCC8tfumdQ9AnR+O4vol2GLdivB20DhS0O6Un2wzWwA2vikPSKBz/rEBpSLj+oJAbytnckSmT8C1qwz5FpiXq9QSVhofXY2jZA5VBLY29WEbId0E+ZXQ64VUpinARDBG3lTGaP6GnqLG8EDiJqiv/RV2CX/EM4D6JMWtMOcSvs2HzE0FuZ8gopfbxtn7ygBCUqgTW/LEjkan3xHGK3SzuCVQV2J4JUfW1XogRNPcALdQOuIIFFLaGfA23wHoE9vUXkk3xWHfM7xPZ9/D98MdMTAP62rQC9D9oLGAAAAAElFTkSuQmCC"
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211672cddca
+index 0000000000000000000000000000000000000000..e36cb15ac5d81f9e6454d7b05dd519817b0d3c01
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4084 @@
+@@ -0,0 +1,4113 @@
 +import AppKit
 +import Foundation
 +import os
@@ -32752,6 +32763,8 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +    var matchMessageID: String?
 +    // A memory search result: the memory it opens.
 +    var memoryID: String?
++    // A session: its project's colour, as a bar at the row's leading edge.
++    var accent: NSColor?
 +
 +    // Dashboard, Inbox and Memory: the top group.
 +    var isTopGroup: Bool {
@@ -33962,13 +33975,15 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +            guard let id = session["session_id"] as? String else { return nil }
 +            let isLive = OmniSessionText.isLive(session)
 +            let raw = OmniSessionResume.rawID(session) ?? ""
-+            var text = detail ?? OmniSessionText.detail(session)
++            let project = sessionProject(session)
++            var text = detail ?? OmniSessionText.detail(session, project: project.name)
 +            if detail == nil, let agent = runAgents[raw] ?? runAgents[id] {
 +                text = "Agent \(agent) · " + text
 +            }
 +            let row = item(.session, key: key, title: OmniSessionText.title(session["title"] as? String),
 +                           detail: text, route: .session(id), color: isLive ? OmniTheme.running : nil, pulses: false)
 +            row.icon = .symbol(OmniSessionText.providerSymbol(session["provider"] as? String))
++            row.accent = project.color
 +            row.children = []
 +            return row
 +        }
@@ -34354,10 +34369,12 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +        }
 +        func sessionRow(_ session: [AnyHashable: Any], key: String, detail: String? = nil) -> OmniSidebarItem? {
 +            guard let id = session["session_id"] as? String else { return nil }
++            let project = sessionProject(session)
 +            let row = item(.session, key: key, title: OmniSessionText.title(session["title"] as? String),
-+                           detail: detail ?? OmniSessionText.detail(session), route: .session(id),
++                           detail: detail ?? OmniSessionText.detail(session, project: project.name), route: .session(id),
 +                           color: OmniSessionText.isLive(session) ? OmniTheme.running : nil, pulses: false)
 +            row.icon = .symbol(OmniSessionText.providerSymbol(session["provider"] as? String))
++            row.accent = project.color
 +            row.children = []
 +            return row
 +        }
@@ -34986,6 +35003,14 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +            self.readAgentFolderAppearance(settings)
 +            self.rebuild()
 +        }
++    }
++
++    // A session's forge project as the person named and coloured it.
++    private func sessionProject(_ session: [AnyHashable: Any]) -> (name: String?, color: NSColor?) {
++        guard let project = session["project"] as? [String: Any],
++              let root = project["root"] as? String ?? project["id"] as? String else { return (nil, nil) }
++        let name = projectLayout.name(root) ?? project["name"] as? String
++        return (name, OmniAgentColor.color(projectLayout.appearance(root).color))
 +    }
 +
 +    // Whether the agent folders' look changed.
@@ -35866,6 +35891,7 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
 +        guard let item = item as? OmniSidebarItem, item.isSelectable else { return nil }
 +        let rowView = OmniSidebarRowView()
++        rowView.accent = item.accent
 +        if item.isTopGroup {
 +            rowView.panelEdge = item === overviewItem ? .top : (item === settingsItem ? .bottom : .middle)
 +        }
@@ -35918,6 +35944,13 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +            cell.configure(title: item.title, detail: item.detail,
 +                           icon: item.icon ?? .symbol(OmniSessionText.providerSymbol(nil)), iconColor: nil,
 +                           status: item.color, pulses: item.pulses)
++            // A row kept across a reload still shows a changed project colour.
++            let index = outlineView.row(forItem: item)
++            if index >= 0, let rowView = outlineView.rowView(atRow: index, makeIfNecessary: false) as? OmniSidebarRowView,
++               rowView.accent != item.accent {
++                rowView.accent = item.accent
++                rowView.needsDisplay = true
++            }
 +        }
 +        if item.kind == .inbox {
 +            let symbol: SFSymbol = item.count.isEmpty ? .tray : .trayFull
@@ -36546,9 +36579,16 @@ index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211
 +    // draws its slice of it.
 +    enum PanelEdge { case top, middle, bottom }
 +    var panelEdge: PanelEdge?
++    // A session row's project colour, as a short bar in the leading margin.
++    var accent: NSColor?
 +
 +    override func drawBackground(in dirtyRect: NSRect) {
 +        super.drawBackground(in: dirtyRect)
++        if let accent {
++            accent.setFill()
++            NSBezierPath(roundedRect: NSRect(x: bounds.minX + 4, y: bounds.minY + 7, width: 3, height: max(0, bounds.height - 14)),
++                         xRadius: 1.5, yRadius: 1.5).fill()
++        }
 +        if let panelEdge {
 +            let sidebar = OmniTheme.Sidebar.self
 +            var rect = bounds.insetBy(dx: sidebar.panelInsetX, dy: 0)

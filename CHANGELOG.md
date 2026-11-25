@@ -48,8 +48,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Parsed Markdown sits on a lighter rounded card: READMEs and files, run
   summaries and final messages, the memory digest, and the agent prompt and
   Unblocker policy editors.
-- Sessions show Claude's and Codex's own marks, in subtle grey, instead of
-  generic symbols.
+- Sessions show Claude's and Codex's own marks, in subtle grey and at the same
+  size, instead of generic symbols. Each session row names its project and
+  carries the project's colour as a bar at its leading edge, and chat replies
+  sit on the Markdown card.
 
 ### Fixed
 
