@@ -13944,10 +13944,10 @@ index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4e7f52c0fc1d3e5d3cada78b9e7b310bbf31294a
+index 0000000000000000000000000000000000000000..a5cb051b2f24387fe20376bcf2b8aff282e3cbc3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,786 @@
+@@ -0,0 +1,788 @@
 +import AppKit
 +import Foundation
 +
@@ -14005,6 +14005,8 @@ index 0000000000000000000000000000000000000000..4e7f52c0fc1d3e5d3cada78b9e7b310b
 +    func paneSearchMemory(_ query: String)
 +    // A session was renamed: the list reloads.
 +    func paneSessionsChanged()
++    // A project's name or folder changed on its page: the sidebar reloads.
++    func paneProjectsChanged()
 +}
 +
 +// Hosts the native content of the right panel. Overview covers the whole tab
@@ -22561,14 +22563,35 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee59f44515
+index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b0686c87b1e7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,874 @@
 +import AppKit
 +import Foundation
 +
 +// MARK: - Model
++
++// The tabs of a project's page, as on a repository host.
++enum OmniProjectTab: Int, CaseIterable {
++    case home
++    case code
++    case sessions
++    case knowledge
++    case files
++    case settings
++
++    var title: String {
++        switch self {
++        case .home: return "Home"
++        case .code: return "Worktrees & Branches"
++        case .sessions: return "Sessions & Agents"
++        case .knowledge: return "Knowledge"
++        case .files: return "Files"
++        case .settings: return "Settings"
++        }
++    }
++}
 +
 +// What the Projects pages show. Pure so tests can check it without a window.
 +enum OmniProjectsModel {
@@ -22595,7 +22618,11 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        return parts.joined(separator: " · ")
 +    }
 +
-+    static func name(_ project: [String: Any]) -> String {
++    // The person's name for a project, else forge's.
++    static func name(_ project: [String: Any], aliases: [String: String] = [:]) -> String {
++        if let root = project["root"] as? String, let alias = aliases[root], !alias.isEmpty {
++            return alias
++        }
 +        return project["display_name"] as? String ?? project["name"] as? String ?? "Project"
 +    }
 +
@@ -22604,7 +22631,7 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 +    }
 +
-+    // "main ↑2" from a branch and its upstream tracking text such as "[ahead 2]".
++    // "origin/main ↑2 · subject" from a branch and its upstream tracking text such as "[ahead 2]".
 +    static func branchDetail(_ branch: [String: Any]) -> String {
 +        var parts: [String] = []
 +        if let upstream = branch["upstream"] as? String, !upstream.isEmpty {
@@ -22631,37 +22658,76 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        return Int(text[range.upperBound...].prefix { $0.isNumber }) ?? 0
 +    }
 +
-+    // The session's project for grouping: its forge project when known,
-+    // otherwise the last folder of its path that is not a worktree slot such
-+    // as `@head`.
-+    static func sessionGroup(_ session: [AnyHashable: Any]) -> (key: String, title: String) {
++    // The session's project for grouping: its forge project when known (with
++    // the person's name for it), otherwise the last folder of its path that is
++    // not a worktree slot such as `@head`.
++    static func sessionGroup(_ session: [AnyHashable: Any], aliases: [String: String] = [:]) -> (key: String, title: String) {
 +        if let project = session["project"] as? [String: Any], let id = project["id"] as? String {
-+            return (key: "project|" + id, title: project["name"] as? String ?? (id as NSString).lastPathComponent)
++            let alias = aliases[project["root"] as? String ?? id] ?? ""
++            let title = alias.isEmpty ? project["name"] as? String ?? (id as NSString).lastPathComponent : alias
++            return (key: "project|" + id, title: title)
 +        }
 +        let workspace = session["workspace"] as? String ?? ""
 +        let name = workspace.split(separator: "/").map(String.init).filter { !$0.hasPrefix("@") }.last ?? ""
 +        return (key: "folder|" + workspace, title: name)
++    }
++
++    // "a/b" for a folder inside the project, shown as a breadcrumb.
++    static func breadcrumb(_ path: String) -> String {
++        return path.isEmpty ? "/" : "/ " + path.split(separator: "/").joined(separator: " / ")
++    }
++
++    static func parent(of path: String) -> String {
++        return (path as NSString).deletingLastPathComponent
++    }
++}
++
++// The last project list the knowledge worker saved. Read directly so the
++// sidebar and the Projects page show at once after a launch, while the
++// worker may still be busy indexing; its answer replaces it moments later.
++enum OmniProjectsCache {
++    static var path: String {
++        return (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/OmniTerm/forge-projects.json")
++    }
++
++    static func load() -> [[String: Any]] {
++        guard let data = FileManager.default.contents(atPath: path),
++              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
++              let projects = object["projects"] as? [[String: Any]] else { return [] }
++        return projects.filter { $0["root"] is String }.map { project in
++            project.filter { !$0.key.hasPrefix("_") }
++        }
 +    }
 +}
 +
 +// MARK: - Page
 +
 +// The Projects pages: every forge project on this Mac (`.projects`), and one
-+// project (`.project(root)`) with its repository, worktrees, branches,
-+// sessions, knowledge folder, README and files. Data comes from forge
-+// through the knowledge worker (`list_projects`, `get_project`,
-+// `get_project_file`); README and knowledge text are untrusted and shown
-+// through the safe Markdown view, with no clickable links.
-+final class OmniProjectsPane: OmniPane {
++// project (`.project(root)`) in tabs: Home, Worktrees & Branches, Sessions &
++// Agents, Knowledge, Files and Settings. Data comes from forge through the
++// knowledge worker (`list_projects`, `get_project`, `list_project_folder`,
++// `get_project_file`, `list_sessions` with `project`); README and file text
++// are untrusted and shown through the safe Markdown view, with no clickable
++// links. Each tab loads what it needs the first time it is shown.
++final class OmniProjectsPane: OmniPane, NSTextFieldDelegate {
++    // The tab a project page opens on: the last one used.
++    private static var lastTab = OmniProjectTab.home
++
 +    private let projectID: String?
 +    private let scroll = OmniColumnScrollView()
 +    private let statusLabel = OmniTheme.meta()
 +    private var projects: [[String: Any]] = []
 +    private var forge: [String: Any] = [:]
++    private var settings: [String: Any] = [:]
 +    private var project: [String: Any]?
-+    private var sessions: [[AnyHashable: Any]] = []
++    private var tab = OmniProjectsPane.lastTab
++    private var sessions: [[AnyHashable: Any]]?
++    private var agents: [[AnyHashable: Any]]?
++    private var folderPath = ""
++    private var folder: [String: Any]?
 +    private var openFile: (path: String, text: String)?
 +    private var buttonsZone: OmniButtonZone?
++    private var tabsZone: OmniButtonZone?
 +    private(set) var zones: [(title: String, zone: OmniListZone)] = []
 +    private let fileView = OmniMarkdownView(text: "")
 +    private let readmeView = OmniMarkdownView(text: "")
@@ -22671,7 +22737,7 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +    }
 +
 +    override var focusZones: [OmniFocusZone] {
-+        return (buttonsZone.map { [$0 as OmniFocusZone] } ?? []) + zones.map(\.zone)
++        return [tabsZone, buttonsZone].compactMap { $0 } + zones.map(\.zone)
 +    }
 +
 +    init(projectID: String?) {
@@ -22681,8 +22747,7 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        for view in [fileView, readmeView] {
 +            view.didChangeHeight = { [weak self] in self?.scroll.relayout() }
 +        }
-+        readmeView.collapsedHeight = OmniMarkdownView.height(lines: 18)
-+        fileView.collapsedHeight = OmniMarkdownView.height(lines: 30)
++        readmeView.collapsedHeight = OmniMarkdownView.height(lines: 24)
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -22695,14 +22760,32 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +    }
 +
 +    override func reload() {
-+        if let projectID {
-+            reloadProject(projectID)
-+        } else {
-+            reloadList(refresh: false)
++        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
++            self?.settings = response["settings"] as? [String: Any] ?? [:]
++            if let projectID = self?.projectID {
++                self?.reloadProject(projectID, refresh: false)
++            } else {
++                self?.reloadList(refresh: false)
++            }
 +        }
 +    }
 +
++    private var layout: [String: Any] {
++        return settings["projects"] as? [String: Any] ?? [:]
++    }
++
++    private var aliases: [String: String] {
++        return layout["names"] as? [String: String] ?? [:]
++    }
++
 +    private func reloadList(refresh: Bool) {
++        if projects.isEmpty {
++            projects = OmniProjectsCache.load()
++            if !projects.isEmpty {
++                forge = ["available": true]
++                rebuild()
++            }
++        }
 +        var request: [String: Any] = ["op": "list_projects"]
 +        if refresh {
 +            request["refresh"] = true
@@ -22719,33 +22802,88 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        }
 +    }
 +
-+    private func reloadProject(_ id: String) {
-+        var responses: [String: [AnyHashable: Any]] = [:]
-+        let group = DispatchGroup()
-+        let requests: [(String, [String: Any])] = [
-+            ("project", ["op": "get_project", "project": id]),
-+            ("sessions", ["op": "list_sessions", "order": "recent", "limit": 100]),
-+        ]
-+        for (name, request) in requests {
-+            group.enter()
-+            OmniSchedulerClient.request(request) { response in
-+                responses[name] = response
-+                group.leave()
-+            }
++    private func reloadProject(_ id: String, refresh: Bool) {
++        if project == nil {
++            let known = OmniProjectsCache.load().first { $0["root"] as? String == id }
++            showMessage("Loading " + (known.map { OmniProjectsModel.name($0, aliases: aliases) } ?? "the project") + "…")
 +        }
-+        group.notify(queue: .main) { [weak self] in
++        var request: [String: Any] = ["op": "get_project", "project": id]
++        if refresh {
++            request["refresh"] = true
++        }
++        OmniSchedulerClient.request(request) { [weak self] response in
 +            guard let self else { return }
-+            guard let response = responses["project"], OmniPane.isOK(response),
-+                  let project = response["project"] as? [String: Any] else {
-+                let error = responses["project"]?["error"] as? String
++            guard OmniPane.isOK(response), let project = response["project"] as? [String: Any] else {
++                let error = response["error"] as? String
 +                self.showMessage("This project could not be read." + (error.map { "\n\($0)" } ?? ""))
 +                return
 +            }
 +            self.project = project
-+            let all = responses["sessions"]?["sessions"] as? [[AnyHashable: Any]] ?? []
-+            self.sessions = all.filter { ($0["project"] as? [String: Any])?["id"] as? String == id }
 +            if let readme = project["readme"] as? [String: Any], let text = readme["text"] as? String {
 +                self.readmeView.text = OmniReportText.sanitized(text)
++            }
++            if refresh {
++                self.sessions = nil
++                self.agents = nil
++                self.folder = nil
++            }
++            self.loadTabData()
++            self.rebuild()
++        }
++    }
++
++    // What the current tab needs beyond the project itself, loaded once.
++    private func loadTabData() {
++        guard let projectID else { return }
++        switch tab {
++        case .home, .sessions:
++            if sessions == nil {
++                OmniSchedulerClient.request(["op": "list_sessions", "order": "recent", "limit": 50,
++                                             "project": projectID]) { [weak self] response in
++                    self?.sessions = response["sessions"] as? [[AnyHashable: Any]] ?? []
++                    self?.rebuild()
++                }
++            }
++            if tab == .sessions, agents == nil {
++                loadAgents(projectID)
++            }
++        case .files:
++            if folder == nil {
++                loadFolder(folderPath)
++            }
++        case .code, .knowledge, .settings:
++            break
++        }
++    }
++
++    private func loadAgents(_ projectID: String) {
++        OmniSchedulerClient.request(["op": "list_agents"]) { [weak self] response in
++            let all = response["agents"] as? [[AnyHashable: Any]] ?? []
++            let paths = all.compactMap { $0["workspace"] as? String }
++            OmniSchedulerClient.request(["op": "project_of", "paths": paths]) { [weak self] mapped in
++                let owners = mapped["projects"] as? [String: Any] ?? [:]
++                self?.agents = all.filter { agent in
++                    guard let workspace = agent["workspace"] as? String else { return false }
++                    return owners[workspace] as? String == projectID
++                }
++                self?.rebuild()
++            }
++        }
++    }
++
++    private func loadFolder(_ path: String) {
++        guard let projectID else { return }
++        var request: [String: Any] = ["op": "list_project_folder", "project": projectID]
++        if !path.isEmpty {
++            request["path"] = path
++        }
++        OmniSchedulerClient.request(request) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response), let folder = response["folder"] as? [String: Any] {
++                self.folderPath = folder["path"] as? String ?? path
++                self.folder = folder
++            } else {
++                self.folder = ["path": path, "entries": [], "error": response["error"] as? String ?? "This folder could not be read."]
 +            }
 +            self.rebuild()
 +        }
@@ -22754,10 +22892,14 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +    private func rebuild() {
 +        preservingZoneFocus {
 +            scroll.rebuildKeepingScroll {
++                let column = scroll.column
++                column.removeAll()
++                let previous = zones
++                zones = []
 +                if project != nil {
-+                    buildProject()
++                    buildProject(previous)
 +                } else {
-+                    buildList()
++                    buildList(previous)
 +                }
 +            }
 +        }
@@ -22766,16 +22908,13 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +
 +    // MARK: List
 +
-+    private func buildList() {
++    private func buildList(_ previous: [(title: String, zone: OmniListZone)]) {
 +        let column = scroll.column
-+        column.removeAll()
-+        let previous = zones
-+        zones = []
 +        column.addText(OmniTheme.title("Projects"), spacing: 4)
 +        let intro = OmniPaneText.label(
 +            "Every Forge project on this Mac: folders found under your project roots, plus any a session opened " +
 +            "in or you added with forge projects add. Worktrees and @head, @maintenance or @production " +
-+            "checkouts count as their project.",
++            "checkouts count as their project. Arrange them in folders in the sidebar’s Projects mode.",
 +            size: 12.5, color: OmniTheme.secondaryText)
 +        column.add(intro, spacing: 6) { [weak intro] width in
 +            intro?.sizeThatFits(NSSize(width: width, height: 400)).height ?? 40
@@ -22783,17 +22922,19 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        let refresh = OmniPaneText.button("Refresh", target: self, action: #selector(refreshList(_:)))
 +        let buttons = OmniButtonRow([refresh])
 +        buttonsZone = buttons.zone
++        tabsZone = nil
 +        column.add(buttons, spacing: 10) { _ in 30 }
 +        if forge["available"] as? Bool != true {
 +            let reason = forge["error"] as? String ?? "Forge has not answered yet."
 +            setStatus("Forge is unavailable: \(reason)", error: true)
 +            column.addText(statusLabel, spacing: 10)
 +        }
++        let names = aliases
 +        let rows: [(key: String, row: OmniZoneItem)] = projects.compactMap { project in
 +            guard let root = project["root"] as? String else { return nil }
 +            let updated = (project["updated"] as? NSNumber)?.doubleValue
 +            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
-+                                         title: OmniProjectsModel.name(project),
++                                         title: OmniProjectsModel.name(project, aliases: names),
 +                                         detail: OmniProjectsModel.detail(project),
 +                                         badge: OmniSessionText.age(updated), status: nil) { [weak self] in
 +                self?.actions?.paneOpen(.project(root))
@@ -22808,26 +22949,42 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +
 +    // MARK: One project
 +
-+    private func buildProject() {
++    private func buildProject(_ previous: [(title: String, zone: OmniListZone)]) {
 +        guard let project else { return }
 +        let column = scroll.column
-+        column.removeAll()
-+        let previous = zones
-+        zones = []
-+        column.addText(OmniTheme.title(OmniProjectsModel.name(project)), spacing: 4)
-+        column.addText(OmniTheme.meta(OmniProjectsModel.detail(project)), spacing: 8)
-+        let back = OmniPaneText.button("All Projects", target: self, action: #selector(showAll(_:)))
-+        let reveal = OmniPaneText.button("Reveal in Finder", target: self, action: #selector(revealRoot(_:)))
-+        let copy = OmniPaneText.button("Copy Path", target: self, action: #selector(copyPath(_:)))
-+        let buttons = OmniButtonRow([back, reveal, copy])
-+        buttonsZone = buttons.zone
-+        column.add(buttons, spacing: 10) { _ in 30 }
-+
-+        var facts: [(String, String)] = []
-+        if let main = project["main"] as? String {
-+            facts.append(("Main checkout", OmniProjectsModel.abbreviated(main)))
++        column.addText(OmniTheme.title(OmniProjectsModel.name(project, aliases: aliases)), spacing: 4)
++        column.addText(OmniTheme.meta(OmniProjectsModel.detail(project)), spacing: 10)
++        // The tabs: a row of buttons, so they join the keyboard like any other.
++        let tabButtons: [NSButton] = OmniProjectTab.allCases.map { candidate in
++            let button = NSButton(title: candidate.title, target: self, action: #selector(tabClicked(_:)))
++            button.bezelStyle = .recessed
++            button.setButtonType(.pushOnPushOff)
++            button.state = candidate == tab ? .on : .off
++            button.tag = candidate.rawValue
++            button.font = candidate == tab ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
++            return button
 +        }
-+        let git = project["git"] as? [String: Any]
++        let tabs = OmniButtonRow(tabButtons)
++        tabsZone = tabs.zone
++        buttonsZone = nil
++        column.add(tabs, spacing: 2) { _ in 30 }
++        column.add(OmniTheme.titlebarSeparatorLine(), spacing: 10) { _ in 1 }
++        switch tab {
++        case .home: buildHome(project, previous)
++        case .code: buildCode(project, previous)
++        case .sessions: buildSessions(previous)
++        case .knowledge: buildKnowledge(project, previous)
++        case .files: buildFiles(previous)
++        case .settings: buildSettings(project)
++        }
++    }
++
++    private var git: [String: Any]? {
++        return project?["git"] as? [String: Any]
++    }
++
++    private func repositoryFacts(_ project: [String: Any]) -> [(String, String)] {
++        var facts: [(String, String)] = []
 +        if let git {
 +            if let branch = git["branch"] as? String {
 +                facts.append(("Branch", branch))
@@ -22852,14 +23009,54 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +            let listed = exposure["listed"] as? Bool == true
 +            facts.append(("Exposure", (listed ? tier : "\(tier) (not in the map)") + (guardText.isEmpty ? "" : " · \(guardText)")))
 +        }
-+        column.addSection("Repository")
-+        column.addText(OmniPane.facts(facts), spacing: 8)
++        return facts
++    }
 +
++    private func buildHome(_ project: [String: Any], _ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        var facts = repositoryFacts(project)
 +        let worktrees = git?["worktrees"] as? [[String: Any]] ?? []
++        if !worktrees.isEmpty {
++            facts.append(("Worktrees", worktrees.map { worktree in
++                let name = worktree["name"] as? String ?? ""
++                let branch = worktree["branch"] as? String ?? ""
++                return branch.isEmpty || branch == name ? name : "\(name) (\(branch))"
++            }.joined(separator: ", ")))
++        }
++        let branches = git?["branches"] as? [[String: Any]] ?? []
++        if !branches.isEmpty {
++            let names = branches.prefix(6).compactMap { $0["name"] as? String }
++            facts.append(("Branches", names.joined(separator: ", ") + (branches.count > 6 ? " and \(branches.count - 6) more" : "")))
++        }
++        column.addText(OmniPane.facts(facts), spacing: 8)
++        if let sessions {
++            let rows = sessionRows(Array(sessions.prefix(5)))
++            if rows.isEmpty {
++                column.addSection("Recent sessions")
++                column.addText(OmniTheme.meta("No Claude or Codex session in this project yet."))
++            } else {
++                section("Recent sessions", key: "home-sessions", previous: previous, rows: rows)
++            }
++        }
++        if project["readme"] is [String: Any] {
++            column.addSection("README")
++            column.add(readmeView, spacing: 8) { [weak self] width in
++                self?.readmeView.height(forWidth: width) ?? 0
++            }
++        }
++    }
++
++    private func buildCode(_ project: [String: Any], _ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        guard let git else {
++            column.addText(OmniTheme.meta("Not a git repository."))
++            return
++        }
++        let worktrees = git["worktrees"] as? [[String: Any]] ?? []
 +        section("Worktrees", key: "worktrees", previous: previous, rows: worktrees.compactMap { worktree in
 +            guard let path = worktree["path"] as? String else { return nil }
 +            let branch = worktree["branch"] as? String ?? (worktree["detached"] as? Bool == true ? "detached" : "")
-+            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowTriangleBranch.rawValue), iconColor: nil,
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.folder.rawValue), iconColor: nil,
 +                                         title: worktree["name"] as? String ?? (path as NSString).lastPathComponent,
 +                                         detail: [branch, OmniProjectsModel.abbreviated(path)].filter { !$0.isEmpty }
 +                                            .joined(separator: " · "),
@@ -22868,96 +23065,188 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +            }
 +            return (key: path, row: row)
 +        })
-+
-+        let id = projectID ?? ""
-+        let sessionRows: [(key: String, row: OmniZoneItem)] = sessions.prefix(12).compactMap { session in
-+            guard let sessionID = session["session_id"] as? String else { return nil }
-+            let row = OmniFolderEntryRow(icon: .symbol(OmniSessionText.providerSymbol(session["provider"] as? String)),
-+                                         iconColor: OmniSessionText.isLive(session) ? OmniTheme.running : nil,
-+                                         title: OmniSessionText.title(session["title"] as? String),
-+                                         detail: OmniSessionText.detail(session), badge: "",
-+                                         status: OmniSessionText.isLive(session) ? OmniTheme.running : nil) { [weak self] in
-+                self?.actions?.paneOpen(.session(sessionID))
-+            }
-+            return (key: sessionID, row: row)
-+        }
-+        if sessionRows.isEmpty {
-+            column.addSection("Recent sessions")
-+            column.addText(OmniTheme.meta(id.isEmpty ? "" : "No recent Claude or Codex session in this project."))
-+        } else {
-+            section("Recent sessions", key: "sessions", previous: previous, rows: sessionRows)
-+        }
-+
-+        let branches = git?["branches"] as? [[String: Any]] ?? []
-+        section("Branches", key: "branches", previous: previous, rows: branches.prefix(15).compactMap { branch in
++        let current = git["branch"] as? String
++        let branches = git["branches"] as? [[String: Any]] ?? []
++        section("Branches", key: "branches", previous: previous, rows: branches.compactMap { branch in
 +            guard let name = branch["name"] as? String else { return nil }
 +            let updated = (branch["updated"] as? NSNumber)?.doubleValue
 +            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowTriangleBranch.rawValue), iconColor: nil,
 +                                         title: name, detail: OmniProjectsModel.branchDetail(branch),
 +                                         badge: OmniSessionText.age(updated),
-+                                         status: name == git?["branch"] as? String ? OmniTheme.running : nil) {}
++                                         status: name == current ? OmniTheme.running : nil) {}
 +            return (key: name, row: row)
 +        })
++        if branches.count >= 40 {
++            column.addText(OmniTheme.meta("The 40 most recently changed branches."))
++        }
++    }
 +
-+        let knowledge = project["knowledge"] as? [[String: Any]] ?? []
-+        if knowledge.isEmpty {
-+            column.addSection("Knowledge")
-+            column.addText(OmniTheme.meta("No knowledge folder."))
++    private func sessionRows(_ sessions: [[AnyHashable: Any]]) -> [(key: String, row: OmniZoneItem)] {
++        return sessions.compactMap { session in
++            guard let sessionID = session["session_id"] as? String else { return nil }
++            let live = OmniSessionText.isLive(session)
++            let updated = (session["updated"] as? NSNumber)?.doubleValue
++            let row = OmniFolderEntryRow(icon: .symbol(OmniSessionText.providerSymbol(session["provider"] as? String)),
++                                         iconColor: live ? OmniTheme.running : nil,
++                                         title: OmniSessionText.title(session["title"] as? String),
++                                         detail: OmniSessionText.detail(session),
++                                         badge: OmniSessionText.age(updated),
++                                         status: live ? OmniTheme.running : nil) { [weak self] in
++                self?.actions?.paneOpen(.session(sessionID))
++            }
++            return (key: sessionID, row: row)
++        }
++    }
++
++    private func buildSessions(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        if let agents {
++            let rows: [(key: String, row: OmniZoneItem)] = agents.compactMap { agent in
++                guard let name = agent["name"] as? String else { return nil }
++                let row = OmniFolderEntryRow(icon: OmniAgentIcon(spec: agent["icon"] as? String) ?? .symbol(OmniAgentIcon.defaultSymbol),
++                                             iconColor: OmniAgentColor.color(agent["color"] as? String),
++                                             title: name, detail: (agent["schedule"] as? [String: Any])?["phrase"] as? String ?? "",
++                                             badge: agent["enabled"] as? Bool == false ? "paused" : "", status: nil) { [weak self] in
++                    self?.actions?.paneOpen(.agent(name))
++                }
++                return (key: name, row: row)
++            }
++            if rows.isEmpty {
++                column.addSection("Agents")
++                column.addText(OmniTheme.meta("No OmniTerm agent works in this project."))
++            } else {
++                section("Agents", key: "agents", previous: previous, rows: rows)
++            }
 +        } else {
-+            section("Knowledge", key: "knowledge", previous: previous, rows: knowledge.prefix(80).compactMap { file in
-+                guard let path = file["path"] as? String else { return nil }
-+                let modified = (file["modified"] as? NSNumber)?.doubleValue
-+                let shown = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : path
-+                let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.docText.rawValue), iconColor: nil, title: shown,
-+                                             detail: OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
-+                                             badge: OmniSessionText.age(modified), status: nil) { [weak self] in
-+                    self?.open(file: path)
-+                }
-+                return (key: path, row: row)
-+            })
-+            if knowledge.count > 80 {
-+                column.addText(OmniTheme.meta("\(knowledge.count - 80) more files in the knowledge folder."))
-+            }
++            column.addSection("Agents")
++            column.addText(OmniTheme.meta("Loading…"))
 +        }
-+        if let openFile {
-+            column.addSection(openFile.path)
-+            column.add(fileView, spacing: 8) { [weak self] width in
-+                self?.fileView.height(forWidth: width) ?? 0
-+            }
++        guard let sessions else {
++            column.addSection("Sessions")
++            column.addText(OmniTheme.meta("Loading…"))
++            return
 +        }
++        let rows = sessionRows(sessions)
++        if rows.isEmpty {
++            column.addSection("Sessions")
++            column.addText(OmniTheme.meta("No Claude or Codex session in this project yet."))
++        } else {
++            section(sessions.count >= 50 ? "50 most recent sessions" : "Sessions", key: "sessions", previous: previous, rows: rows)
++        }
++    }
 +
-+        if project["readme"] is [String: Any] {
-+            column.addSection("README")
-+            column.add(readmeView, spacing: 8) { [weak self] width in
-+                self?.readmeView.height(forWidth: width) ?? 0
-+            }
++    private func buildKnowledge(_ project: [String: Any], _ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        let knowledge = project["knowledge"] as? [[String: Any]] ?? []
++        guard !knowledge.isEmpty else {
++            column.addText(OmniTheme.meta("This project has no knowledge folder."))
++            return
 +        }
-+
-+        let base = project["main"] as? String ?? project["root"] as? String ?? ""
-+        let files = project["files"] as? [[String: Any]] ?? []
-+        section("Files", key: "files", previous: previous, rows: files.compactMap { file in
-+            guard let name = file["name"] as? String else { return nil }
-+            let isDirectory = file["kind"] as? String == "dir"
-+            let path = (base as NSString).appendingPathComponent(name)
-+            let row = OmniFolderEntryRow(icon: .symbol(isDirectory ? SFSymbol.folder.rawValue : SFSymbol.docText.rawValue),
-+                                         iconColor: nil, title: name,
-+                                         detail: isDirectory ? "Folder" : OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
-+                                         badge: "", status: nil) { [weak self] in
-+                if isDirectory {
-+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
-+                } else {
-+                    self?.open(file: name)
-+                }
++        addOpenFile()
++        section("\(knowledge.count) files", key: "knowledge", previous: previous, rows: knowledge.compactMap { file in
++            guard let path = file["path"] as? String else { return nil }
++            let modified = (file["modified"] as? NSNumber)?.doubleValue
++            let shown = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : path
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.docText.rawValue), iconColor: nil, title: shown,
++                                         detail: OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
++                                         badge: OmniSessionText.age(modified), status: nil) { [weak self] in
++                self?.open(file: path)
 +            }
-+            return (key: name, row: row)
++            return (key: path, row: row)
 +        })
 +    }
 +
++    // The file opened from Knowledge or Files, above its list, as on a repository host.
++    private func addOpenFile() {
++        guard let openFile else { return }
++        let column = scroll.column
++        column.addSection(openFile.path)
++        column.add(fileView, spacing: 12) { [weak self] width in
++            self?.fileView.height(forWidth: width) ?? 0
++        }
++    }
++
++    private func buildFiles(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        addOpenFile()
++        guard let folder else {
++            column.addText(OmniTheme.meta("Loading…"))
++            return
++        }
++        column.addSection(OmniProjectsModel.breadcrumb(folderPath))
++        if let error = folder["error"] as? String {
++            column.addText(OmniTheme.meta(error))
++        }
++        var rows: [(key: String, row: OmniZoneItem)] = []
++        if !folderPath.isEmpty {
++            let parent = OmniProjectsModel.parent(of: folderPath)
++            rows.append((key: "..", row: OmniFolderEntryRow(icon: .symbol(SFSymbol.folder.rawValue), iconColor: nil,
++                                                             title: "..", detail: "Up one folder", badge: "", status: nil) { [weak self] in
++                self?.loadFolder(parent)
++            }))
++        }
++        for entry in folder["entries"] as? [[String: Any]] ?? [] {
++            guard let name = entry["name"] as? String else { continue }
++            let path = folderPath.isEmpty ? name : folderPath + "/" + name
++            let isDirectory = entry["kind"] as? String == "dir"
++            let secret = entry["secret"] as? Bool == true
++            let detail = isDirectory ? "Folder" : secret ? "May hold secrets: not shown" :
++                OmniProjectsModel.size((entry["size"] as? NSNumber)?.intValue)
++            rows.append((key: path, row: OmniFolderEntryRow(icon: .symbol(isDirectory ? SFSymbol.folder.rawValue : SFSymbol.docText.rawValue),
++                                                             iconColor: nil, title: name, detail: detail, badge: "",
++                                                             status: nil) { [weak self] in
++                if isDirectory {
++                    self?.openFile = nil
++                    self?.loadFolder(path)
++                } else if !secret {
++                    self?.open(file: path)
++                }
++            }))
++        }
++        section("files", key: "files", previous: previous, rows: rows, header: false)
++    }
++
++    private func buildSettings(_ project: [String: Any]) {
++        let column = scroll.column
++        let root = project["root"] as? String ?? ""
++        let nameField = NSTextField(string: aliases[root] ?? "")
++        nameField.placeholderString = project["display_name"] as? String ?? project["name"] as? String ?? ""
++        nameField.font = OmniTheme.Font.rowTitle
++        nameField.delegate = self
++        nameField.identifier = NSUserInterfaceItemIdentifier("project-name")
++        column.addSection("Name")
++        column.add(OmniSettingRow(title: "Name in OmniTerm", detail: "Blank uses the folder’s name. Double-click it in the sidebar to rename too.",
++                                  control: nameField, controlWidth: 220), spacing: 8) { _ in OmniSettingRow.height }
++        if statusLabel.stringValue.isEmpty == false {
++            column.addText(statusLabel, spacing: 8)
++        }
++        var facts: [(String, String)] = [("Folder", OmniProjectsModel.abbreviated(root))]
++        if let main = project["main"] as? String {
++            facts.append(("Main checkout", OmniProjectsModel.abbreviated(main)))
++        }
++        facts.append(("Layout", project["layout"] as? String == "forge" ? "Forge (@head beside its worktrees)" : "Plain repository"))
++        facts.append(("Knowledge folder", project["forge"] as? Bool == true ? "Yes" : "No"))
++        facts.append(("Registered", project["registered"] as? Bool == true ? "Yes (forge projects add, or a session opened in it)" : "Found by the scan"))
++        let folders = layout["folders"] as? [String: String] ?? [:]
++        facts.append(("Sidebar folder", folders[root].map { $0.isEmpty ? "None" : $0 } ?? "None"))
++        column.addSection("Forge")
++        column.addText(OmniPane.facts(facts + repositoryFacts(project).filter { $0.0 == "Exposure" }), spacing: 8)
++        column.addText(OmniTheme.meta("Exposure comes from Forge’s private exposure map and is changed there, not here."), spacing: 10)
++        let reveal = OmniPaneText.button("Reveal in Finder", target: self, action: #selector(revealRoot(_:)))
++        let copy = OmniPaneText.button("Copy Path", target: self, action: #selector(copyPath(_:)))
++        let refresh = OmniPaneText.button("Refresh", target: self, action: #selector(refreshProject(_:)))
++        let buttons = OmniButtonRow([reveal, copy, refresh])
++        buttonsZone = buttons.zone
++        column.add(buttons, spacing: 10) { _ in 30 }
++    }
++
 +    private func section(_ title: String, key: String, previous: [(title: String, zone: OmniListZone)],
-+                         rows: [(key: String, row: OmniZoneItem)]) {
++                         rows: [(key: String, row: OmniZoneItem)], header: Bool = true) {
 +        guard !rows.isEmpty else { return }
 +        let column = scroll.column
-+        column.addSection(title)
++        if header {
++            column.addSection(title)
++        }
 +        let zone = previous.first { $0.title == key }?.zone ?? OmniListZone()
 +        let list = OmniColumnView()
 +        list.inset = 0
@@ -22989,8 +23278,56 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +            let text = OmniPane.isOK(response) ? (file?["text"] as? String ?? "") :
 +                (response["error"] as? String ?? "This file could not be read.")
 +            self.openFile = (path: path, text: text)
-+            self.fileView.text = path.lowercased().hasSuffix(".md") ? OmniReportText.sanitized(text) :
++            let lower = path.lowercased()
++            self.fileView.text = lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ? OmniReportText.sanitized(text) :
 +                "```\n" + OmniReportText.sanitized(text) + "\n```"
++            self.rebuild()
++            self.scroll.contentView.scroll(to: .zero)
++            self.scroll.reflectScrolledClipView(self.scroll.contentView)
++        }
++    }
++
++    @objc private func tabClicked(_ sender: NSButton) {
++        guard let chosen = OmniProjectTab(rawValue: sender.tag) else { return }
++        tab = chosen
++        Self.lastTab = chosen
++        openFile = nil
++        setStatus("", error: false)
++        loadTabData()
++        rebuild()
++        scroll.contentView.scroll(to: .zero)
++        scroll.reflectScrolledClipView(scroll.contentView)
++    }
++
++    // Command-1 to 6 pick a tab while the page has the keyboard.
++    override func handlePaneShortcut(_ event: NSEvent) -> Bool {
++        guard project != nil, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
++              let digit = event.charactersIgnoringModifiers.flatMap(Int.init), digit >= 1,
++              let chosen = OmniProjectTab(rawValue: digit - 1) else { return false }
++        let button = NSButton()
++        button.tag = chosen.rawValue
++        tabClicked(button)
++        return true
++    }
++
++    func controlTextDidEndEditing(_ notification: Notification) {
++        guard let field = notification.object as? NSTextField, field.identifier?.rawValue == "project-name",
++              let root = project?["root"] as? String else { return }
++        let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard value != (aliases[root] ?? "") else { return }
++        var names = aliases
++        names[root] = value.isEmpty ? nil : value
++        var updated = layout
++        updated["names"] = names
++        OmniSchedulerClient.request(["op": "set_settings", "settings": ["projects": updated]]) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response), let settings = response["settings"] as? [String: Any] {
++                self.settings = settings
++                self.setStatus("Saved.", error: false)
++                self.actions?.paneProjectsChanged()
++            } else {
++                self.setStatus(response["error"] as? String ?? "The name could not be saved.", error: true)
++            }
 +            self.rebuild()
 +        }
 +    }
@@ -22999,8 +23336,9 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        reloadList(refresh: true)
 +    }
 +
-+    @objc private func showAll(_ sender: Any?) {
-+        actions?.paneOpen(.projects)
++    @objc private func refreshProject(_ sender: Any?) {
++        guard let projectID else { return }
++        reloadProject(projectID, refresh: true)
 +    }
 +
 +    @objc private func revealRoot(_ sender: Any?) {
@@ -23012,6 +23350,95 @@ index 0000000000000000000000000000000000000000..d8c391999dcd2aa0d954971f4f6d90ee
 +        guard let root = project?["root"] as? String else { return }
 +        NSPasteboard.general.clearContents()
 +        NSPasteboard.general.setString(root, forType: .string)
++    }
++}
++
++// MARK: - Sidebar arrangement
++
++// How the person arranged projects in the sidebar's Projects mode: folders
++// (two levels, as for agents), the order of projects and folders, each
++// project's folder and its name in OmniTerm. Stored as `projects` in
++// ~/.omni/settings.json through `set_settings`; a project is keyed by its
++// root path, so a rename never loses its place. Pure, so tests can check it.
++struct OmniProjectLayout: Equatable {
++    var groups: [String] = []
++    var order: [String] = []
++    var folders: [String: String] = [:]
++    var names: [String: String] = [:]
++
++    init() {
++    }
++
++    init(_ value: Any?) {
++        let dictionary = value as? [String: Any] ?? [:]
++        groups = (dictionary["groups"] as? [String] ?? []).map(OmniGroupTree.normalizedPath).filter { !$0.isEmpty }
++        order = dictionary["order"] as? [String] ?? []
++        folders = (dictionary["folders"] as? [String: String] ?? [:]).mapValues(OmniGroupTree.normalizedPath)
++        names = dictionary["names"] as? [String: String] ?? [:]
++    }
++
++    var dictionary: [String: Any] {
++        return ["groups": groups, "order": order, "folders": folders.filter { !$0.value.isEmpty },
++                "names": names.filter { !$0.value.isEmpty }]
++    }
++
++    static func key(_ root: String) -> String {
++        return OmniGroupTree.agentKey(root)
++    }
++
++    // Projects sit in the tree by root; folders by path.
++    func tree(roots: [String]) -> OmniGroupTree {
++        return OmniGroupTree(agents: roots.map { (name: $0, group: folders[$0]) }, configured: groups, order: order)
++    }
++
++    func name(_ root: String) -> String? {
++        let name = names[root] ?? ""
++        return name.isEmpty ? nil : name
++    }
++
++    mutating func rename(project root: String, to name: String) {
++        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
++        names[root] = trimmed.isEmpty ? nil : String(trimmed.prefix(120))
++    }
++
++    mutating func move(project root: String, into folder: String, before: String?, tree: OmniGroupTree) {
++        order = OmniSidebarMoves.sidebarOrder(tree.displayKeys, moving: Self.key(root), before: before)
++        folders[root] = folder.isEmpty ? nil : folder
++    }
++
++    mutating func reorder(folder path: String, before: String?, tree: OmniGroupTree) {
++        order = OmniSidebarMoves.sidebarOrder(tree.displayKeys, moving: OmniGroupTree.groupKey(path), before: before)
++    }
++
++    mutating func add(folder path: String, tree: OmniGroupTree) {
++        let known = groups.isEmpty ? tree.allPaths : groups
++        groups = known.contains(path) ? known : known + [path]
++    }
++
++    // A folder and everything in it take a new path; `before` places it among its new siblings.
++    mutating func move(folder path: String, to newPath: String, before: String?, tree: OmniGroupTree) {
++        func renamed(_ value: String) -> String {
++            if value == path { return newPath }
++            if value.hasPrefix(path + "/") { return newPath + value.dropFirst(path.count) }
++            return value
++        }
++        let known = groups.isEmpty ? tree.allPaths : groups
++        groups = known.map(renamed)
++        folders = folders.mapValues(renamed)
++        let keys = tree.displayKeys.map { key -> String in
++            guard key.hasPrefix("group:") else { return key }
++            return OmniGroupTree.groupKey(renamed(String(key.dropFirst("group:".count))))
++        }
++        order = OmniSidebarMoves.sidebarOrder(keys, moving: OmniGroupTree.groupKey(newPath), before: before)
++    }
++
++    // Its projects, its subfolders' included, move up to its parent.
++    mutating func delete(folder path: String, tree: OmniGroupTree) {
++        let parent = OmniGroupTree.parent(of: path)
++        let known = groups.isEmpty ? tree.allPaths : groups
++        groups = known.filter { $0 != path && !$0.hasPrefix(path + "/") }
++        folders = folders.mapValues { $0 == path || $0.hasPrefix(path + "/") ? parent : $0 }
++        order = order.filter { $0 != OmniGroupTree.groupKey(path) && !$0.hasPrefix(OmniGroupTree.groupKey(path + "/")) }
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniRunReport.swift b/sources/OmniTerm/OmniRunReport.swift
@@ -23532,10 +23959,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8e9e2413b
+index 0000000000000000000000000000000000000000..8204c0d4f815576f424319f3f5fb9006759b9282
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4202 @@
+@@ -0,0 +1,4232 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -23648,7 +24075,8 @@ index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8
 +                                                    @"get_system_prompt", @"consume_grant",
 +                                                    @"record_unblock_audit", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"set_unblocker_policy",
-+                                                    @"list_projects", @"get_project", @"get_project_file" ]];
++                                                    @"list_projects", @"get_project", @"get_project_file",
++                                                    @"list_project_folder", @"project_of" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -23668,7 +24096,7 @@ index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8
 +                                                    @"explain_memory", @"list_blocked", @"get_block",
 +                                                    @"get_unblock", @"get_system_prompt", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"list_projects", @"get_project",
-+                                                    @"get_project_file" ]];
++                                                    @"get_project_file", @"list_project_folder", @"project_of" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -25235,7 +25663,7 @@ index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8
 +static NSArray<NSString *> *OmniSettableSettingKeys(void) {
 +    return @[ @"default_timeout_seconds", @"retained_run_tabs", @"timezone",
 +              @"double_escape_to_hide", @"double_escape_interval_ms", @"summaries", @"summary_model",
-+              @"notifications", @"agent_defaults", @"unblocker" ];
++              @"notifications", @"agent_defaults", @"unblocker", @"projects" ];
 +}
 +
 +static BOOL OmniIsBoolean(id value) {
@@ -25473,6 +25901,35 @@ index 0000000000000000000000000000000000000000..161e5814a6c6021ddf279af4ac9f25c8
 +        id model = merged[@"model"];
 +        if (model && !([model isEqual:@""] || OmniSettingWord(model, 200).length)) return nil;
 +        return merged;
++    }
++    if ([key isEqualToString:@"projects"]) {
++        // The sidebar's arrangement of forge projects: folders, order, each
++        // project's folder and name. Replaced whole; plain strings only.
++        if (![value isKindOfClass:[NSDictionary class]]) return nil;
++        BOOL (^strings)(id, NSUInteger, NSUInteger) = ^BOOL(id list, NSUInteger count, NSUInteger length) {
++            if (![list isKindOfClass:[NSArray class]] || [(NSArray *)list count] > count) return NO;
++            for (id entry in list) {
++                if (![entry isKindOfClass:[NSString class]] || [entry length] > length) return NO;
++            }
++            return YES;
++        };
++        BOOL (^map)(id, NSUInteger) = ^BOOL(id dictionary, NSUInteger length) {
++            if (![dictionary isKindOfClass:[NSDictionary class]] || [(NSDictionary *)dictionary count] > 2000) return NO;
++            for (id key in dictionary) {
++                id entry = dictionary[key];
++                if (![key isKindOfClass:[NSString class]] || [key length] > 4096 ||
++                    ![entry isKindOfClass:[NSString class]] || [entry length] > length) return NO;
++            }
++            return YES;
++        };
++        for (NSString *field in value) {
++            if (![@[ @"groups", @"order", @"folders", @"names" ] containsObject:field]) return nil;
++        }
++        if (value[@"groups"] && !strings(value[@"groups"], 200, 200)) return nil;
++        if (value[@"order"] && !strings(value[@"order"], 4000, 4200)) return nil;
++        if (value[@"folders"] && !map(value[@"folders"], 200)) return nil;
++        if (value[@"names"] && !map(value[@"names"], 120)) return nil;
++        return value;
 +    }
 +    if ([key isEqualToString:@"agent_defaults"]) {
 +        if (![value isKindOfClass:[NSDictionary class]]) return nil;
@@ -30478,10 +30935,10 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c865945a611d9
+index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d4eb31c9b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
-@@ -0,0 +1,643 @@
+@@ -0,0 +1,661 @@
 +import AppKit
 +import Foundation
 +
@@ -31020,6 +31477,24 @@ index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c8659
 +enum OmniSidebarMode: String {
 +    case agents
 +    case sessions
++    case projects
++
++    // Its place in the sidebar's mode switch.
++    var segment: Int {
++        switch self {
++        case .agents: return 0
++        case .sessions: return 1
++        case .projects: return 2
++        }
++    }
++
++    init(segment: Int) {
++        switch segment {
++        case 1: self = .sessions
++        case 2: self = .projects
++        default: self = .agents
++        }
++    }
 +
 +    static let preferenceKey = "OmniSidebarMode" as CFString
 +
@@ -31127,10 +31602,10 @@ index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c8659
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4f2736c18
+index 0000000000000000000000000000000000000000..e9685db47f703e70fa448e936432be12cfc542ab
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3382 @@
+@@ -0,0 +1,3727 @@
 +import AppKit
 +import Foundation
 +import os
@@ -31168,6 +31643,9 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        case settings
 +        case unblocker
 +        case projects
++        // Projects mode: a forge project, and a folder of them.
++        case project
++        case projectFolder
 +        // A Claude or Codex session, in Sessions mode.
 +        case session
 +        // Sessions mode: loads the next page of the list.
@@ -31203,6 +31681,11 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // Dashboard, Inbox and Memory: the top group.
 +    var isTopGroup: Bool {
 +        return kind == .overview || kind == .inbox || kind == .memory || kind == .settings || kind == .unblocker || kind == .projects
++    }
++
++    // Agent and project folders: they open, close, rename and take drops.
++    var isFolder: Bool {
++        return kind == .group || kind == .projectFolder
 +    }
 +
 +    // Headers and the rule are not rows to select.
@@ -31352,7 +31835,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    private let runsSection = OmniSidebarItem(kind: .section, key: "runs", title: "Runs")
 +    private let terminalsSection = OmniSidebarItem(kind: .section, key: "terminals", title: "Terminals")
 +    // Sessions mode.
-+    private let modeControl = NSSegmentedControl(labels: ["Agents", "Sessions"], trackingMode: .selectOne,
++    private let modeControl = NSSegmentedControl(labels: ["Agents", "Sessions", "Projects"], trackingMode: .selectOne,
 +                                                 target: nil, action: nil)
 +    private(set) var mode: OmniSidebarMode = .agents
 +    // The search bar above the list, with the pin beside it.
@@ -31391,6 +31874,15 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // Settings `sidebar_order`: agents and groups as siblings, in order.
 +    private var sidebarOrder: [String] = []
 +    private var groupTree = OmniGroupTree()
++    // Projects mode: forge's projects and the person's arrangement of them.
++    private let forgeProjectsSection = OmniSidebarItem(kind: .section, key: "forge-projects", title: "Projects")
++    private var forgeProjects: [[String: Any]] = []
++    private var projectLayout = OmniProjectLayout()
++    private var projectTree = OmniGroupTree()
++    private var projectsRequestInFlight = false
++    private static let collapsedProjectFoldersKey = "OmniSidebarCollapsedProjectFolders" as CFString
++    private static let projectDragType = NSPasteboard.PasteboardType("com.omniterm.sidebar.project")
++    private static let projectFolderDragType = NSPasteboard.PasteboardType("com.omniterm.sidebar.project-folder")
 +    private let contextMenu = NSMenu()
 +    // An inline rename in progress; refreshes wait for it.
 +    private var editing: (row: OmniSidebarItem, field: NSTextField, cancelled: Bool)?
@@ -31474,7 +31966,8 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        outlineView.doubleAction = #selector(doubleClicked(_:))
 +        outlineView.autoresizesOutlineColumn = false
 +        outlineView.indentationPerLevel = 12
-+        outlineView.registerForDraggedTypes([Self.agentDragType, Self.groupDragType, Self.terminalDragType])
++        outlineView.registerForDraggedTypes([Self.agentDragType, Self.groupDragType, Self.terminalDragType,
++                                             Self.projectDragType, Self.projectFolderDragType])
 +        outlineView.draggingDestinationFeedbackStyle = .sourceList
 +        outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
 +        contextMenu.delegate = self
@@ -31484,11 +31977,15 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        mode = OmniSidebarMode.stored(in: Self.preferencesDomain)
 +        modeControl.segmentStyle = .automatic
 +        modeControl.controlSize = .regular
-+        modeControl.selectedSegment = mode == .agents ? 0 : 1
++        // Three modes share the sidebar's width: a smaller face keeps every label whole.
++        modeControl.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
++        modeControl.segmentDistribution = .fillEqually
++        modeControl.selectedSegment = mode.segment
 +        modeControl.target = self
 +        modeControl.action = #selector(modeControlChanged(_:))
 +        modeControl.setToolTip("Agents and runs (⇧⌘1)", forSegment: 0)
 +        modeControl.setToolTip("All Claude and Codex sessions (⇧⌘2)", forSegment: 1)
++        modeControl.setToolTip("Forge projects, in your folders (⇧⌘3)", forSegment: 2)
 +        modeControl.setAccessibilityLabel("Sidebar mode")
 +        // The search bar serves both modes; large, so it reads as the
 +        // sidebar's main control.
@@ -32026,8 +32523,24 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        contentHost.refresh()
 +    }
 +
++    private func requestProjects() {
++        guard mode == .projects, !projectsRequestInFlight else { return }
++        if forgeProjects.isEmpty {
++            forgeProjects = OmniProjectsCache.load()
++        }
++        projectsRequestInFlight = true
++        OmniSchedulerClient.request(["op": "list_projects"]) { [weak self] response in
++            guard let self else { return }
++            self.projectsRequestInFlight = false
++            guard response["ok"] as? Bool == true else { return }
++            self.forgeProjects = response["projects"] as? [[String: Any]] ?? []
++            self.rebuild()
++        }
++    }
++
 +    private func requestSchedulerState() {
 +        requestSessions()
++        requestProjects()
 +        if !agentsRequestInFlight {
 +            agentsRequestInFlight = true
 +            OmniSchedulerClient.request(["op": "list_agents"]) { [weak self] response in
@@ -32051,6 +32564,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +                }
 +            }
 +            let groups = settings["sidebar_groups"] as? [String] ?? []
++            self.projectLayout = OmniProjectLayout(settings["projects"])
 +            let order = settings["sidebar_order"] as? [String] ?? []
 +            guard groups != self.configuredGroups || order != self.sidebarOrder else { return }
 +            self.configuredGroups = groups
@@ -32167,6 +32681,10 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    private func rebuild() {
 +        if mode == .sessions {
 +            rebuildSessions()
++            return
++        }
++        if mode == .projects {
++            rebuildProjects()
 +            return
 +        }
 +        var runs: [OmniSidebarItem] = []
@@ -32351,7 +32869,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +            if OmniSessionText.isLive(session) {
 +                live.append(row)
 +            } else {
-+                rest.append((row, OmniProjectsModel.sessionGroup(session)))
++                rest.append((row, OmniProjectsModel.sessionGroup(session, aliases: projectLayout.names)))
 +            }
 +        }
 +        liveSessionsSection.children = live
@@ -32478,14 +32996,15 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +
 +    // The pages both modes share, then the mode switch.
 +    private var sharedItems: [OmniSidebarItem] {
-+        return [overviewItem, inboxItem, projectsItem, memoryItem, unblockerItem, settingsItem, modeSwitchItem]
++        let projects = mode == .projects ? [] : [projectsItem]
++        return [overviewItem, inboxItem] + projects + [memoryItem, unblockerItem, settingsItem, modeSwitchItem]
 +    }
 +
 +    // Agents mode search: rows whose name or detail holds the query; a
 +    // folder stays while any row in it matches.
 +    private static func filtered(_ rows: [OmniSidebarItem], query: String) -> [OmniSidebarItem] {
 +        return rows.compactMap { row in
-+            if row.kind == .group {
++            if row.isFolder {
 +                let children = filtered(row.children, query: query)
 +                guard !children.isEmpty else { return nil }
 +                row.children = children
@@ -32500,10 +33019,10 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // provider and grouping menu.
 +    private func updateSearchFieldForMode() {
 +        let sessions = mode == .sessions
-+        sessionSearchField.placeholderString = sessions ? "Search sessions" : "Search agents"
++        sessionSearchField.placeholderString = sessions ? "Search sessions" : mode == .projects ? "Search projects" : "Search agents"
 +        sessionSearchField.toolTip = sessions ? "Filters sessions and searches their transcripts"
 +                                              : "Filters agents, runs and terminals"
-+        sessionSearchField.setAccessibilityLabel(sessions ? "Search sessions" : "Search agents")
++        sessionSearchField.setAccessibilityLabel(sessions ? "Search sessions" : mode == .projects ? "Search projects" : "Search agents")
 +        sessionSearchField.searchMenuTemplate = sessions ? sessionsFilterMenu() : nil
 +    }
 +
@@ -32568,12 +33087,12 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    }
 +
 +    @objc private func modeControlChanged(_ sender: NSSegmentedControl) {
-+        setMode(sender.selectedSegment == 1 ? .sessions : .agents)
++        setMode(OmniSidebarMode(segment: sender.selectedSegment))
 +    }
 +
 +    // ⌘⇧1 and ⌘⇧2, the switch, and tests.
 +    func setMode(_ newMode: OmniSidebarMode) {
-+        modeControl.selectedSegment = newMode == .agents ? 0 : 1
++        modeControl.selectedSegment = newMode.segment
 +        guard newMode != mode else { return }
 +        mode = newMode
 +        newMode.store(in: Self.preferencesDomain)
@@ -32583,6 +33102,9 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        if newMode == .sessions {
 +            requestSessions(force: true)
 +            searchTranscripts()
++        }
++        if newMode == .projects {
++            requestProjects()
 +        }
 +    }
 +
@@ -32622,6 +33144,217 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +
 +    @objc func showSessionsMode() {
 +        setMode(.sessions)
++    }
++
++    @objc func showProjectsMode() {
++        setMode(.projects)
++    }
++
++    // MARK: - Projects mode
++
++    private static func projectRoot(_ row: OmniSidebarItem) -> String? {
++        if case .project(let root) = row.route { return root }
++        return nil
++    }
++
++    // The shared rows, then the person's folders of forge projects.
++    private func rebuildProjects() {
++        let roots = forgeProjects.compactMap { $0["root"] as? String }
++        projectTree = projectLayout.tree(roots: roots)
++        let byRoot = Dictionary(forgeProjects.compactMap { project in (project["root"] as? String).map { ($0, project) } },
++                                uniquingKeysWith: { first, _ in first })
++        func rows(_ entries: [OmniGroupTree.Entry]) -> [OmniSidebarItem] {
++            return entries.compactMap { entry in
++                switch entry {
++                case .agent(let root):
++                    guard let project = byRoot[root] else { return nil }
++                    let title = projectLayout.name(root) ?? OmniProjectsModel.name(project)
++                    let updated = (project["updated"] as? NSNumber)?.doubleValue
++                    let row = item(.project, key: root, title: title, detail: OmniSessionText.age(updated),
++                                   route: .project(root))
++                    row.groupPath = projectLayout.folders[root] ?? ""
++                    row.children = []
++                    return row
++                case .group(let group):
++                    let row = item(.projectFolder, key: group.path, title: group.name)
++                    row.groupPath = group.path
++                    row.children = rows(group.children)
++                    return row
++                }
++            }
++        }
++        forgeProjectsSection.children = rows(projectTree.entries)
++        if !sessionQuery.isEmpty {
++            forgeProjectsSection.children = Self.filtered(forgeProjectsSection.children, query: sessionQuery.lowercased())
++        }
++        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
++        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
++        let items = sharedItems + [forgeProjectsSection]
++        applyUpdate(items: items, structure: "projects;" + items.map(Self.structure).joined(separator: ";"))
++        followCurrentTab(tabs: terminal?.tabs() ?? [], dashboardTabIDs: [], backgroundAgents: OmniBackgroundAgents.names(agents))
++        layoutContent()
++        syncSelection()
++    }
++
++    private var collapsedProjectFolders: Set<String> {
++        get {
++            let value = CFPreferencesCopyAppValue(Self.collapsedProjectFoldersKey, Self.preferencesDomain)
++            return Set(value as? [String] ?? [])
++        }
++        set {
++            CFPreferencesSetAppValue(Self.collapsedProjectFoldersKey, Array(newValue).sorted() as CFArray, Self.preferencesDomain)
++            CFPreferencesAppSynchronize(Self.preferencesDomain)
++        }
++    }
++
++    // Shows the change at once and saves it; a refusal puts the old arrangement back.
++    private func saveProjectLayout(_ layout: OmniProjectLayout, problemOn key: String? = nil) {
++        let saved = projectLayout
++        projectLayout = layout
++        rebuild()
++        OmniSchedulerClient.request(["op": "set_settings", "settings": ["projects": layout.dictionary]]) { [weak self] response in
++            guard let self else { return }
++            guard response["ok"] as? Bool == true else {
++                self.projectLayout = saved
++                self.rebuild()
++                if let key, let row = self.itemCache[key] {
++                    self.showRenameProblem(Self.problem(response, fallback: "The projects could not be rearranged."), on: row)
++                }
++                return
++            }
++            if let settings = response["settings"] as? [String: Any] {
++                self.projectLayout = OmniProjectLayout(settings["projects"])
++            }
++            self.finishInteraction()
++            self.rebuild()
++            self.contentHost.pane?.reload()
++        }
++    }
++
++    private func renameProject(_ row: OmniSidebarItem, to newName: String) {
++        guard let root = Self.projectRoot(row) else { return }
++        if newName.unicodeScalars.count > 120 {
++            showRenameProblem("Keep project names to 120 characters.", on: row)
++            return
++        }
++        var layout = projectLayout
++        layout.rename(project: root, to: newName)
++        saveProjectLayout(layout, problemOn: row.key)
++    }
++
++    private func renameProjectFolder(_ row: OmniSidebarItem, to newName: String) {
++        let path = row.groupPath
++        let parent = OmniGroupTree.parent(of: path)
++        let siblings = projectTree.allPaths.filter { $0 != path && OmniGroupTree.parent(of: $0) == parent }
++            .map { $0.components(separatedBy: "/").last ?? $0 }
++        if let problem = OmniRenameRules.groupNameProblem(newName, siblings: siblings) {
++            showRenameProblem(problem, on: row)
++            return
++        }
++        let newPath = parent.isEmpty ? newName : "\(parent)/\(newName)"
++        var layout = projectLayout
++        let before = projectTree.displayKeys.drop { $0 != OmniGroupTree.groupKey(path) }.dropFirst()
++            .first { !$0.hasPrefix(OmniGroupTree.groupKey(path + "/")) && !(projectTree.group(path)?.children.map(\.key).contains($0) ?? false) }
++        layout.move(folder: path, to: newPath, before: before, tree: projectTree)
++        var collapsed = collapsedProjectFolders
++        if collapsed.remove(path) != nil {
++            collapsed.insert(newPath)
++            collapsedProjectFolders = collapsed
++        }
++        saveProjectLayout(layout, problemOn: "projectFolder|\(newPath)")
++    }
++
++    private func createProjectFolder(in parent: String, fromKeyboard: Bool) {
++        let siblings = projectTree.allPaths.filter { OmniGroupTree.parent(of: $0) == parent }
++            .map { $0.components(separatedBy: "/").last ?? $0 }
++        let name = OmniRenameRules.uniqueName(parent.isEmpty ? "New Folder" : "New Subfolder", siblings: siblings)
++        let path = parent.isEmpty ? name : "\(parent)/\(name)"
++        var layout = projectLayout
++        layout.add(folder: path, tree: projectTree)
++        pendingEditKey = "projectFolder|\(path)"
++        pendingEditFromKeyboard = fromKeyboard
++        if !parent.isEmpty {
++            var collapsed = collapsedProjectFolders
++            collapsed.remove(parent)
++            collapsedProjectFolders = collapsed
++        }
++        saveProjectLayout(layout)
++    }
++
++    @objc private func newProjectFolder(_ sender: NSMenuItem) {
++        createProjectFolder(in: sender.representedObject as? String ?? "", fromKeyboard: false)
++    }
++
++    @objc private func deleteProjectFolder(_ sender: NSMenuItem) {
++        guard let path = sender.representedObject as? String else { return }
++        var layout = projectLayout
++        layout.delete(folder: path, tree: projectTree)
++        saveProjectLayout(layout)
++    }
++
++    @objc private func moveProject(_ sender: NSMenuItem) {
++        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
++        var layout = projectLayout
++        layout.move(project: pair[0], into: pair[1], before: nil, tree: projectTree)
++        saveProjectLayout(layout)
++    }
++
++    @objc private func resetProjectName(_ sender: NSMenuItem) {
++        guard let root = sender.representedObject as? String else { return }
++        var layout = projectLayout
++        layout.rename(project: root, to: "")
++        saveProjectLayout(layout)
++    }
++
++    @objc private func revealProject(_ sender: NSMenuItem) {
++        guard let root = sender.representedObject as? String else { return }
++        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: root)
++    }
++
++    private enum ProjectDrop {
++        case project(root: String, folder: String, before: String?)
++        case folder(path: String, newPath: String?, before: String?)
++    }
++
++    private func projectDrop(_ info: NSDraggingInfo, item: Any?, index: Int) -> ProjectDrop? {
++        guard let target = item as? OmniSidebarItem else { return nil }
++        let path: String
++        switch target.kind {
++        case .projectFolder: path = target.groupPath
++        case .section where target === forgeProjectsSection: path = ""
++        default: return nil
++        }
++        let onItem = index == NSOutlineViewDropOnItemIndex
++        func before(excluding key: String) -> String? {
++            guard !onItem, index >= 0, index < target.children.count else { return nil }
++            return target.children[index...].lazy.compactMap(Self.orderKey).first { $0 != key }
++        }
++        if let root = info.draggingPasteboard.string(forType: Self.projectDragType) {
++            return .project(root: root, folder: path, before: before(excluding: OmniProjectLayout.key(root)))
++        }
++        guard let moving = info.draggingPasteboard.string(forType: Self.projectFolderDragType) else { return nil }
++        let key = before(excluding: OmniGroupTree.groupKey(moving))
++        if OmniGroupTree.parent(of: moving) == path {
++            return onItem ? nil : .folder(path: moving, newPath: nil, before: key)
++        }
++        guard let newPath = OmniSidebarMoves.regroupedPath(moving, into: path, tree: projectTree) else { return nil }
++        return .folder(path: moving, newPath: newPath, before: key)
++    }
++
++    private func acceptProjectDrop(_ drop: ProjectDrop) {
++        var layout = projectLayout
++        switch drop {
++        case .project(let root, let folder, let before):
++            layout.move(project: root, into: folder, before: before, tree: projectTree)
++            saveProjectLayout(layout, problemOn: "project|\(root)")
++        case .folder(let path, let newPath, let before):
++            if let newPath {
++                layout.move(folder: path, to: newPath, before: before, tree: projectTree)
++            } else {
++                layout.reorder(folder: path, before: before, tree: projectTree)
++            }
++            saveProjectLayout(layout, problemOn: "projectFolder|\(newPath ?? path)")
++        }
 +    }
 +
 +    // Reloads the whole list only when rows come or go, and never while a
@@ -32710,6 +33443,14 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +                outlineView.expandItem(row)
 +            }
 +        }
++        let collapsedProjects = collapsedProjectFolders
++        for row in Self.flattened(forgeProjectsSection.children) where row.kind == .projectFolder {
++            if collapsedProjects.contains(row.groupPath) {
++                outlineView.collapseItem(row)
++            } else {
++                outlineView.expandItem(row)
++            }
++        }
 +        restoringExpansion = false
 +    }
 +
@@ -32723,7 +33464,17 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +
 +    private func rememberExpansion(_ notification: Notification, collapsed: Bool) {
 +        guard !restoringExpansion,
-+              let row = notification.userInfo?["NSObject"] as? OmniSidebarItem, row.kind == .group else { return }
++              let row = notification.userInfo?["NSObject"] as? OmniSidebarItem, row.isFolder else { return }
++        if row.kind == .projectFolder {
++            var folders = collapsedProjectFolders
++            if collapsed {
++                folders.insert(row.groupPath)
++            } else {
++                folders.remove(row.groupPath)
++            }
++            collapsedProjectFolders = folders
++            return
++        }
 +        var groups = collapsedGroups
 +        if collapsed {
 +            groups.insert(row.groupPath)
@@ -32895,7 +33646,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +                continue
 +            }
 +            let matches: Bool
-+            if case .project = route {
++            if case .project = route, mode != .projects {
 +                // A project's page keeps the Projects row highlighted.
 +                matches = item.kind == .projects
 +            } else if let route {
@@ -32979,6 +33730,14 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +
 +    // Tests run a harmless command in place of the provider's CLI.
 +    static var resumeCommandForTesting: String?
++
++    func paneProjectsChanged() {
++        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
++            guard let self, let settings = response["settings"] as? [String: Any] else { return }
++            self.projectLayout = OmniProjectLayout(settings["projects"])
++            self.rebuild()
++        }
++    }
 +
 +    func paneSessionsChanged() {
 +        requestSessions(force: true)
@@ -33128,7 +33887,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // anywhere else on an agent or group row renames it in place.
 +    func handleDoubleClick(row: Int, at point: NSPoint?) {
 +        guard let item = outlineView.item(atRow: row) as? OmniSidebarItem,
-+              item.kind == .agent || item.kind == .group else { return }
++              item.kind == .agent || item.isFolder || item.kind == .project else { return }
 +        if item.kind == .agent, let point,
 +           let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? OmniSidebarCell,
 +           let icon = cell.iconFrame, cell.convert(icon, to: outlineView).insetBy(dx: -3, dy: -3).contains(point) {
@@ -33209,9 +33968,14 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +            finishInteraction()
 +            return
 +        }
-+        if row.kind == .agent {
++        switch row.kind {
++        case .agent:
 +            renameAgent(row, to: newName)
-+        } else {
++        case .project:
++            renameProject(row, to: newName)
++        case .projectFolder:
++            renameProjectFolder(row, to: newName)
++        default:
 +            renameGroup(row, to: newName)
 +        }
 +    }
@@ -33461,6 +34225,42 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        case .section where row === agentsSection:
 +            add("New Agent…", #selector(newAgent(_:)), nil)
 +            add("New Folder", #selector(newGroup(_:)), nil)
++        case .project:
++            guard let root = Self.projectRoot(row) else { break }
++            add("Rename…", #selector(renameItem(_:)), row)
++            if projectLayout.name(root) != nil {
++                add("Use Folder Name", #selector(resetProjectName(_:)), root)
++            }
++            let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
++            let submenu = NSMenu()
++            let top = submenu.addItem(withTitle: "No Folder", action: #selector(moveProject(_:)), keyEquivalent: "")
++            top.target = self
++            top.representedObject = [root, ""]
++            top.state = row.groupPath.isEmpty ? .on : .off
++            if !projectTree.allPaths.isEmpty {
++                submenu.addItem(.separator())
++            }
++            for path in projectTree.allPaths {
++                let entry = submenu.addItem(withTitle: path.components(separatedBy: "/").last ?? path,
++                                            action: #selector(moveProject(_:)), keyEquivalent: "")
++                entry.target = self
++                entry.indentationLevel = path.components(separatedBy: "/").count - 1
++                entry.representedObject = [root, path]
++                entry.state = row.groupPath == path ? .on : .off
++            }
++            move.submenu = submenu
++            menu.addItem(move)
++            menu.addItem(.separator())
++            add("Reveal in Finder", #selector(revealProject(_:)), root)
++        case .projectFolder:
++            add("Rename Folder", #selector(renameItem(_:)), row)
++            if !row.groupPath.contains("/") {
++                add("New Subfolder", #selector(newProjectFolder(_:)), row.groupPath)
++            }
++            menu.addItem(.separator())
++            add("Delete Folder", #selector(deleteProjectFolder(_:)), row.groupPath)
++        case .section where row === forgeProjectsSection:
++            add("New Folder", #selector(newProjectFolder(_:)), "")
 +        default:
 +            break
 +        }
@@ -33482,6 +34282,11 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        case .terminal:
 +            guard let tab = row.tab else { return nil }
 +            pasteboardItem.setString(String(tab.uniqueId), forType: Self.terminalDragType)
++        case .project:
++            guard let root = Self.projectRoot(row) else { return nil }
++            pasteboardItem.setString(root, forType: Self.projectDragType)
++        case .projectFolder:
++            pasteboardItem.setString(row.groupPath, forType: Self.projectFolderDragType)
 +        default:
 +            return nil
 +        }
@@ -33496,7 +34301,8 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    private static func orderKey(_ row: OmniSidebarItem) -> String? {
 +        switch row.kind {
 +        case .agent: return OmniGroupTree.agentKey(row.title)
-+        case .group: return OmniGroupTree.groupKey(row.groupPath)
++        case .group, .projectFolder: return OmniGroupTree.groupKey(row.groupPath)
++        case .project: return projectRoot(row).map(OmniProjectLayout.key)
 +        default: return nil
 +        }
 +    }
@@ -33556,6 +34362,9 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        if info.draggingPasteboard.string(forType: Self.terminalDragType) != nil {
 +            return terminalDrop(info, item: item, index: index) != nil ? .move : []
 +        }
++        if info.draggingPasteboard.availableType(from: [Self.projectDragType, Self.projectFolderDragType]) != nil {
++            return projectDrop(info, item: item, index: index) != nil ? .move : []
++        }
 +        guard sidebarDrop(info, item: item, index: index) != nil else { return [] }
 +        return .move
 +    }
@@ -33565,6 +34374,11 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +            // The tab order is the model; the window's arrangement keeps it.
 +            terminal?.moveTab(at: move.from, to: move.to)
 +            rebuildAfterDrop()
++            return true
++        }
++        if info.draggingPasteboard.availableType(from: [Self.projectDragType, Self.projectFolderDragType]) != nil {
++            guard let drop = projectDrop(info, item: item, index: index) else { return false }
++            acceptProjectDrop(drop)
 +            return true
 +        }
 +        guard let drop = sidebarDrop(info, item: item, index: index) else { return false }
@@ -33678,7 +34492,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +
 +    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
 +        let kind = (item as? OmniSidebarItem)?.kind
-+        return kind == .section || kind == .group || (kind == .session && !((item as? OmniSidebarItem)?.children.isEmpty ?? true))
++        return kind == .section || kind == .group || kind == .projectFolder || (kind == .session && !((item as? OmniSidebarItem)?.children.isEmpty ?? true))
 +    }
 +
 +    // MARK: - NSOutlineViewDelegate
@@ -33741,7 +34555,10 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +            let icon = item.icon ?? .symbol(OmniAgentIcon.defaultSymbol)
 +            cell.configure(title: item.title, detail: item.detail, icon: icon,
 +                           iconColor: OmniAgentColor.color(item.iconColor), status: item.color, pulses: item.pulses)
-+        case .group:
++        case .project:
++            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.shippingbox.rawValue),
++                           iconColor: nil, status: nil, pulses: false)
++        case .group, .projectFolder:
 +            let open = outlineView.isItemExpanded(item)
 +            cell.configure(title: item.title, detail: "", icon: .symbol(open ? SFSymbol.folder.rawValue : SFSymbol.folderFill.rawValue),
 +                           iconColor: nil, status: nil, pulses: false)
@@ -33920,8 +34737,8 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +            return togglePanel(panel)
 +        }
 +        // Shift-Command-1 and 2: the sidebar's Agents and Sessions modes.
-+        if flags == [.shift, .command], event.keyCode == 18 || event.keyCode == 19 {
-+            setMode(event.keyCode == 18 ? .agents : .sessions)
++        if flags == [.shift, .command], event.keyCode == 18 || event.keyCode == 19 || event.keyCode == 20 {
++            setMode(event.keyCode == 18 ? .agents : event.keyCode == 19 ? .sessions : .projects)
 +            return true
 +        }
 +        // A page's zone has the keyboard: its keys go to it ahead of the
@@ -33976,7 +34793,7 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +        case 123 where plain:
 +            collapseSelection()
 +        case 36 where plain, 76 where plain:
-+            if let item = selectedItem, item.kind == .agent || item.kind == .group {
++            if let item = selectedItem, item.kind == .agent || item.isFolder || item.kind == .project {
 +                beginEditing(item, fromKeyboard: true)
 +            } else {
 +                focusContent()
@@ -33991,6 +34808,9 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +                }
 +            } else if flags == .command, key == "n" {
 +                presentNewAgent(group: selectedItem?.kind == .group ? selectedItem?.groupPath : nil)
++            } else if flags == [.command, .shift], key == "n", mode == .projects {
++                let folder = selectedItem?.kind == .projectFolder ? selectedItem?.groupPath ?? "" : ""
++                createProjectFolder(in: folder.contains("/") ? "" : folder, fromKeyboard: true)
 +            } else if flags == [.command, .shift], key == "n" {
 +                // In a selected top-level folder, a subfolder; else top level.
 +                let folder = selectedItem?.kind == .group ? selectedItem?.groupPath ?? "" : ""
@@ -34019,14 +34839,14 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // first item instead.
 +    private func moveRight() {
 +        guard let item = selectedItem else { return }
-+        if item.kind == .group, !outlineView.isItemExpanded(item) {
++        if item.isFolder, !outlineView.isItemExpanded(item) {
 +            outlineView.expandItem(item)
 +            return
 +        }
 +        if contentHost.window === view.window, contentHost.enterFirstZone() {
 +            return
 +        }
-+        if item.kind == .group, let first = item.children.first {
++        if item.isFolder, let first = item.children.first {
 +            let index = outlineView.row(forItem: first)
 +            if index >= 0 {
 +                outlineView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
@@ -34038,11 +34858,11 @@ index 0000000000000000000000000000000000000000..6589774080dc87b212d7a6d5808908c4
 +    // Left closes an open folder, or goes to the folder an item is in.
 +    private func collapseSelection() {
 +        guard let item = selectedItem else { return }
-+        if item.kind == .group, outlineView.isItemExpanded(item) {
++        if item.isFolder, outlineView.isItemExpanded(item) {
 +            outlineView.collapseItem(item)
 +            return
 +        }
-+        guard let parent = outlineView.parent(forItem: item) as? OmniSidebarItem, parent.kind == .group else { return }
++        guard let parent = outlineView.parent(forItem: item) as? OmniSidebarItem, parent.isFolder else { return }
 +        let index = outlineView.row(forItem: parent)
 +        if index >= 0 {
 +            outlineView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)

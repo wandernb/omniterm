@@ -7,7 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- The sidebar has a third mode, Projects, next to Agents and Sessions (⇧⌘3):
+  every Forge project, arranged in folders you make like agent folders.
+  Folders collapse, projects and folders move by drag and drop or the Move to
+  menu, arrow keys walk the list, and a double-click or Return renames a
+  project or folder. The arrangement is saved in OmniTerm's settings; a
+  project's new name is OmniTerm's alone.
+- A project's page has tabs: Home (facts, worktrees and branches at a glance,
+  recent sessions, README), Worktrees & Branches, Sessions & Agents,
+  Knowledge, Files (a folder browser) and Settings. ⌘1 to ⌘6 switch tabs.
+  Env files, secrets and keys are listed but never opened.
+
 ### Fixed
+
+- The Projects list and sidebar show at once after a launch, from the last
+  saved list, instead of waiting for the background worker.
+- Sessions in Documents, Desktop or Downloads no longer make OmniTerm ask for
+  access to those folders.
+- A project's sessions are its own, not a filter of the newest sessions.
 
 - The Omni Unblocker no longer nudges a session that is waiting on its own
   running build, test, deploy or background task.
