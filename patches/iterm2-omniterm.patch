@@ -6756,10 +6756,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b3cea56ee3fb39a24922a7771ebe538c7297c1ed
+index 0000000000000000000000000000000000000000..b418641440c9b84fab2e02c7ee88358f78653377
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1809 @@
+@@ -0,0 +1,1829 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7966,6 +7966,26 @@ index 0000000000000000000000000000000000000000..b3cea56ee3fb39a24922a7771ebe538c
 +            found += all(type, in: subview)
 +        }
 +        return found
++    }
++
++    // Parsed Markdown in a session's chat (replies and an opened skill's
++    // instructions) sits on the Markdown card: lighter fill, hairline border.
++    func testChatRepliesAndSkillsSitOnTheMarkdownCard() throws {
++        let chat = OmniChatView(frame: NSRect(x: 0, y: 0, width: 760, height: 700))
++        window = NSWindow(contentRect: chat.frame, styleMask: [.titled], backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        window.contentView = chat
++        let reply = OmniTranscriptItem(key: "r1", kind: .assistant, text: "Done: **tests** pass.\n\n- one\n- two")
++        let skill = OmniTranscriptItem(key: "s1", kind: .skill(name: "forge:ship"), text: "# Ship\n\nBuild it, then *check* it.")
++        chat.setItems([reply, skill], followEnd: false)
++        window.appearance = NSAppearance(named: .darkAqua)
++        chat.resizeSubviews(withOldSize: .zero)
++        chat.toggle("s1")
++        func cards() -> [NSView] {
++            chat.layoutSubtreeIfNeeded()
++            return Self.all(NSView.self, in: chat).filter { !$0.isHidden && $0.layer?.borderWidth == 1 && $0.frame.height > 30 }
++        }
++        wait("the reply and the opened skill are both on a card") { cards().count == 2 }
 +    }
 +
 +    func testOneSearchFindsAgentsInEveryMode() throws {
