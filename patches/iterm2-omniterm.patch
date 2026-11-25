@@ -9891,7 +9891,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bfeb7ffc15 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..8043a7d46557498d13c4fb0d1e54f31d51226be8 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -10434,7 +10434,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2366,491 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -1939,45 +2366,494 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -10757,6 +10757,8 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
 +    // The place and size the person gave the window come back, whatever
 +    // iTerm2 did to it while hidden. It is never recentered.
 +    [terminal omniRestoreWindowFrameOnScreen:nil centered:NO];
++    // Unpinned, it comes to the Space the person is on.
++    [terminal omniMoveWindowToActiveSpace];
 +
 +    NSWindowCollectionBehavior behavior = window.collectionBehavior;
 +    behavior &= ~NSWindowCollectionBehaviorCanJoinAllSpaces;
@@ -10855,7 +10857,8 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
 +        return NO;
 +    }
 +    if (!terminal.omniWindowPinned) {
-+        return YES;
++        // Unpinned: on another Space, the shortcut brings it here instead.
++        return window.isOnActiveSpace;
 +    }
 +    // Pinned: hide it only when it shows on the current Space; on another
 +    // Space, or wholly covered, the shortcut switches to it instead.
@@ -10944,7 +10947,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3289,67 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,67 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -11012,7 +11015,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3478,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3481,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11035,7 +11038,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3624,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3627,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11044,7 +11047,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4088,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4091,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11060,7 +11063,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4854,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4857,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11081,7 +11084,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bf
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5100,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5103,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -30640,10 +30643,10 @@ index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c8659
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..882769735e3e07a7b785c6ca989a57b1f6d89d55
+index 0000000000000000000000000000000000000000..ad8bdf66d4cd684766e59269fcfe1d9adcf3f7ad
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3346 @@
+@@ -0,0 +1,3357 @@
 +import AppKit
 +import Foundation
 +import os
@@ -31201,6 +31204,17 @@ index 0000000000000000000000000000000000000000..882769735e3e07a7b785c6ca989a57b1
 +              OmniWindowSpaces.space(of: window) != space, OmniWindowSpaces.userSpaces().contains(space) else { return }
 +        omniWindowFrameLog.notice("move to space \(space, privacy: .public)")
 +        OmniWindowSpaces.move(window, to: space)
++    }
++
++    // Unpinned, showing brings the window to the person's Space. Ordering it
++    // front with move-to-active-Space does that only for a hidden window; one
++    // still shown on another Space is moved explicitly.
++    @objc func moveWindowToActiveSpace() {
++        guard !windowPinned, let window = view.window, let active = OmniWindowSpaces.activeSpace(),
++              let space = OmniWindowSpaces.space(of: window), space != active,
++              OmniWindowSpaces.userSpaces().contains(active) else { return }
++        omniWindowFrameLog.notice("move from space \(space, privacy: .public) to active \(active, privacy: .public)")
++        OmniWindowSpaces.move(window, to: active)
 +    }
 +
 +    @objc private func togglePinButton(_ sender: Any?) {
@@ -35052,10 +35066,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..618eb015b0c1ec6ce5d15714d338a0da00a631ca 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..aeb23883004ea42dd4371c108ceb0200bffefa6e 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,45 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,47 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -35092,6 +35106,8 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..618eb015b0c1ec6ce5d15714d338a0da
 +// when a relaunch left it on none.
 +- (void)omniNoteWindowSpace;
 +- (void)omniMoveWindowToPinnedSpace;
++// Unpinned: before showing, onto the Space the person is on.
++- (void)omniMoveWindowToActiveSpace;
 +@property(nonatomic, readonly) CGFloat omniContentTopInset;
 +
 +// OmniTerm: Control-Command-S focuses the sidebar, and while it has focus its
@@ -35102,7 +35118,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..618eb015b0c1ec6ce5d15714d338a0da
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e12606887817adf 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..c1617f0ca4269e84108b4a002c63e973a24ffbd3 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -35264,7 +35280,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,121 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,125 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -35311,6 +35327,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
 +
 +- (void)omniMoveWindowToPinnedSpace {
 +    [_omniSidebar moveWindowToPinnedSpace];
++}
++
++- (void)omniMoveWindowToActiveSpace {
++    [_omniSidebar moveWindowToActiveSpace];
 +}
 +
 +- (void)omniHideWindow {
@@ -35387,7 +35407,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7099,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7103,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -35397,7 +35417,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7415,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7419,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -35409,7 +35429,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7625,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7629,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -35417,7 +35437,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7741,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7745,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -35429,7 +35449,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8363,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8367,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -35437,7 +35457,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8372,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8376,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -35450,7 +35470,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8524,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8528,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -35459,7 +35479,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8863,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8867,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -35476,7 +35496,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8901,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8905,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -35485,7 +35505,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9152,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9156,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -35494,7 +35514,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12466,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12470,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -35510,7 +35530,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13426,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13430,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -35526,7 +35546,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e126068
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14003,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14007,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {

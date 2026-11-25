@@ -27,7 +27,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   hooks no longer run inside its calls.
 - Pin the window (the pin beside the sidebar's mode switch, or **Pin Window**
   in the menu bar) to keep it on its own Space; it always reopens where you left
-  it. OmniTerm starts as a menu-bar app, so launching never flashes a Dock icon.
+  it. Unpinned, the shortcut brings the window from another Space to yours.
+  OmniTerm starts as a menu-bar app, so launching never flashes a Dock icon.
 - Larger, cleaner Sessions search field in the sidebar.
 - The Omni Unblocker now listens in the background instead of running as a
   scheduled agent, so it never shows up as an agent, run or tab, and a stuck
