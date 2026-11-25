@@ -21,6 +21,7 @@ def load(name, path):
 BLOCKS = load("omni_blocks", ROOT / "helpers/omni_blocks.py")
 KNOWLEDGE = load("omni_knowledge_blocks", ROOT / "helpers/omni_knowledge.py")
 OMNI = load("omni_cli_blocks", ROOT / "helpers/omni")
+UNBLOCKER = load("omni_unblocker", ROOT / "helpers/omni_unblocker.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
 
 
@@ -145,7 +146,7 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(BLOCKS.transcript_request(str(path), home), "Stop hook feedback: the full /forge:refresh was not run")
             self.assertEqual(BLOCKS.transcript_tail(str(path), home), "Blocked: the CI secret needs you.")
             self.assertEqual(BLOCKS.transcript_request(str(home / "elsewhere.jsonl"), home), "")
-        self.assertIn("last_request", BLOCKS.SYSTEM_PROMPT)
+        self.assertIn("last_request", UNBLOCKER.SYSTEM_PROMPT)
 
     def test_permission_blocks_are_never_answered_and_escalate(self):
         result = self.store.record(claude("Notification", 1000, notification_type="permission_prompt",
@@ -339,16 +340,13 @@ class HookTests(unittest.TestCase):
             self.assertEqual(knowledge.request({"op": "list_blocked"})["blocks"][0]["state"], "open")
 
     def test_unblocker_has_no_builtin_tools_and_only_the_omni_server(self):
-        with tempfile.TemporaryDirectory() as directory:
-            agent = BLOCKS.unblocker_definition("claude", directory)
-        args = agent["advanced_args"]
-        self.assertEqual(args[:2], ["--tools", ""])
-        self.assertEqual(args[2:4], ["--allowedTools", "mcp__omni__list_blocked,mcp__omni__get_block,"
-                                     "mcp__omni__answer_block,mcp__omni__skip_block,mcp__omni__notify_user"])
-        self.assertEqual(args[4], "--strict-mcp-config")
-        self.assertEqual(list(json.loads(args[6])["mcpServers"]), ["omni"])
-        self.assertIn("min_age_seconds 45", agent["startup_prompt"])
-        self.assertEqual(agent["schedule"]["interval_seconds"], 60)
+        command = UNBLOCKER.command_for({"block_id": "b", "kind": "idle", "cwd": "/w"}, "/home/x")
+        self.assertEqual(command[command.index("--tools") + 1], "")
+        self.assertEqual(command[command.index("--allowedTools") + 1],
+                         "mcp__omni__get_block,mcp__omni__answer_block,mcp__omni__skip_block,mcp__omni__notify_user")
+        self.assertIn("--strict-mcp-config", command)
+        self.assertEqual(command[command.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(list(json.loads(command[command.index("--mcp-config") + 1])["mcpServers"]), ["omni"])
 
     def test_the_owner_policy_is_a_local_file_read_into_get_block(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -358,10 +356,10 @@ class HookTests(unittest.TestCase):
             policy.parent.mkdir(parents=True)
             policy.write_text("Protected: shop-web production.")
             self.assertEqual(BLOCKS.owner_policy(home), "Protected: shop-web production.")
-        self.assertIn("owner_policy", BLOCKS.SYSTEM_PROMPT)
-        self.assertIn("never set a new one", BLOCKS.SYSTEM_PROMPT)
+        self.assertIn("owner_policy", UNBLOCKER.SYSTEM_PROMPT)
+        self.assertIn("never set a new one", UNBLOCKER.SYSTEM_PROMPT)
         for limit in ("secrets", "real email", "commercial, paid", "accept a memo", "non-development files"):
-            self.assertIn(limit, BLOCKS.SYSTEM_PROMPT)
+            self.assertIn(limit, UNBLOCKER.SYSTEM_PROMPT)
 
     def test_session_start_tells_claude_who_speaks_for_the_person(self):
         output = json.loads(BLOCKS.session_start_output())["hookSpecificOutput"]
@@ -494,6 +492,62 @@ class GoalGateTests(unittest.TestCase):
         block = self.store.record(claude("Stop", 1000))["block"]
         denial = self.store.public(block)["denials"][0]
         self.assertEqual((denial["tool_name"], denial["reason"]), ("Bash", "not clearly authorized"))
+
+
+class GrantTests(unittest.TestCase):
+    """A go-ahead for a refused call pre-approves exactly that call, once."""
+
+    def setUp(self):
+        self.clock = Clock()
+        self.store, self.documents = store(self.clock)
+
+    def denied(self, command, at):
+        self.store.record(claude("PermissionDenied", at, tool_name="Bash", tool_input={"command": command},
+                                 reason="[Destructive or Unwanted Actions]"))
+
+    def answer(self, grant):
+        block = self.store.record(claude("Stop", 1000, last_assistant_message="Blocked: run the commit"))["block"]
+        self.clock.now = 1100
+        claim = self.store.claim_answer({"block_id": block["block_id"], "message": "Commit now.", "reason": "goal",
+                                         "grant": grant})
+        self.store.record_answer(claim["block"], claim["answer"], "queued")
+        return claim
+
+    def consume(self, command):
+        return self.store.consume_grant({"session_id": "claude:" + SESSION, "tool_name": "Bash",
+                                         "tool_input": {"command": command}})["allow"]
+
+    def test_the_exact_refused_call_runs_once_and_nothing_else(self):
+        self.denied("git add a.rb  &&  git commit -m 'Ship it'", 990)
+        claim = self.answer([0])
+        self.assertIn("pre-approved", claim["answer"]["message"])
+        self.assertFalse(self.consume("git add -A && git commit -m 'Ship it'"))
+        self.assertTrue(self.consume("git add a.rb && git commit -m 'Ship it'"))
+        self.assertFalse(self.consume("git add a.rb && git commit -m 'Ship it'"))
+
+    def test_grants_expire(self):
+        self.denied("make release", 990)
+        self.answer([0])
+        self.clock.now += BLOCKS.GRANT_SECONDS + 1
+        self.assertFalse(self.consume("make release"))
+
+    def test_the_floor_refuses_protected_calls(self):
+        self.denied("bin/deploy --prod", 990)
+        block = self.store.record(claude("Stop", 1000))["block"]
+        self.assertFalse(self.store.public(block)["denials"][0]["grantable"])
+        self.clock.now = 1100
+        with self.assertRaises(BLOCKS.BlockError) as caught:
+            self.store.claim_answer({"block_id": block["block_id"], "message": "go", "reason": "x", "grant": [0]})
+        self.assertEqual(caught.exception.code, "block_protected")
+
+    def test_the_pretool_hook_allows_only_what_the_store_allows(self):
+        payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": SESSION, "tool_name": "Bash",
+                              "tool_input": {"command": "make release"}})
+        self.assertEqual(OMNI.pretool_hook(payload, environ={}, send=lambda body: {"ok": True, "allow": True}),
+                         BLOCKS.pretool_output())
+        self.assertIsNone(OMNI.pretool_hook(payload, environ={}, send=lambda body: {"ok": True, "allow": False}))
+        self.assertIsNone(OMNI.pretool_hook(payload, environ={"OMNITERM_AGENT": "Omni Unblocker"},
+                                            send=lambda body: {"ok": True, "allow": True}))
 
 
 class HeldDialogTests(unittest.TestCase):

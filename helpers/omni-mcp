@@ -378,9 +378,12 @@ KNOWLEDGE_TOOLS = [
          "decision allow (and, for AskUserQuestion, answers mapping each question to an offered option label) "
          "instead of a message. OmniTerm refuses sessions without an active stated goal, dialogs that are not "
          "held, actions on production, personal files, secrets or permanent deletion, idle blocks under 45 "
-         "seconds and more than six answers per session per hour. Retrying the same block_id does not send twice.",
+         "seconds and more than six answers per session per hour. Retrying the same block_id does not send twice. "
+         "grant lists indexes of the block's grantable denials: OmniTerm then pre-approves exactly each of those "
+         "refused calls, once, for 30 minutes, and tells the session so.",
          {"block_id": BLOCK_ID, "message": {"type": "string", "minLength": 1, "maxLength": 2000},
           "decision": {"type": "string", "enum": ["allow"]},
+          "grant": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 4}, "maxItems": 5},
           "answers": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 1000}},
           "reason": {"type": "string", "minLength": 1, "maxLength": 300}},
          ["block_id", "reason"], idempotent=True),

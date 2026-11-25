@@ -3363,11 +3363,10 @@ def cli_parser():
     block.add_argument("text", nargs="?", help="with answer, the message to send")
     block.add_argument("--reason", help="with answer or skip, a one-line reason")
     block.add_argument("--json", action="store_true")
-    unblocker = subs.add_parser("unblocker", help="create, update or disable the Omni Unblocker agent")
-    unblocker.add_argument("--provider", choices=("claude", "codex"))
-    unblocker.add_argument("--workspace")
-    unblocker.add_argument("--model", default="")
-    unblocker.add_argument("--disabled", action="store_true")
+    unblocker = subs.add_parser("unblocker", help="the background unblocker: status, audit, on, off or one pass")
+    unblocker.add_argument("action", choices=("status", "audit", "on", "off", "pass"), nargs="?", default="status")
+    unblocker.add_argument("--model", help="with on, the Claude model its calls use (blank for the default)")
+    unblocker.add_argument("--limit", type=int, default=30, help="with audit, how many records")
     unblocker.add_argument("--json", action="store_true")
     message = subs.add_parser("message", help="inspect a durable cross-session delivery receipt")
     message.add_argument("request_id")
@@ -3894,6 +3893,14 @@ def configure_memory_agent(provider=None, workspace=None, enabled=True, native_r
                                    enabled=enabled, model=model)
 
 
+def helper_module(name):
+    helper = Path(__file__).resolve().parent / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def blocks_module():
     helper = Path(__file__).resolve().parent / "omni_blocks.py"
     spec = importlib.util.spec_from_file_location("omni_blocks", helper)
@@ -3990,6 +3997,27 @@ def permission_hook(payload_text, environ=None, send=None, sleep=time.sleep, clo
         return None
 
 
+def pretool_hook(payload_text, environ=None, send=None):
+    """PreToolUse: allow a call only if the unblocker pre-approved exactly it."""
+    environ = os.environ if environ is None else environ
+    send = send or (lambda body: quick_request(body, timeout=5))
+    try:
+        blocks = blocks_module()
+        if environ.get("OMNITERM_AGENT") in blocks.MANAGED_AGENTS:
+            return None
+        payload = json.loads(payload_text or "null")
+        if not isinstance(payload, dict) or payload.get("hook_event_name") != "PreToolUse":
+            return None
+        session = blocks._session("claude", payload.get("session_id"))
+        if not session:
+            return None
+        reply = send({"op": "consume_grant", "session_id": session, "tool_name": payload.get("tool_name"),
+                      "tool_input": payload.get("tool_input")}) or {}
+        return blocks.pretool_output() if reply.get("ok") and reply.get("allow") is True else None
+    except Exception:  # noqa: BLE001 - a hook that raises would surface in the provider's TUI
+        return None
+
+
 def print_blocks(blocks):
     if not blocks:
         print("No sessions are waiting.")
@@ -4028,6 +4056,12 @@ def blocks_command(args):
                 if output:
                     print(json.dumps(output))
                 return
+        if args.provider == "claude" and '"PreToolUse"' in payload:
+            # Synchronous and bounded: only a call a go-ahead pre-approved is allowed.
+            output = pretool_hook(payload)
+            if output:
+                print(json.dumps(output))
+            return
         if args.provider == "claude" and '"SessionStart"' in payload:
             try:
                 if json.loads(payload).get("hook_event_name") == "SessionStart":
@@ -4062,18 +4096,41 @@ def blocks_command(args):
             result = (blocks.hooks_status() if args.action == "status" else
                       blocks.install_hooks(install=args.action == "install", providers=providers))
             if args.action != "status":
-                # The hooks and the agent that answers are one feature: on together, off together.
-                result["unblocker"] = blocks.configure_unblocker(request, enabled=args.action == "install")["changed"]
+                # The hooks and the listener that answers are one feature: on together, off together.
+                request({"op": "set_settings", "settings": {"unblocker": {"enabled": args.action == "install"}}})
+                result["unblocker"] = args.action == "install"
         except (OSError, ValueError) as error:
             raise SystemExit(str(error))
         print(json.dumps(result, indent=None if args.json else 2))
         return
     if args.command == "unblocker":
-        try:
-            result = blocks.configure_unblocker(request, provider=args.provider, workspace=args.workspace,
-                                                enabled=not args.disabled, model=args.model)
-        except ValueError as error:
-            raise SystemExit(str(error))
+        unblocker = helper_module("omni_unblocker")
+        if args.action == "pass":
+            def tolerant(payload):
+                # One failed call (a gone block, a busy worker) must not end the pass.
+                try:
+                    return request(payload)
+                except SystemExit as error:
+                    return {"ok": False, "error": str(error)}
+            result = unblocker.run_pass(tolerant)
+        elif args.action == "audit":
+            result = {"entries": request({"op": "unblocker_audit", "limit": max(1, min(500, args.limit))})["entries"]}
+            if not args.json:
+                for entry in result["entries"]:
+                    when = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.get("at", 0)))
+                    where = entry.get("cwd") or entry.get("session_id") or ""
+                    detail = " ".join((entry.get("detail") or "").split())
+                    print(f"{when}  {entry.get('outcome', ''):<12} {where}")
+                    if detail:
+                        print("    " + detail[:200] + ("…" if len(detail) > 200 else ""))
+                return
+        else:
+            if args.action in ("on", "off"):
+                change = {"enabled": args.action == "on"}
+                if args.model is not None:
+                    change["model"] = args.model
+                request({"op": "set_settings", "settings": {"unblocker": change}})
+            result = {"unblocker": unblocker.settings_of(request), "hooks": blocks.hooks_status()}
         print(json.dumps(result, indent=None if args.json else 2, ensure_ascii=False))
         return
     if args.command == "unblock":

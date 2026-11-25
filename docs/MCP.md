@@ -417,8 +417,19 @@ records the event through the scheduler in a few hundred milliseconds and always
 exits 0.
 
 A block's kind comes from the hook's event type, never from prompt text, and an
-unknown dialog counts as protected. `omni unblocker` creates the opt-in
-`Omni Unblocker` agent (MCP tools only). It only keeps a session moving toward a
+unknown dialog counts as protected. The Omni Unblocker is not an agent, a run or
+a schedule: OmniTerm's scheduler listens in the background and, every few
+seconds, starts one `omni unblocker pass` (no tab, no run row) when a goal
+session waits for it and no pass is live. A pass hands each waiting block to
+one headless `claude -p` call limited to `get_block`, `answer_block`,
+`skip_block` and `notify_user`, with a four-minute limit, and records what
+happened, failures included, in an audit trail (`unblocker_audit`,
+`omni unblocker audit`, 14 days). A block is tried at most three times; an
+unreachable API ends the pass and the next one retries. The sidebar's
+**Unblocker** page switches it on or off (`unblocker.enabled` in
+`~/.omni/settings.json`, also `omni unblocker on|off`), sets its model, edits
+the policy and shows the audit trail. The first pass removes the old scheduled
+`Omni Unblocker` agent. It only keeps a session moving toward a
 goal the person stated: a `/goal`, a `/loop`, or a goal command the person's
 policy lists (`Goal commands: /forge:ship, ...` in `~/.omni/unblocker/policy.md`).
 OmniTerm reads the goal from Claude Code's own records in the transcript (the
@@ -431,11 +442,16 @@ a goal command's goal, for Codex too. A session with no goal,
 a met or cleared goal, or a loop waiting for its next wake-up is never offered,
 and `answer_block` refuses it with `no_goal`.
 
-Idle blocks: the agent runs every minute, but OmniTerm starts it only when a
-goal session has waited 45 seconds and no unblocker run is live. It answers
-only to continue the stated goal: a "continue", a question the goal or guidance
-already answers, or an explicit go-ahead for an action an auto-mode classifier
-denied (the `PermissionDenied` hook records those as `denials`). It never
+Idle blocks: a session is offered once it has waited 45 seconds. The unblocker
+answers only to continue the stated goal: a "continue", a question the goal or
+guidance already answers, or a go-ahead for an action an auto-mode classifier
+denied. The `PermissionDenied` hook records each refused call in full as a
+`denial`; `answer_block` with `grant: [index]` pre-approves exactly that call,
+once, for 30 minutes, and the message tells the session to run it again
+unchanged. A `PreToolUse` hook then allows that call and no other: it only
+starts Python while `~/.omni/unblocker/grants` exists, and it compares the Bash
+command with whitespace collapsed (other tools by their exact input). Calls
+that match the floor below, or were too long to record, are never grantable. It never
 accepts a memo, plan or proposal, never picks a new direction, and skips a
 session that reports its goal done.
 
@@ -455,7 +471,7 @@ the dialog shows at once and raises a notification. `omni blocked` and
 Auto-unblock covers every Claude and Codex session on the machine, not only
 OmniTerm runs, and is on for each session unless switched off: the
 **Auto-Unblock** button on a session's page in Sessions mode, or
-`omni unblock SESSION on|off`. `omni hooks install` turns the agent on with the
+`omni unblock SESSION on|off`. `omni hooks install` turns the unblocker on with the
 hooks and tells sessions who may answer for the person: a Claude `SessionStart`
 hook adds that as context, and a marked block goes into `~/.codex/AGENTS.md`.
 Only `answer_block` may send as "Omni Unblocker"; `send_session_message`

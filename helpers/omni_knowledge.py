@@ -121,7 +121,9 @@ PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "k
                         "memory_topics", "name_topic", "merge_candidates", "decide_merge",
                         "explain_memory", "weekly_summary_candidates", "write_weekly_summary",
                         "record_block", "list_blocked", "get_block", "answer_block", "skip_block",
-                        "get_unblock", "set_unblock", "rename_session", "get_system_prompt"))
+                        "get_unblock", "set_unblock", "rename_session", "get_system_prompt",
+                        "consume_grant", "record_unblock_audit", "unblocker_audit", "get_unblocker_policy",
+                        "set_unblocker_policy"))
 INTERNAL_OPS = frozenset(("restore", "scan", "ack_writes", "drain_writes", "update_live_sessions",
                           "update_memory_sessions", "memory_tick", "embed"))
 
@@ -3476,18 +3478,38 @@ class KnowledgeStore:
         return self._blocks
 
     def record_block(self, arguments):
+        self._refresh_grants_enabled()
+        event = arguments.get("event") if isinstance(arguments.get("event"), dict) else {}
+        before = self.blocks.read(self._blocks_module.KEY_PREFIX + event.get("session_id", "")) \
+            if isinstance(event.get("session_id"), str) else None
         result = self.blocks.record(arguments.get("event"))
         self.connection.commit()
+        denial = event.get("denial") if event.get("event") == "denied" and isinstance(event.get("denial"), dict) else {}
+        if denial.get("exact") and isinstance(before, dict) and any(
+                grant.get("exact") == denial["exact"] and grant.get("used") for grant in before.get("grants", [])):
+            # The hook allowed it, yet auto mode refused it again: the pre-approval did not hold.
+            self._audit({"outcome": "error", "session_id": event.get("session_id"), "cwd": event.get("cwd"),
+                         "detail": "A pre-approved call was refused again by auto mode: "
+                                   f"{denial.get('tool_input') or denial.get('tool_name')}"})
         block = result["block"]
         return {"block": self.blocks.public(block) if block else None, "escalate": result["escalate"]}
 
+    def _refresh_grants_enabled(self):
+        self.blocks  # loads the module
+        now = time.monotonic()
+        if now - self.__dict__.get("_grants_checked", -1e9) > 60:
+            self._grants_checked = now
+            self.blocks.grants_enabled = self._blocks_module.pretool_installed(self.home)
+
     def list_blocked(self, arguments):
+        self._refresh_grants_enabled()
         result = self.blocks.list(arguments)
         self.connection.commit()
         return result
 
     def get_block(self, arguments):
         """A block with the context the unblocker needs; all of it is untrusted text."""
+        self._refresh_grants_enabled()
         block = self.blocks.find(arguments.get("block_id"))
         module = self._blocks_module
         recent = []
@@ -3511,6 +3533,7 @@ class KnowledgeStore:
             result = self.blocks.decide(arguments)
             self.connection.commit()
             return result
+        self._refresh_grants_enabled()
         claim = self.blocks.claim_answer(arguments)
         answer = claim["answer"]
         message = {"session_id": claim["block"]["session_id"], "request_id": answer["request_id"],
@@ -3520,8 +3543,101 @@ class KnowledgeStore:
         if not claim["replay"]:
             block = self.blocks.record_answer(block, answer, receipt.get("state"))
             self.connection.commit()
+            self._sync_grants_marker()
         # queued or sent is transport, not proof the session acted: see get_session_message.
         return {"block": self.blocks.public(block), "receipt": receipt, "replay": claim["replay"]}
+
+    def consume_grant(self, arguments):
+        result = self.blocks.consume_grant(arguments)
+        self._sync_grants_marker()
+        if result.get("allow"):
+            self.connection.commit()
+            self._audit({"session_id": arguments.get("session_id"), "outcome": "granted_call",
+                         "detail": f"Pre-approved call ran: {result.get('summary') or result.get('tool_name')}"})
+        return result
+
+    def _sync_grants_marker(self):
+        """The file the PreToolUse hook tests before it starts Python at all."""
+        marker = self.home / self._blocks_module.GRANTS_MARKER if self.__dict__.get("_blocks_module") else None
+        if marker is None:
+            return
+        try:
+            if self.blocks.any_live_grants():
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("pre-approved calls are waiting; see the Unblocker page\n")
+            elif marker.exists():
+                marker.unlink()
+        except OSError:
+            pass
+
+    # The Unblocker page's audit trail: one record per thing the listener did,
+    # failures included. Kept 14 days, newest first.
+    AUDIT_PREFIX = "unblock-audit:"
+    AUDIT_OUTCOMES = frozenset(("answered", "allowed", "skipped", "no_action", "error", "granted_call", "retired", "policy"))
+
+    def _audit(self, entry):
+        now = time.time()
+        record = {"at": now, "outcome": entry.get("outcome")}
+        for key, limit in (("session_id", 210), ("block_id", 36), ("cwd", 1024), ("detail", 2000),
+                           ("kind", 20), ("goal", 400), ("model", 100)):
+            if isinstance(entry.get(key), str) and entry[key]:
+                record[key] = entry[key][:limit]
+        for key in ("seconds", "cost_usd"):
+            if isinstance(entry.get(key), (int, float)) and not isinstance(entry.get(key), bool):
+                record[key] = round(float(entry[key]), 4)
+        self._document(f"{self.AUDIT_PREFIX}{now:017.6f}:{uuid.uuid4().hex[:8]}", record)
+        self.connection.commit()
+        return record
+
+    def record_unblock_audit(self, arguments):
+        entry = arguments.get("entry")
+        if not isinstance(entry, dict) or entry.get("outcome") not in self.AUDIT_OUTCOMES:
+            raise KnowledgeError("entry must be an object with a known outcome")
+        return {"entry": self._audit(entry)}
+
+    def unblocker_audit(self, arguments):
+        limit = arguments.get("limit", 100)
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise KnowledgeError("limit must be 1 to 500")
+        prefix = self.AUDIT_PREFIX
+        rows = self.connection.execute("SELECT key,value FROM documents WHERE key>=? AND key<? ORDER BY key DESC",
+                                       (prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1))).fetchall()
+        cutoff = time.time() - 14 * 86400
+        entries, stale = [], []
+        for row in rows:
+            value = json.loads(row["value"])
+            if value.get("at", 0) < cutoff:
+                stale.append(row["key"])
+            elif len(entries) < limit:
+                entries.append(value)
+        for key in stale:
+            self._document(key, None)
+        if stale:
+            self.connection.commit()
+        return {"entries": entries}
+
+    def get_unblocker_policy(self, arguments):
+        self.blocks  # loads the module
+        return {"policy": self._blocks_module.owner_policy(self.home, maximum=20000),
+                "path": str(self.home / self._blocks_module.OWNER_POLICY)}
+
+    def set_unblocker_policy(self, arguments):
+        text = arguments.get("policy")
+        if not isinstance(text, str) or len(text) > 20000 or "\x00" in text:
+            raise KnowledgeError("policy must be text of at most 20,000 characters")
+        self.blocks
+        path = self.home / self._blocks_module.OWNER_POLICY
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink():
+            raise KnowledgeError("The policy file is a link; it was not changed")
+        if path.exists():
+            backup = path.with_name("policy.md.previous")
+            backup.write_text(path.read_text(errors="replace"))
+        temporary = path.with_name(path.name + ".omni-tmp")
+        temporary.write_text(text if text.endswith("\n") or not text else text + "\n")
+        os.replace(temporary, path)
+        self._audit({"outcome": "policy", "detail": "The policy was edited on the Unblocker page"})
+        return self.get_unblocker_policy({})
 
     def get_unblock(self, arguments):
         return self.blocks.setting({"session_id": arguments.get("session_id")})

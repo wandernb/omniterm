@@ -9,6 +9,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- The Omni Unblocker now listens in the background instead of running as a
+  scheduled agent, so it never shows up as an agent, run or tab, and a stuck
+  call can no longer stop it for hours. It has its own **Unblocker** page in
+  the sidebar: switch it on or off, pick its model, edit its policy and audit
+  every decision and failure. When auto mode refused a command a goal needs,
+  its go-ahead can pre-approve exactly that command, once, for 30 minutes,
+  through a new `PreToolUse` hook (`omni hooks install` adds it).
 - The Omni Unblocker only keeps goal-driven sessions moving: a `/goal`, a
   `/loop`, a goal command from your unblock policy, or a prompt that plainly
   asks for work to be finished. It leaves finished
