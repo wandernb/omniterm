@@ -174,7 +174,10 @@ report under the run list instead of squeezing both.
 - Return renames an agent or folder, focuses the terminal of a run or terminal
   row (a finished run has none, so it goes into the run's page), and on the
   Dashboard, Inbox and Memory rows goes into the page;
-- Command-I edits an agent's icon and colour;
+- Command-I edits the icon and colour of an agent, agent folder, project or
+  project folder (also Icon & Colour… in the row's menu, or a double-click on
+  its icon); a project's look shows on its page, the Dashboard and its
+  Sessions-mode heading;
 - Option-Command-Up/Down reorders;
 - Command-N and Shift-Command-N create an agent or a folder.
 

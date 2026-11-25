@@ -1,9 +1,9 @@
 diff --git a/ModernTests/OmniAgentPromptsTests.swift b/ModernTests/OmniAgentPromptsTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..265dfe1cba92aa56900156d805184cfedb924cec
+index 0000000000000000000000000000000000000000..309494106ee4ed0cf9d1acb8a3df6c93e4ddf0e5
 --- /dev/null
 +++ b/ModernTests/OmniAgentPromptsTests.swift
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,70 @@
 +//
 +//  OmniAgentPromptsTests.swift
 +//  ModernTests
@@ -38,7 +38,8 @@ index 0000000000000000000000000000000000000000..265dfe1cba92aa56900156d805184cfe
 +        let width = max(prompt.frame.width, 300)
 +        XCTAssertTrue(prompt.isCollapsible(width: width))
 +        let cap = OmniMarkdownView.height(lines: 8)
-+        XCTAssertLessThanOrEqual(prompt.height(forWidth: width), cap + OmniMarkdownView.toggleHeight)
++        let card = 2 * OmniMarkdownView.cardPadding
++        XCTAssertLessThanOrEqual(prompt.height(forWidth: width), cap + OmniMarkdownView.toggleHeight + card)
 +        XCTAssertLessThan(prompt.height(forWidth: width), prompt.contentHeight(forWidth: width))
 +        XCTAssertFalse(prompt.toggleButton.isHidden)
 +    }
@@ -49,7 +50,9 @@ index 0000000000000000000000000000000000000000..265dfe1cba92aa56900156d805184cfe
 +        for prompt in view.promptViews {
 +            let width = max(prompt.frame.width, 300)
 +            XCTAssertFalse(prompt.isCollapsible(width: width))
-+            XCTAssertEqual(prompt.height(forWidth: width), prompt.contentHeight(forWidth: width))
++            let pad = OmniMarkdownView.cardPadding
++            XCTAssertEqual(prompt.height(forWidth: width), prompt.contentHeight(forWidth: width - 2 * pad) + 2 * pad,
++                           "Its text on the Markdown card")
 +            XCTAssertTrue(prompt.toggleButton.isHidden)
 +        }
 +    }
@@ -63,7 +66,9 @@ index 0000000000000000000000000000000000000000..265dfe1cba92aa56900156d805184cfe
 +        prompt.toggleButton.performClick(nil)
 +        XCTAssertTrue(prompt.isExpanded)
 +        XCTAssertGreaterThan(prompt.frame.height, collapsedFrame, "The page relaid out the expanded prompt")
-+        XCTAssertEqual(prompt.frame.height, prompt.contentHeight(forWidth: prompt.frame.width) + OmniMarkdownView.toggleHeight)
++        let pad = OmniMarkdownView.cardPadding
++        XCTAssertEqual(prompt.frame.height, prompt.contentHeight(forWidth: prompt.frame.width - 2 * pad)
++                       + OmniMarkdownView.toggleHeight + 2 * pad)
 +        prompt.toggleButton.performClick(nil)
 +        XCTAssertFalse(prompt.isExpanded)
 +        XCTAssertEqual(prompt.frame.height, collapsedFrame)
@@ -1226,10 +1231,10 @@ index 0000000000000000000000000000000000000000..fb71a73b9f6213ad205d417f3f2d94eb
 +}
 diff --git a/ModernTests/OmniMarkdownEditorTests.swift b/ModernTests/OmniMarkdownEditorTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..5f2cfc74f68d246ea3d75ed07b4ef357bdb519d5
+index 0000000000000000000000000000000000000000..7f51b556cb664a190156060b07d91121db0a6acf
 --- /dev/null
 +++ b/ModernTests/OmniMarkdownEditorTests.swift
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,263 @@
 +//
 +//  OmniMarkdownEditorTests.swift
 +//  ModernTests
@@ -1457,7 +1462,10 @@ index 0000000000000000000000000000000000000000..5f2cfc74f68d246ea3d75ed07b4ef357
 +        let view = OmniMarkdownView(text: "One line")
 +        XCTAssertFalse(view.textView.isEditable)
 +        XCTAssertTrue(view.textView.isSelectable)
++        let carded = view.height(forWidth: 300 + 2 * OmniMarkdownView.cardPadding)
++        view.drawsCard = false
 +        let one = view.height(forWidth: 300)
++        XCTAssertEqual(carded, one + 2 * OmniMarkdownView.cardPadding, "The card adds its padding around the text")
 +        XCTAssertGreaterThan(one, 10)
 +        view.text = "# Title\n\nOne\nTwo\nThree"
 +        let five = view.height(forWidth: 300)
@@ -1469,6 +1477,7 @@ index 0000000000000000000000000000000000000000..5f2cfc74f68d246ea3d75ed07b4ef357
 +    func testReadOnlyViewCollapsesLongText() {
 +        let lines = (1...30).map { "Line \($0)" }.joined(separator: "\n")
 +        let view = OmniMarkdownView(text: lines)
++        view.drawsCard = false
 +        let full = view.height(forWidth: 300)
 +        var heightChanges = 0
 +        view.didChangeHeight = { heightChanges += 1 }
@@ -6747,10 +6756,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..1568811f82c7feb4da6d8eca381669a314757528
+index 0000000000000000000000000000000000000000..b3cea56ee3fb39a24922a7771ebe538c7297c1ed
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1750 @@
+@@ -0,0 +1,1809 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7898,6 +7907,65 @@ index 0000000000000000000000000000000000000000..1568811f82c7feb4da6d8eca381669a3
 +        XCTAssertEqual(sidebar.shownRoute, .agent("Alpha"), "Down skips the mode switch and the Agents header")
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(up))
 +        XCTAssertEqual(sidebar.shownRoute, .settings)
++    }
++
++    // A project's page: its icon and colour in the heading, the tab bar,
++    // the README in a file box, and Files and Knowledge as folder listings.
++    func testProjectPageShowsTabsAndRepositoryStyleExplorers() throws {
++        let root = "/tmp/omni-project"
++        fake.handlers["get_settings"] = { _ in
++            ["ok": true, "settings": ["projects": ["icons": [root: "sf:star"], "colors": [root: "orange"]]]]
++        }
++        fake.handlers["get_project"] = { _ in
++            ["ok": true, "project": ["id": root, "root": root, "name": "omni-project", "forge": true,
++                                     "readme": ["path": "README.md", "text": "# Hello\n\nSome *text*.\n\n```\ncode\n```"],
++                                     "knowledge": [["path": "knowledge/MASTER.md", "size": 1200, "modified": 1_700_000_000],
++                                                   ["path": "knowledge/plans/one.md", "size": 300, "modified": 1_700_000_100],
++                                                   ["path": "knowledge/plans/two.md", "size": 400, "modified": 1_700_000_200]]]]
++        }
++        fake.handlers["list_sessions"] = { _ in ["ok": true, "sessions": []] }
++        fake.handlers["list_project_folder"] = { request in
++            ["ok": true, "folder": ["path": request["path"] as? String ?? "",
++                                    "entries": [["name": "b.txt", "kind": "file", "size": 10],
++                                                ["name": "src", "kind": "dir"],
++                                                [".env": "", "name": ".env", "kind": "file", "secret": true]]]]
++        }
++        let pane = OmniProjectsPane(projectID: root)
++        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 900), styleMask: [.titled],
++                          backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        window.contentView = pane
++        pane.frame = window.contentView?.bounds ?? .zero
++        pane.reload()
++        wait("the page loads") { Self.find(OmniTabBar.self, in: pane) != nil }
++        let header = try XCTUnwrap(Self.find(OmniProjectHeader.self, in: pane))
++        let icon = try XCTUnwrap(Self.find(NSImageView.self, in: header))
++        XCTAssertEqual(icon.contentTintColor, OmniAgentColor.color("orange"), "The project's colour")
++        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))
++        let buttons = tabs.subviews.compactMap { $0 as? NSButton }
++        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Files", "Settings"])
++        XCTAssertNotNil(Self.find(OmniExplorerBox.self, in: pane), "The README sits in a file box")
++
++        buttons[4].performClick(nil)
++        wait("the folder lists") { Self.find(OmniExplorerRow.self, in: pane) != nil }
++        let names = Self.all(OmniExplorerRow.self, in: pane).map(\.titleText)
++        XCTAssertEqual(names, ["src", ".env", "b.txt"], "Folders first, then files by name")
++
++        try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)).subviews.compactMap { $0 as? NSButton }[3].performClick(nil)
++        wait("knowledge lists") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["plans", "MASTER.md"] }
++        Self.all(OmniExplorerRow.self, in: pane).first?.activate()
++        wait("a knowledge folder opens") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["..", "one.md", "two.md"] }
++    }
++
++    private static func all<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
++        var found: [T] = []
++        if let match = view as? T {
++            found.append(match)
++        }
++        for subview in view.subviews {
++            found += all(type, in: subview)
++        }
++        return found
 +    }
 +
 +    func testOneSearchFindsAgentsInEveryMode() throws {
@@ -14125,10 +14193,10 @@ index 0000000000000000000000000000000000000000..14ecd65cdd64a65b068bd8de08778d3f
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a5cb051b2f24387fe20376bcf2b8aff282e3cbc3
+index 0000000000000000000000000000000000000000..2fb14955da5543fcaf54e6b32006395883a926da
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,788 @@
+@@ -0,0 +1,798 @@
 +import AppKit
 +import Foundation
 +
@@ -14664,6 +14732,16 @@ index 0000000000000000000000000000000000000000..a5cb051b2f24387fe20376bcf2b8aff2
 +    func addText(_ field: NSTextField, spacing: CGFloat = 8, indent: CGFloat = 0) {
 +        add(field, spacing: spacing, indent: indent) { width in
 +            ceil(field.sizeThatFits(NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height)
++        }
++    }
++
++    // Parsed Markdown in a text field, on the Markdown card.
++    func addMarkdownCard(_ field: NSTextField, spacing: CGFloat = 8, indent: CGFloat = 0) {
++        let card = OmniMarkdownCardView(field)
++        let padding = card.padding
++        add(card, spacing: spacing, indent: indent) { width in
++            ceil(field.sizeThatFits(NSSize(width: max(1, width - 2 * padding), height: CGFloat.greatestFiniteMagnitude)).height)
++                + 2 * padding
 +        }
 +    }
 +
@@ -15441,7 +15519,7 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4bb104397f44c89ec48b100ce208fb88bbab76d6
+index 0000000000000000000000000000000000000000..4565041a7bc13738fdc0d6d1db1a81c0f22be796
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
 @@ -0,0 +1,1184 @@
@@ -16512,7 +16590,7 @@ index 0000000000000000000000000000000000000000..4bb104397f44c89ec48b100ce208fb88
 +    func configure(with item: OmniNotificationItem, icon: OmniAgentIcon?, iconColor: NSColor?) {
 +        switch icon ?? .symbol(OmniAgentIcon.defaultSymbol) {
 +        case .symbol(let name):
-+            iconView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil) ??
++            iconView.image = OmniIconImage.image(name) ??
 +                NSImage(systemSymbolName: OmniAgentIcon.defaultSymbol, accessibilityDescription: nil)
 +            iconView.contentTintColor = iconColor ?? OmniTheme.secondaryText
 +            iconView.isHidden = false
@@ -16870,10 +16948,10 @@ index 0000000000000000000000000000000000000000..7653eca1ac2870dd416b88b835d4d210
 +}
 diff --git a/sources/OmniTerm/OmniMarkdownEditor.swift b/sources/OmniTerm/OmniMarkdownEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8cdc49dec
+index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92f02d4599
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMarkdownEditor.swift
-@@ -0,0 +1,912 @@
+@@ -0,0 +1,982 @@
 +import AppKit
 +import Foundation
 +
@@ -17595,14 +17673,15 @@ index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8
 +        hasVerticalScroller = true
 +        autohidesScrollers = true
 +        borderType = .noBorder
++        // Markdown sits on the lighter Markdown card, editable or not.
 +        drawsBackground = true
-+        backgroundColor = .textBackgroundColor
++        backgroundColor = OmniTheme.cardFill
 +        wantsLayer = true
-+        layer?.cornerRadius = 6
++        layer?.cornerRadius = OmniMarkdownCard.cornerRadius
 +        layer?.masksToBounds = true
 +        layer?.borderWidth = 1
 +        textView.drawsBackground = false
-+        textView.textContainerInset = NSSize(width: 6, height: 6)
++        textView.textContainerInset = NSSize(width: 10, height: 10)
 +        textView.minSize = .zero
 +        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 +        textView.isVerticallyResizable = true
@@ -17628,7 +17707,7 @@ index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8
 +
 +    private func updateBorder() {
 +        effectiveAppearance.performAsCurrentDrawingAppearance {
-+            layer?.borderColor = (focused ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor
++            layer?.borderColor = (focused ? NSColor.controlAccentColor : OmniTheme.cardBorder).cgColor
 +        }
 +    }
 +}
@@ -17652,6 +17731,21 @@ index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8
 +    }
 +    private(set) var isExpanded = false
 +    var didChangeHeight: (() -> Void)?
++    // Parsed Markdown sits on a lighter rounded card so it reads as a
++    // document; off where a box already frames it.
++    var drawsCard = true {
++        didSet {
++            if drawsCard != oldValue {
++                needsLayout = true
++                needsDisplay = true
++                didChangeHeight?()
++            }
++        }
++    }
++    static let cardPadding: CGFloat = 16
++    private var padding: CGFloat {
++        return drawsCard ? Self.cardPadding : 0
++    }
 +
 +    // Shown only when the text is collapsible; it toggles isExpanded.
 +    var toggleButton: NSButton {
@@ -17727,8 +17821,12 @@ index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8
 +        return contentHeight(forWidth: width) > collapsedHeight + Self.toggleHeight
 +    }
 +
-+    // The height to give the view at a width.
++    // The height to give the view at a width, its card included.
 +    func height(forWidth width: CGFloat) -> CGFloat {
++        return textHeight(forWidth: width - 2 * padding) + 2 * padding
++    }
++
++    private func textHeight(forWidth width: CGFloat) -> CGFloat {
 +        guard isCollapsible(width: width) else { return contentHeight(forWidth: width) }
 +        let text = isExpanded ? contentHeight(forWidth: width) : visibleCollapsedHeight(width: width)
 +        return text + Self.toggleHeight
@@ -17771,15 +17869,65 @@ index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8
 +    }
 +
 +    private func layoutContent() {
-+        let width = bounds.width
++        let pad = padding
++        let width = max(1, bounds.width - 2 * pad)
 +        let full = contentHeight(forWidth: width)
 +        let collapsible = isCollapsible(width: width)
 +        let visible = collapsible && !isExpanded ? visibleCollapsedHeight(width: width) : full
-+        clip.frame = NSRect(x: 0, y: 0, width: width, height: visible)
++        clip.frame = NSRect(x: pad, y: pad, width: width, height: visible)
 +        textView.frame = NSRect(x: 0, y: 0, width: width, height: full)
 +        toggle.isHidden = !collapsible
 +        toggle.title = isExpanded ? "Show less" : "Show more"
-+        toggle.frame = NSRect(x: 0, y: visible, width: min(width, 120), height: Self.toggleHeight)
++        toggle.frame = NSRect(x: pad, y: pad + visible, width: min(width, 120), height: Self.toggleHeight)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        guard drawsCard else { return }
++        OmniMarkdownCard.draw(in: bounds)
++    }
++}
++
++// The card behind parsed Markdown: a shade lighter than the page, rounded,
++// with a hairline border.
++enum OmniMarkdownCard {
++    static let cornerRadius: CGFloat = 8
++
++    static func draw(in rect: NSRect) {
++        let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: cornerRadius, yRadius: cornerRadius)
++        OmniTheme.cardFill.setFill()
++        path.fill()
++        path.lineWidth = 1
++        OmniTheme.cardBorder.setStroke()
++        path.stroke()
++    }
++}
++
++// Any view drawn as a Markdown card, holding one subview inset by the
++// card's padding (a report's text field, for one).
++final class OmniMarkdownCardView: NSView {
++    let content: NSView
++    let padding: CGFloat
++
++    override var isFlipped: Bool { true }
++
++    init(_ content: NSView, padding: CGFloat = OmniMarkdownView.cardPadding) {
++        self.content = content
++        self.padding = padding
++        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: 60))
++        addSubview(content)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        content.frame = bounds.insetBy(dx: padding, dy: padding)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniMarkdownCard.draw(in: bounds)
 +    }
 +}
 +
@@ -18981,10 +19129,10 @@ index 0000000000000000000000000000000000000000..eeaef8f22a3b95268c43a018b7608d4c
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0d4f4f82ae79286132d67a5d1ab9bcf47145953d
+index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d84584a782375
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2397 @@
+@@ -0,0 +1,2404 @@
 +import AppKit
 +import Foundation
 +
@@ -19793,7 +19941,14 @@ index 0000000000000000000000000000000000000000..0d4f4f82ae79286132d67a5d1ab9bcf4
 +        digestText.textContainer?.widthTracksTextView = true
 +        digestScroll.documentView = digestText
 +        digestScroll.hasVerticalScroller = true
-+        digestScroll.drawsBackground = false
++        // The digest is parsed Markdown: on the Markdown card.
++        digestScroll.drawsBackground = true
++        digestScroll.backgroundColor = OmniTheme.cardFill
++        digestScroll.wantsLayer = true
++        digestScroll.layer?.cornerRadius = OmniMarkdownCard.cornerRadius
++        digestScroll.layer?.masksToBounds = true
++        digestScroll.layer?.borderWidth = 1
++        digestScroll.layer?.borderColor = OmniTheme.cardBorder.cgColor
 +        for view in [workspacePopUp, regenerateButton, digestStatus, digestScroll] as [NSView] {
 +            digestView.addSubview(view)
 +        }
@@ -19948,7 +20103,7 @@ index 0000000000000000000000000000000000000000..0d4f4f82ae79286132d67a5d1ab9bcf4
 +        regenerateButton.frame.origin = NSPoint(x: workspacePopUp.frame.maxX + 10, y: rowY - 2)
 +        digestStatus.frame = NSRect(x: regenerateButton.frame.maxX + 12, y: rowY + 4,
 +                                    width: max(0, width - regenerateButton.frame.maxX - 24), height: 16)
-+        digestScroll.frame = NSRect(x: 0, y: 44, width: width, height: max(0, height - 44))
++        digestScroll.frame = NSRect(x: 0, y: 44, width: width, height: max(0, height - 44)).insetBy(dx: 12, dy: 0)
 +
 +        // Graph
 +        graphModeControl.sizeToFit()
@@ -21651,10 +21806,10 @@ index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc
 +}
 diff --git a/sources/OmniTerm/OmniPanes.swift b/sources/OmniTerm/OmniPanes.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137c058bf73
+index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c65fc0db6
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanes.swift
-@@ -0,0 +1,1184 @@
+@@ -0,0 +1,1195 @@
 +import AppKit
 +import Foundation
 +
@@ -21750,6 +21905,7 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +    private lazy var projectsColumn = makeListColumn(projectsZone)
 +    private lazy var sessionsColumn = makeListColumn(sessionsZone)
 +    private var buttonsZone: OmniButtonZone?
++    private var projectLayout = OmniProjectLayout()
 +
 +    override var contentViews: [NSView] {
 +        return [scroll]
@@ -21778,10 +21934,18 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +        var runsResponse: [AnyHashable: Any]?
 +        var inboxResponse: [AnyHashable: Any]?
 +        var sessionsResponse: [AnyHashable: Any]?
++        var settingsResponse: [AnyHashable: Any]?
 +        let finish = { [weak self] in
-+            guard let self, let agentsResponse, let runsResponse, let inboxResponse, let sessionsResponse else { return }
++            guard let self, let agentsResponse, let runsResponse, let inboxResponse, let sessionsResponse,
++                  let settingsResponse else { return }
++            // The person's names, icons and colours for projects.
++            self.projectLayout = OmniProjectLayout((settingsResponse["settings"] as? [String: Any])?["projects"])
 +            self.render(agents: agentsResponse, runs: runsResponse, inbox: inboxResponse,
 +                        sessions: sessionsResponse["sessions"] as? [[AnyHashable: Any]] ?? [])
++        }
++        OmniSchedulerClient.request(["op": "get_settings"]) { response in
++            settingsResponse = response
++            finish()
 +        }
 +        // Recent sessions, and through them the recently active projects.
 +        OmniSchedulerClient.request(["op": "list_sessions", "order": "recent", "limit": 40]) { response in
@@ -21815,7 +21979,7 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +        // Relative times move, so the minute is part of what is shown.
 +        let minute = Int(Date().timeIntervalSince1970 / 60)
 +        let sessionKeys = sessions.map { "\($0["session_id"] ?? "")|\($0["updated"] ?? "")|\($0["title"] ?? "")" }
-+        let signature = Self.signature(agentRows, runRows, unread, minute, sessionKeys)
++        let signature = Self.signature(agentRows, runRows, unread, minute, sessionKeys, projectLayout.dictionary)
 +        guard signature != lastSignature else { return }
 +        lastSignature = signature
 +
@@ -21857,8 +22021,10 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +        }
 +        var projectItems: [(key: String, view: OmniZoneItem)] = []
 +        for project in projects {
-+            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
-+                                         title: project.name,
++            let look = projectLayout.appearance(project.root)
++            let row = OmniFolderEntryRow(icon: look.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
++                                         iconColor: OmniAgentColor.color(look.color),
++                                         title: projectLayout.name(project.root) ?? project.name,
 +                                         detail: OmniProjectsModel.abbreviated(project.root),
 +                                         badge: OmniSessionText.age(project.updated), status: nil) { [weak self] in
 +                self?.actions?.paneOpen(.project(project.root))
@@ -22288,7 +22454,7 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +        wantsLayer = true
 +        switch icon {
 +        case .symbol(let name):
-+            iconView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil) ??
++            iconView.image = OmniIconImage.image(name) ??
 +                NSImage(systemSymbolName: OmniAgentIcon.defaultSymbol, accessibilityDescription: nil)
 +            iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
 +            iconView.contentTintColor = iconColor ?? OmniTheme.secondaryText
@@ -22670,7 +22836,7 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +            column.addText(OmniPaneText.label(note, size: 12, color: OmniTheme.secondaryText), spacing: 6)
 +        }
 +        if let text = Self.shownSummary(run) {
-+            column.addText(OmniPaneText.report(text, markdown: true))
++            column.addMarkdownCard(OmniPaneText.report(text, markdown: true))
 +        } else if summaryNote(run) == nil {
 +            column.addText(OmniPaneText.label("No summary yet.", color: OmniTheme.tertiaryText))
 +        }
@@ -22685,7 +22851,7 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +            column.add(NSView(), spacing: 0) { _ in 10 }
 +            column.add(header, spacing: 6) { _ in 20 }
 +            if showsFinalMessage {
-+                column.addText(OmniPaneText.report(finalMessage, markdown: true), indent: 4)
++                column.addMarkdownCard(OmniPaneText.report(finalMessage, markdown: true), indent: 4)
 +            }
 +        }
 +
@@ -22841,10 +23007,10 @@ index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b0686c87b1e7
+index 0000000000000000000000000000000000000000..baa21e071c7d8b3cf21842b7195c6710ea91bdd2
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,874 @@
+@@ -0,0 +1,1452 @@
 +import AppKit
 +import Foundation
 +
@@ -22867,6 +23033,29 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +        case .knowledge: return "Knowledge"
 +        case .files: return "Files"
 +        case .settings: return "Settings"
++        }
++    }
++
++    // The tab bar's short label and icon.
++    var label: String {
++        switch self {
++        case .home: return "Home"
++        case .code: return "Branches"
++        case .sessions: return "Sessions"
++        case .knowledge: return "Knowledge"
++        case .files: return "Files"
++        case .settings: return "Settings"
++        }
++    }
++
++    var symbol: SFSymbol {
++        switch self {
++        case .home: return .house
++        case .code: return .arrowTriangleBranch
++        case .sessions: return .bubbleLeftAndBubbleRight
++        case .knowledge: return .bookClosed
++        case .files: return .folder
++        case .settings: return .gearshape
 +        }
 +    }
 +}
@@ -22958,6 +23147,36 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +    static func parent(of path: String) -> String {
 +        return (path as NSString).deletingLastPathComponent
 +    }
++
++    // The knowledge folder as folders: what sits directly in `folder`
++    // (relative to knowledge/): its subfolders with their file counts and
++    // newest change, then its files, each by name.
++    static func knowledgeListing(_ files: [[String: Any]], in folder: String)
++        -> (folders: [(name: String, count: Int, modified: Double?)], files: [[String: Any]]) {
++        var folders: [String: (count: Int, modified: Double?)] = [:]
++        var direct: [[String: Any]] = []
++        let prefix = folder.isEmpty ? "" : folder + "/"
++        for file in files {
++            guard let path = file["path"] as? String else { continue }
++            let relative = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : path
++            guard relative.hasPrefix(prefix) else { continue }
++            let rest = relative.dropFirst(prefix.count)
++            let modified = (file["modified"] as? NSNumber)?.doubleValue
++            if let slash = rest.firstIndex(of: "/") {
++                let name = String(rest[..<slash])
++                let known = folders[name] ?? (0, nil)
++                folders[name] = (known.count + 1, [known.modified, modified].compactMap { $0 }.max())
++            } else {
++                direct.append(file)
++            }
++        }
++        let sortedFolders = folders.map { (name: $0.key, count: $0.value.count, modified: $0.value.modified) }
++            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
++        let sortedFiles = direct.sorted {
++            ($0["path"] as? String ?? "").localizedStandardCompare($1["path"] as? String ?? "") == .orderedAscending
++        }
++        return (sortedFolders, sortedFiles)
++    }
 +}
 +
 +// The last project list the knowledge worker saved. Read directly so the
@@ -23004,6 +23223,9 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +    private var folderPath = ""
 +    private var folder: [String: Any]?
 +    private var openFile: (path: String, text: String)?
++    // The Knowledge tab's folder, inside the knowledge folder.
++    private var knowledgePath = ""
++    private var unknownRetries = 0
 +    private var buttonsZone: OmniButtonZone?
 +    private var tabsZone: OmniButtonZone?
 +    private(set) var zones: [(title: String, zone: OmniListZone)] = []
@@ -23026,6 +23248,9 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +            view.didChangeHeight = { [weak self] in self?.scroll.relayout() }
 +        }
 +        readmeView.collapsedHeight = OmniMarkdownView.height(lines: 24)
++        // Their bordered file boxes frame them already.
++        fileView.drawsCard = false
++        readmeView.drawsCard = false
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -23093,6 +23318,15 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +            guard let self else { return }
 +            guard OmniPane.isOK(response), let project = response["project"] as? [String: Any] else {
 +                let error = response["error"] as? String
++                // Just after a launch the worker may not have listed the
++                // projects yet: ask again a few times before giving up.
++                if error == "unknown project", self.unknownRetries < 5 {
++                    self.unknownRetries += 1
++                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
++                        self?.reloadProject(id, refresh: false)
++                    }
++                    return
++                }
 +                self.showMessage("This project could not be read." + (error.map { "\n\($0)" } ?? ""))
 +                return
 +            }
@@ -23208,10 +23442,13 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +            column.addText(statusLabel, spacing: 10)
 +        }
 +        let names = aliases
++        let looks = OmniProjectLayout(layout)
 +        let rows: [(key: String, row: OmniZoneItem)] = projects.compactMap { project in
 +            guard let root = project["root"] as? String else { return nil }
 +            let updated = (project["updated"] as? NSNumber)?.doubleValue
-+            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
++            let look = looks.appearance(root)
++            let row = OmniFolderEntryRow(icon: look.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
++                                         iconColor: OmniAgentColor.color(look.color),
 +                                         title: OmniProjectsModel.name(project, aliases: names),
 +                                         detail: OmniProjectsModel.detail(project),
 +                                         badge: OmniSessionText.age(updated), status: nil) { [weak self] in
@@ -23230,23 +23467,19 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +    private func buildProject(_ previous: [(title: String, zone: OmniListZone)]) {
 +        guard let project else { return }
 +        let column = scroll.column
-+        column.addText(OmniTheme.title(OmniProjectsModel.name(project, aliases: aliases)), spacing: 4)
-+        column.addText(OmniTheme.meta(OmniProjectsModel.detail(project)), spacing: 10)
-+        // The tabs: a row of buttons, so they join the keyboard like any other.
-+        let tabButtons: [NSButton] = OmniProjectTab.allCases.map { candidate in
-+            let button = NSButton(title: candidate.title, target: self, action: #selector(tabClicked(_:)))
-+            button.bezelStyle = .recessed
-+            button.setButtonType(.pushOnPushOff)
-+            button.state = candidate == tab ? .on : .off
-+            button.tag = candidate.rawValue
-+            button.font = candidate == tab ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
-+            return button
-+        }
-+        let tabs = OmniButtonRow(tabButtons)
++        let root = project["root"] as? String ?? ""
++        let look = OmniProjectLayout(layout).appearance(root)
++        let header = OmniProjectHeader(icon: look.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
++                                       color: OmniAgentColor.color(look.color),
++                                       title: OmniProjectsModel.name(project, aliases: aliases),
++                                       detail: OmniProjectsModel.detail(project))
++        column.add(header, spacing: 12) { _ in OmniProjectHeader.height }
++        // The tabs, as on a repository host; buttons, so they join the keyboard.
++        let tabs = OmniTabBar(tabs: OmniProjectTab.allCases.map { (title: $0.label, symbol: $0.symbol) },
++                              selected: tab.rawValue, target: self, action: #selector(tabClicked(_:)))
 +        tabsZone = tabs.zone
 +        buttonsZone = nil
-+        column.add(tabs, spacing: 2) { _ in 30 }
-+        column.add(OmniTheme.titlebarSeparatorLine(), spacing: 10) { _ in 1 }
++        column.add(tabs, spacing: 16) { _ in OmniTabBar.height }
 +        switch tab {
 +        case .home: buildHome(project, previous)
 +        case .code: buildCode(project, previous)
@@ -23316,11 +23549,9 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +                section("Recent sessions", key: "home-sessions", previous: previous, rows: rows)
 +            }
 +        }
-+        if project["readme"] is [String: Any] {
-+            column.addSection("README")
-+            column.add(readmeView, spacing: 8) { [weak self] width in
-+                self?.readmeView.height(forWidth: width) ?? 0
-+            }
++        if let readme = project["readme"] as? [String: Any] {
++            let name = readme["name"] as? String ?? readme["path"] as? String ?? "README.md"
++            addFileBox(title: [(label: name, path: "")], trailing: "", view: readmeView, open: { _ in }, spacing: 16)
 +        }
 +    }
 +
@@ -23413,6 +23644,8 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +        }
 +    }
 +
++    // Knowledge, browsed by folder like a repository: the knowledge
++    // folder's own folders first, then its files.
 +    private func buildKnowledge(_ project: [String: Any], _ previous: [(title: String, zone: OmniListZone)]) {
 +        let column = scroll.column
 +        let knowledge = project["knowledge"] as? [[String: Any]] ?? []
@@ -23421,27 +23654,110 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +            return
 +        }
 +        addOpenFile()
-+        section("\(knowledge.count) files", key: "knowledge", previous: previous, rows: knowledge.compactMap { file in
-+            guard let path = file["path"] as? String else { return nil }
++        let listing = OmniProjectsModel.knowledgeListing(knowledge, in: knowledgePath)
++        var crumbs: [(label: String, path: String)] = [(label: "knowledge", path: "")]
++        var walked = ""
++        for part in knowledgePath.split(separator: "/").map(String.init) {
++            walked = walked.isEmpty ? part : walked + "/" + part
++            crumbs.append((label: part, path: walked))
++        }
++        var rows: [(key: String, row: OmniZoneItem)] = []
++        if !knowledgePath.isEmpty {
++            let parent = OmniProjectsModel.parent(of: knowledgePath)
++            rows.append((key: "..", row: OmniExplorerRow(symbol: .folder, iconColor: OmniTheme.folderTint, name: "..",
++                                                         detail: "", age: "", separator: true) { [weak self] in
++                self?.openKnowledgeFolder(parent)
++            }))
++        }
++        for folder in listing.folders {
++            let path = knowledgePath.isEmpty ? folder.name : knowledgePath + "/" + folder.name
++            rows.append((key: "dir:" + path, row: OmniExplorerRow(symbol: .folderFill, iconColor: OmniTheme.folderTint,
++                                                                  name: folder.name,
++                                                                  detail: folder.count == 1 ? "1 file" : "\(folder.count) files",
++                                                                  age: OmniSessionText.age(folder.modified), separator: true) { [weak self] in
++                self?.openKnowledgeFolder(path)
++            }))
++        }
++        for file in listing.files {
++            guard let path = file["path"] as? String else { continue }
 +            let modified = (file["modified"] as? NSNumber)?.doubleValue
-+            let shown = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : path
-+            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.docText.rawValue), iconColor: nil, title: shown,
-+                                         detail: OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
-+                                         badge: OmniSessionText.age(modified), status: nil) { [weak self] in
++            rows.append((key: path, row: OmniExplorerRow(symbol: .docText, iconColor: nil, name: (path as NSString).lastPathComponent,
++                                                         detail: OmniProjectsModel.size((file["size"] as? NSNumber)?.intValue),
++                                                         age: OmniSessionText.age(modified), separator: true) { [weak self] in
 +                self?.open(file: path)
-+            }
-+            return (key: path, row: row)
-+        })
++            }))
++        }
++        explorer(crumbs: crumbs, trailing: "\(knowledge.count) files", key: "knowledge", previous: previous, rows: rows) { [weak self] path in
++            self?.openKnowledgeFolder(path)
++        }
 +    }
 +
-+    // The file opened from Knowledge or Files, above its list, as on a repository host.
++    private func openKnowledgeFolder(_ path: String) {
++        knowledgePath = path
++        openFile = nil
++        rebuild()
++    }
++
++    // A folder listing in a bordered box with a breadcrumb header.
++    private func explorer(crumbs: [(label: String, path: String)], trailing: String, key: String,
++                          previous: [(title: String, zone: OmniListZone)], rows: [(key: String, row: OmniZoneItem)],
++                          open: @escaping (String) -> Void) {
++        let zone = previous.first { $0.title == key }?.zone ?? OmniListZone()
++        let list = OmniColumnView()
++        list.inset = 0
++        list.topPadding = 0
++        list.bottomPadding = 0
++        list.overlay = zone
++        for (_, row) in rows {
++            list.add(row, spacing: 0) { _ in OmniExplorerRow.height }
++        }
++        if rows.isEmpty {
++            list.addText(OmniTheme.meta("  This folder is empty."))
++        }
++        zone.setItems(rows.map { (key: $0.key, view: $0.row) })
++        let box = OmniExplorerBox(header: OmniBreadcrumb(crumbs: crumbs, trailing: trailing, open: open), body: list) { [weak list] width in
++            list?.layoutColumn(width: width) ?? 0
++        }
++        scroll.column.add(box, spacing: 16) { [weak box] width in
++            box?.height(forWidth: width) ?? 0
++        }
++        zones.append((title: key, zone: zone))
++    }
++
++    // A file in a bordered box: its path as a breadcrumb, its text below.
++    private func addFileBox(title: [(label: String, path: String)], trailing: String, view: OmniMarkdownView,
++                            open: @escaping (String) -> Void, spacing: CGFloat) {
++        view.drawsCard = false
++        let box = OmniExplorerBox(header: OmniBreadcrumb(crumbs: title, trailing: trailing, open: open), body: view,
++                                  bodyInset: 18) { [weak view] width in
++            view?.height(forWidth: width) ?? 0
++        }
++        scroll.column.add(box, spacing: spacing) { [weak box] width in
++            box?.height(forWidth: width) ?? 0
++        }
++    }
++
++    // The file opened from Knowledge or Files, above its folder, as on a repository host.
 +    private func addOpenFile() {
 +        guard let openFile else { return }
-+        let column = scroll.column
-+        column.addSection(openFile.path)
-+        column.add(fileView, spacing: 12) { [weak self] width in
-+            self?.fileView.height(forWidth: width) ?? 0
++        var crumbs: [(label: String, path: String)] = []
++        var walked = ""
++        for part in openFile.path.split(separator: "/").map(String.init) {
++            walked = walked.isEmpty ? part : walked + "/" + part
++            crumbs.append((label: part, path: walked))
 +        }
++        let lines = openFile.text.split(separator: "\n", omittingEmptySubsequences: false).count
++        let inKnowledge = tab == .knowledge
++        addFileBox(title: crumbs, trailing: lines == 1 ? "1 line" : "\(lines) lines", view: fileView, open: { [weak self] path in
++            guard let self else { return }
++            if inKnowledge {
++                let inside = path.hasPrefix("knowledge/") ? String(path.dropFirst("knowledge/".count)) : (path == "knowledge" ? "" : path)
++                self.openKnowledgeFolder(inside)
++            } else {
++                self.openFile = nil
++                self.loadFolder(path)
++            }
++        }, spacing: 16)
 +    }
 +
 +    private func buildFiles(_ previous: [(title: String, zone: OmniListZone)]) {
@@ -23451,37 +23767,57 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +            column.addText(OmniTheme.meta("Loading…"))
 +            return
 +        }
-+        column.addSection(OmniProjectsModel.breadcrumb(folderPath))
 +        if let error = folder["error"] as? String {
-+            column.addText(OmniTheme.meta(error))
++            column.addText(OmniTheme.meta(error), spacing: 8)
++        }
++        let projectName = project.map { OmniProjectsModel.name($0, aliases: aliases) } ?? "project"
++        var crumbs: [(label: String, path: String)] = [(label: projectName, path: "")]
++        var walked = ""
++        for part in folderPath.split(separator: "/").map(String.init) {
++            walked = walked.isEmpty ? part : walked + "/" + part
++            crumbs.append((label: part, path: walked))
 +        }
 +        var rows: [(key: String, row: OmniZoneItem)] = []
 +        if !folderPath.isEmpty {
 +            let parent = OmniProjectsModel.parent(of: folderPath)
-+            rows.append((key: "..", row: OmniFolderEntryRow(icon: .symbol(SFSymbol.folder.rawValue), iconColor: nil,
-+                                                             title: "..", detail: "Up one folder", badge: "", status: nil) { [weak self] in
++            rows.append((key: "..", row: OmniExplorerRow(symbol: .folder, iconColor: OmniTheme.folderTint, name: "..",
++                                                         detail: "", age: "", separator: true) { [weak self] in
 +                self?.loadFolder(parent)
 +            }))
 +        }
-+        for entry in folder["entries"] as? [[String: Any]] ?? [] {
++        // Folders first, as a repository host lists them.
++        let entries = (folder["entries"] as? [[String: Any]] ?? []).sorted { left, right in
++            let leftDir = left["kind"] as? String == "dir"
++            let rightDir = right["kind"] as? String == "dir"
++            if leftDir != rightDir { return leftDir }
++            return (left["name"] as? String ?? "").localizedStandardCompare(right["name"] as? String ?? "") == .orderedAscending
++        }
++        for entry in entries {
 +            guard let name = entry["name"] as? String else { continue }
 +            let path = folderPath.isEmpty ? name : folderPath + "/" + name
 +            let isDirectory = entry["kind"] as? String == "dir"
 +            let secret = entry["secret"] as? Bool == true
-+            let detail = isDirectory ? "Folder" : secret ? "May hold secrets: not shown" :
++            let detail = isDirectory ? "" : secret ? "May hold secrets: not shown" :
 +                OmniProjectsModel.size((entry["size"] as? NSNumber)?.intValue)
-+            rows.append((key: path, row: OmniFolderEntryRow(icon: .symbol(isDirectory ? SFSymbol.folder.rawValue : SFSymbol.docText.rawValue),
-+                                                             iconColor: nil, title: name, detail: detail, badge: "",
-+                                                             status: nil) { [weak self] in
++            let modified = (entry["modified"] as? NSNumber)?.doubleValue
++            let row = OmniExplorerRow(symbol: isDirectory ? .folderFill : (secret ? .lock : .docText),
++                                      iconColor: isDirectory ? OmniTheme.folderTint : nil, name: name, detail: detail,
++                                      age: OmniSessionText.age(modified), separator: true) { [weak self] in
 +                if isDirectory {
 +                    self?.openFile = nil
 +                    self?.loadFolder(path)
 +                } else if !secret {
 +                    self?.open(file: path)
 +                }
-+            }))
++            }
++            rows.append((key: path, row: row))
 +        }
-+        section("files", key: "files", previous: previous, rows: rows, header: false)
++        let count = entries.count
++        explorer(crumbs: crumbs, trailing: count == 1 ? "1 item" : "\(count) items", key: "files", previous: previous,
++                 rows: rows) { [weak self] path in
++            self?.openFile = nil
++            self?.loadFolder(path)
++        }
 +    }
 +
 +    private func buildSettings(_ project: [String: Any]) {
@@ -23643,6 +23979,10 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +    var order: [String] = []
 +    var folders: [String: String] = [:]
 +    var names: [String: String] = [:]
++    // Icon specs and colour names, as for agents: by project root, and by
++    // `group:<path>` for folders.
++    var icons: [String: String] = [:]
++    var colors: [String: String] = [:]
 +
 +    init() {
 +    }
@@ -23653,11 +23993,46 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +        order = dictionary["order"] as? [String] ?? []
 +        folders = (dictionary["folders"] as? [String: String] ?? [:]).mapValues(OmniGroupTree.normalizedPath)
 +        names = dictionary["names"] as? [String: String] ?? [:]
++        icons = dictionary["icons"] as? [String: String] ?? [:]
++        colors = dictionary["colors"] as? [String: String] ?? [:]
 +    }
 +
 +    var dictionary: [String: Any] {
 +        return ["groups": groups, "order": order, "folders": folders.filter { !$0.value.isEmpty },
-+                "names": names.filter { !$0.value.isEmpty }]
++                "names": names.filter { !$0.value.isEmpty },
++                "icons": icons.filter { !$0.value.isEmpty }, "colors": colors.filter { !$0.value.isEmpty }]
++    }
++
++    static func folderKey(_ path: String) -> String {
++        return "group:" + path
++    }
++
++    // A project's (by root) or folder's (by `folderKey`) icon and colour.
++    func appearance(_ key: String) -> (icon: OmniAgentIcon?, color: String?) {
++        return (OmniAgentIcon(spec: icons[key]), colors[key].flatMap { $0.isEmpty ? nil : $0 })
++    }
++
++    mutating func setAppearance(_ key: String, icon: String, color: String) {
++        icons[key] = icon.isEmpty ? nil : icon
++        colors[key] = color.isEmpty ? nil : color
++    }
++
++    // Folder appearance follows a folder to its new path.
++    private mutating func moveAppearance(_ rename: (String) -> String?) {
++        func moved(_ map: [String: String]) -> [String: String] {
++            var result: [String: String] = [:]
++            for (key, value) in map {
++                if key.hasPrefix("group:") {
++                    guard let path = rename(String(key.dropFirst("group:".count))) else { continue }
++                    result[Self.folderKey(path)] = value
++                } else {
++                    result[key] = value
++                }
++            }
++            return result
++        }
++        icons = moved(icons)
++        colors = moved(colors)
 +    }
 +
 +    static func key(_ root: String) -> String {
@@ -23703,6 +24078,7 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +        let known = groups.isEmpty ? tree.allPaths : groups
 +        groups = known.map(renamed)
 +        folders = folders.mapValues(renamed)
++        moveAppearance { renamed($0) }
 +        let keys = tree.displayKeys.map { key -> String in
 +            guard key.hasPrefix("group:") else { return key }
 +            return OmniGroupTree.groupKey(renamed(String(key.dropFirst("group:".count))))
@@ -23715,8 +24091,376 @@ index 0000000000000000000000000000000000000000..55d8fd1987b134a14704ea6f3da3b068
 +        let parent = OmniGroupTree.parent(of: path)
 +        let known = groups.isEmpty ? tree.allPaths : groups
 +        groups = known.filter { $0 != path && !$0.hasPrefix(path + "/") }
++        moveAppearance { $0 == path || $0.hasPrefix(path + "/") ? nil : $0 }
 +        folders = folders.mapValues { $0 == path || $0.hasPrefix(path + "/") ? parent : $0 }
 +        order = order.filter { $0 != OmniGroupTree.groupKey(path) && !$0.hasPrefix(OmniGroupTree.groupKey(path + "/")) }
++    }
++}
++
++// MARK: - Project page views
++
++// A project's heading: its icon in its colour, its name and one line of facts.
++final class OmniProjectHeader: NSView {
++    static let height: CGFloat = 50
++    private let iconView = NSImageView()
++    private let emojiLabel = NSTextField(labelWithString: "")
++    private let title = NSTextField(labelWithString: "")
++    private let detail = NSTextField(labelWithString: "")
++
++    override var isFlipped: Bool { true }
++
++    init(icon: OmniAgentIcon, color: NSColor?, title: String, detail: String) {
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: Self.height))
++        switch icon {
++        case .symbol(let name):
++            iconView.image = OmniIconImage.image(name)
++            iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 24, weight: .regular)
++            iconView.contentTintColor = color ?? OmniTheme.secondaryText
++            addSubview(iconView)
++        case .emoji(let emoji):
++            emojiLabel.stringValue = emoji
++            emojiLabel.font = OmniTheme.Font.emoji(26)
++            emojiLabel.alignment = .center
++            addSubview(emojiLabel)
++        }
++        self.title.stringValue = title
++        self.title.font = OmniTheme.Font.title
++        self.title.lineBreakMode = .byTruncatingTail
++        addSubview(self.title)
++        self.detail.stringValue = detail
++        self.detail.font = OmniTheme.Font.meta
++        self.detail.textColor = OmniTheme.secondaryText
++        self.detail.lineBreakMode = .byTruncatingMiddle
++        addSubview(self.detail)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        iconView.frame = NSRect(x: 0, y: 6, width: 36, height: 34)
++        emojiLabel.frame = NSRect(x: 0, y: 6, width: 36, height: 34)
++        title.frame = NSRect(x: 46, y: 2, width: max(0, bounds.width - 46), height: 28)
++        detail.frame = NSRect(x: 46, y: 31, width: max(0, bounds.width - 46), height: 16)
++    }
++}
++
++// Tabs as on a repository host: icon and label, the chosen one underlined,
++// a hairline under them all. Buttons, so they join the keyboard.
++final class OmniTabBar: NSView {
++    static let height: CGFloat = 38
++    let zone = OmniButtonZone()
++    private let buttons: [NSButton]
++    private let selected: Int
++
++    override var isFlipped: Bool { true }
++
++    init(tabs: [(title: String, symbol: SFSymbol)], selected: Int, target: AnyObject, action: Selector) {
++        self.selected = selected
++        buttons = tabs.enumerated().map { index, tab in
++            let button = NSButton(title: tab.title, target: target, action: action)
++            button.isBordered = false
++            button.bezelStyle = .inline
++            button.tag = index
++            button.image = NSImage(systemSymbolName: tab.symbol.rawValue, accessibilityDescription: nil)?
++                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: index == selected ? .semibold : .regular))
++            button.imagePosition = .imageLeading
++            button.imageHugsTitle = true
++            let color = index == selected ? NSColor.labelColor : OmniTheme.secondaryText
++            button.contentTintColor = color
++            button.attributedTitle = NSAttributedString(string: tab.title, attributes: [
++                .font: index == selected ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle,
++                .foregroundColor: color])
++            button.setAccessibilityValue(index == selected ? "selected" : nil)
++            return button
++        }
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: Self.height))
++        for button in buttons {
++            addSubview(button)
++        }
++        zone.buttons = { [weak self] in self?.buttons ?? [] }
++        addSubview(zone)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        var x: CGFloat = 0
++        for button in buttons {
++            button.sizeToFit()
++            button.frame = NSRect(x: x, y: 4, width: button.frame.width + 20, height: 28)
++            x = button.frame.maxX + 2
++        }
++        zone.frame = bounds
++        needsDisplay = true
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniTheme.titlebarSeparator.setFill()
++        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
++        guard buttons.indices.contains(selected) else { return }
++        let chosen = buttons[selected].frame
++        NSColor.controlAccentColor.setFill()
++        NSBezierPath(roundedRect: NSRect(x: chosen.minX + 4, y: bounds.height - 2.5, width: chosen.width - 8, height: 2.5),
++                     xRadius: 1.25, yRadius: 1.25).fill()
++    }
++}
++
++// A bordered box with a header bar, as a repository host shows a folder or
++// a file: the header holds a breadcrumb or a file's name, the body rows or
++// the file itself.
++final class OmniExplorerBox: NSView {
++    static let headerHeight: CGFloat = 40
++    static let cornerRadius: CGFloat = 8
++    private let header: NSView
++    private let body: NSView
++    private let bodyHeight: (CGFloat) -> CGFloat
++    private let bodyInset: CGFloat
++
++    override var isFlipped: Bool { true }
++
++    init(header: NSView, body: NSView, bodyInset: CGFloat = 0, bodyHeight: @escaping (CGFloat) -> CGFloat) {
++        self.header = header
++        self.body = body
++        self.bodyHeight = bodyHeight
++        self.bodyInset = bodyInset
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
++        wantsLayer = true
++        layer?.cornerRadius = Self.cornerRadius
++        layer?.masksToBounds = true
++        addSubview(header)
++        addSubview(body)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    func height(forWidth width: CGFloat) -> CGFloat {
++        return Self.headerHeight + bodyHeight(width - 2 * bodyInset) + 2 * bodyInset
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        header.frame = NSRect(x: 12, y: 0, width: max(0, bounds.width - 24), height: Self.headerHeight)
++        body.frame = NSRect(x: bodyInset, y: Self.headerHeight + bodyInset, width: max(0, bounds.width - 2 * bodyInset),
++                            height: max(0, bounds.height - Self.headerHeight - 2 * bodyInset))
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniTheme.cardFill.setFill()
++        NSRect(x: 0, y: 0, width: bounds.width, height: Self.headerHeight).fill()
++        OmniTheme.titlebarSeparator.setFill()
++        NSRect(x: 0, y: Self.headerHeight - 1, width: bounds.width, height: 1).fill()
++        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: Self.cornerRadius - 0.5,
++                                  yRadius: Self.cornerRadius - 0.5)
++        border.lineWidth = 1
++        OmniTheme.cardBorder.setStroke()
++        border.stroke()
++    }
++}
++
++// The header's breadcrumb: each folder a link back up to it.
++final class OmniBreadcrumb: NSView {
++    private var parts: [NSView] = []
++
++    override var isFlipped: Bool { true }
++
++    // `crumbs` are (label, path); the last is the current folder and is not a link.
++    init(crumbs: [(label: String, path: String)], trailing: String = "", open: @escaping (String) -> Void) {
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: OmniExplorerBox.headerHeight))
++        for (index, crumb) in crumbs.enumerated() {
++            if index > 0 {
++                let slash = NSTextField(labelWithString: "/")
++                slash.font = OmniTheme.Font.rowTitle
++                slash.textColor = OmniTheme.tertiaryText
++                parts.append(slash)
++            }
++            let last = index == crumbs.count - 1
++            if last {
++                let label = NSTextField(labelWithString: crumb.label)
++                label.font = OmniTheme.Font.rowTitleEmphasized
++                label.lineBreakMode = .byTruncatingTail
++                parts.append(label)
++            } else {
++                let link = OmniLinkButton(title: crumb.label) { open(crumb.path) }
++                parts.append(link)
++            }
++        }
++        if !trailing.isEmpty {
++            let meta = NSTextField(labelWithString: trailing)
++            meta.font = OmniTheme.Font.meta
++            meta.textColor = OmniTheme.secondaryText
++            meta.alignment = .right
++            meta.identifier = NSUserInterfaceItemIdentifier("trailing")
++            parts.append(meta)
++        }
++        parts.forEach(addSubview)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        var x: CGFloat = 0
++        for part in parts {
++            let width = ceil(part.fittingSize.width)
++            if part.identifier?.rawValue == "trailing" {
++                part.frame = NSRect(x: max(x, bounds.width - width), y: (bounds.height - 16) / 2, width: min(width, bounds.width - x), height: 16)
++                continue
++            }
++            part.frame = NSRect(x: x, y: (bounds.height - 18) / 2, width: min(width, max(0, bounds.width - x)), height: 18)
++            x = part.frame.maxX + 4
++        }
++    }
++}
++
++// A link-coloured title that runs an action.
++final class OmniLinkButton: NSButton {
++    private let run: () -> Void
++
++    init(title: String, run: @escaping () -> Void) {
++        self.run = run
++        super.init(frame: .zero)
++        isBordered = false
++        bezelStyle = .inline
++        attributedTitle = NSAttributedString(string: title, attributes: [.font: OmniTheme.Font.rowTitle,
++                                                                          .foregroundColor: NSColor.linkColor])
++        target = self
++        action = #selector(clicked(_:))
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
++
++    @objc private func clicked(_ sender: Any?) {
++        run()
++    }
++}
++
++// One line of a folder listing: icon, name, a muted middle column and the
++// age at the trailing edge, with a hairline under it.
++final class OmniExplorerRow: NSView, OmniZoneItem {
++    static let height: CGFloat = 36
++    private let iconView = NSImageView()
++    private let name = NSTextField(labelWithString: "")
++    private let detail = NSTextField(labelWithString: "")
++    private let age = NSTextField(labelWithString: "")
++    private let action: () -> Void
++    private let separator: Bool
++    private var hovering = false {
++        didSet { needsDisplay = true }
++    }
++    var isSelected = false {
++        didSet { needsDisplay = true }
++    }
++    var zoneHasFocus = false {
++        didSet {
++            if zoneHasFocus != oldValue && isSelected {
++                needsDisplay = true
++            }
++        }
++    }
++
++    override var isFlipped: Bool { true }
++
++    init(symbol: SFSymbol, iconColor: NSColor?, name: String, detail: String, age: String, separator: Bool,
++         action: @escaping () -> Void) {
++        self.action = action
++        self.separator = separator
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: Self.height))
++        iconView.image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)
++        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
++        iconView.contentTintColor = iconColor ?? OmniTheme.secondaryText
++        addSubview(iconView)
++        self.name.stringValue = name
++        self.name.font = OmniTheme.Font.rowTitle
++        self.name.lineBreakMode = .byTruncatingMiddle
++        addSubview(self.name)
++        self.detail.stringValue = detail
++        self.detail.font = OmniTheme.Font.rowDetail
++        self.detail.textColor = OmniTheme.secondaryText
++        self.detail.lineBreakMode = .byTruncatingTail
++        addSubview(self.detail)
++        self.age.stringValue = age
++        self.age.font = OmniTheme.Font.rowDetail
++        self.age.textColor = OmniTheme.secondaryText
++        self.age.alignment = .right
++        addSubview(self.age)
++        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
++                                       owner: self, userInfo: nil))
++        setAccessibilityRole(.button)
++        setAccessibilityLabel(name)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    var titleText: String {
++        return name.stringValue
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        let midY = bounds.height / 2
++        iconView.frame = NSRect(x: 14, y: midY - 9, width: 18, height: 18)
++        age.frame = NSRect(x: bounds.width - 104, y: midY - 8, width: 90, height: 16)
++        let nameWidth = min(ceil(name.attributedStringValue.size().width) + 4, max(80, (bounds.width - 150) * 0.45))
++        let nameColumn = max(nameWidth, min(260, (bounds.width - 150) * 0.4))
++        name.frame = NSRect(x: 40, y: midY - 9, width: nameWidth, height: 18)
++        detail.frame = NSRect(x: 40 + nameColumn + 12, y: midY - 8,
++                              width: max(0, age.frame.minX - (40 + nameColumn + 12) - 8), height: 16)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        if isSelected || hovering {
++            let alpha: CGFloat = isSelected ? (zoneHasFocus ? 0.28 : 0.14) : 0.06
++            NSColor.controlAccentColor.withAlphaComponent(alpha).setFill()
++            bounds.fill()
++        }
++        if separator {
++            OmniTheme.titlebarSeparator.setFill()
++            NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
++        }
++    }
++
++    override func mouseEntered(with event: NSEvent) {
++        hovering = true
++    }
++
++    override func mouseExited(with event: NSEvent) {
++        hovering = false
++    }
++
++    override func mouseDown(with event: NSEvent) {
++    }
++
++    override func mouseUp(with event: NSEvent) {
++        if bounds.contains(convert(event.locationInWindow, from: nil)) {
++            activate()
++        }
++    }
++
++    func activate() {
++        action()
++    }
++
++    override func accessibilityPerformPress() -> Bool {
++        activate()
++        return true
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniRunReport.swift b/sources/OmniTerm/OmniRunReport.swift
@@ -24237,10 +24981,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..8204c0d4f815576f424319f3f5fb9006759b9282
+index 0000000000000000000000000000000000000000..36ee4287771a3f6c780a3b6b7aaf0b5692e67600
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4232 @@
+@@ -0,0 +1,4249 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -25941,7 +26685,7 @@ index 0000000000000000000000000000000000000000..8204c0d4f815576f424319f3f5fb9006
 +static NSArray<NSString *> *OmniSettableSettingKeys(void) {
 +    return @[ @"default_timeout_seconds", @"retained_run_tabs", @"timezone",
 +              @"double_escape_to_hide", @"double_escape_interval_ms", @"summaries", @"summary_model",
-+              @"notifications", @"agent_defaults", @"unblocker", @"projects" ];
++              @"notifications", @"agent_defaults", @"unblocker", @"projects", @"agent_folders" ];
 +}
 +
 +static BOOL OmniIsBoolean(id value) {
@@ -26201,12 +26945,29 @@ index 0000000000000000000000000000000000000000..8204c0d4f815576f424319f3f5fb9006
 +            return YES;
 +        };
 +        for (NSString *field in value) {
-+            if (![@[ @"groups", @"order", @"folders", @"names" ] containsObject:field]) return nil;
++            if (![@[ @"groups", @"order", @"folders", @"names", @"icons", @"colors" ] containsObject:field]) return nil;
 +        }
 +        if (value[@"groups"] && !strings(value[@"groups"], 200, 200)) return nil;
 +        if (value[@"order"] && !strings(value[@"order"], 4000, 4200)) return nil;
 +        if (value[@"folders"] && !map(value[@"folders"], 200)) return nil;
 +        if (value[@"names"] && !map(value[@"names"], 120)) return nil;
++        if (value[@"icons"] && !map(value[@"icons"], 200)) return nil;
++        if (value[@"colors"] && !map(value[@"colors"], 40)) return nil;
++        return value;
++    }
++    if ([key isEqualToString:@"agent_folders"]) {
++        // Agent folders' icons and colours, by folder path. Replaced whole.
++        if (![value isKindOfClass:[NSDictionary class]]) return nil;
++        for (NSString *field in value) {
++            if (![@[ @"icons", @"colors" ] containsObject:field]) return nil;
++            id map = value[field];
++            if (![map isKindOfClass:[NSDictionary class]] || [(NSDictionary *)map count] > 500) return nil;
++            for (id path in map) {
++                id entry = map[path];
++                if (![path isKindOfClass:[NSString class]] || [path length] > 200 ||
++                    ![entry isKindOfClass:[NSString class]] || [entry length] > 200) return nil;
++            }
++        }
 +        return value;
 +    }
 +    if ([key isEqualToString:@"agent_defaults"]) {
@@ -28475,7 +29236,7 @@ index 0000000000000000000000000000000000000000..8204c0d4f815576f424319f3f5fb9006
 +@end
 diff --git a/sources/OmniTerm/OmniSessionChat.swift b/sources/OmniTerm/OmniSessionChat.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1a536bc7a4d12438303c53203df7a9f4998d14b
+index 0000000000000000000000000000000000000000..6f18276798c09c61e714bf30714d9356586d2240
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSessionChat.swift
 @@ -0,0 +1,1322 @@
@@ -29699,7 +30460,7 @@ index 0000000000000000000000000000000000000000..c1a536bc7a4d12438303c53203df7a9f
 +            header.stringValue = providerName
 +            header.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
 +            header.textColor = OmniTheme.secondaryText
-+            icon.image = NSImage(systemSymbolName: OmniSessionText.providerSymbol(chat.provider), accessibilityDescription: providerName)
++            icon.image = OmniIconImage.image(OmniSessionText.providerSymbol(chat.provider))
 +            icon.contentTintColor = OmniTheme.accent
 +        }
 +        let chevron = expanded ? SFSymbol.chevronDown : SFSymbol.chevronRight
@@ -31213,10 +31974,10 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0aa6a0e79
+index 0000000000000000000000000000000000000000..3402a8a054b5fdfe327582fbb2c8e0a318ee329a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
-@@ -0,0 +1,661 @@
+@@ -0,0 +1,693 @@
 +import AppKit
 +import Foundation
 +
@@ -31811,8 +32572,9 @@ index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0
 +        }
 +    }
 +
++    // The provider's own mark (see OmniIconImage), drawn in the row's tint.
 +    static func providerSymbol(_ provider: String?) -> String {
-+        return (provider == "codex" ? SFSymbol.chevronLeftForwardslashChevronRight : SFSymbol.sparkle).rawValue
++        return provider == "codex" ? OmniIconImage.codex : OmniIconImage.claude
 +    }
 +
 +    static func folder(_ workspace: String?) -> String {
@@ -31878,12 +32640,43 @@ index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0
 +        return String(id[id.index(after: colon)...])
 +    }
 +}
++
++// Icon images by name: Claude's and Codex's own marks as template images
++// (tinted like a symbol, subtle grey by default), else an SF Symbol.
++enum OmniIconImage {
++    static let claude = "omni.provider.claude"
++    static let codex = "omni.provider.codex"
++
++    static func image(_ name: String) -> NSImage? {
++        switch name {
++        case claude: return claudeMark
++        case codex: return codexMark
++        default: return NSImage(systemSymbolName: name, accessibilityDescription: nil)
++        }
++    }
++
++    // The spark from Claude's menu-bar template.
++    private static let claudeMark = mark(claudePNG, accessibility: "Claude")
++    // The cloud and prompt of Codex's app icon, as one shape.
++    private static let codexMark = mark(codexPNG, accessibility: "Codex")
++
++    private static func mark(_ base64: String, accessibility: String) -> NSImage? {
++        guard let data = Data(base64Encoded: base64), let image = NSImage(data: data) else { return nil }
++        image.size = NSSize(width: 15, height: 15)
++        image.isTemplate = true
++        image.accessibilityDescription = accessibility
++        return image
++    }
++
++    private static let claudePNG = "iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAYAAABV7bNHAAAEsWlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4KPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iWE1QIENvcmUgNS41LjAiPgogPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4KICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIgogICAgeG1sbnM6dGlmZj0iaHR0cDovL25zLmFkb2JlLmNvbS90aWZmLzEuMC8iCiAgICB4bWxuczpleGlmPSJodHRwOi8vbnMuYWRvYmUuY29tL2V4aWYvMS4wLyIKICAgIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIKICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIgogICAgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIKICAgdGlmZjpJbWFnZUxlbmd0aD0iNzIiCiAgIHRpZmY6SW1hZ2VXaWR0aD0iNzIiCiAgIHRpZmY6UmVzb2x1dGlvblVuaXQ9IjIiCiAgIHRpZmY6WFJlc29sdXRpb249IjcyLzEiCiAgIHRpZmY6WVJlc29sdXRpb249IjcyLzEiCiAgIGV4aWY6UGl4ZWxYRGltZW5zaW9uPSI3MiIKICAgZXhpZjpQaXhlbFlEaW1lbnNpb249IjcyIgogICBleGlmOkNvbG9yU3BhY2U9IjEiCiAgIHBob3Rvc2hvcDpDb2xvck1vZGU9IjMiCiAgIHBob3Rvc2hvcDpJQ0NQcm9maWxlPSJzUkdCIElFQzYxOTY2LTIuMSIKICAgeG1wOk1vZGlmeURhdGU9IjIwMjQtMTAtMDdUMDg6Mjg6MzArMDI6MDAiCiAgIHhtcDpNZXRhZGF0YURhdGU9IjIwMjQtMTAtMDdUMDg6Mjg6MzArMDI6MDAiPgogICA8eG1wTU06SGlzdG9yeT4KICAgIDxyZGY6U2VxPgogICAgIDxyZGY6bGkKICAgICAgc3RFdnQ6YWN0aW9uPSJwcm9kdWNlZCIKICAgICAgc3RFdnQ6c29mdHdhcmVBZ2VudD0iQWZmaW5pdHkgUGhvdG8gMiAyLjUuNSIKICAgICAgc3RFdnQ6d2hlbj0iMjAyNC0xMC0wN1QwODoyODozMCswMjowMCIvPgogICAgPC9yZGY6U2VxPgogICA8L3htcE1NOkhpc3Rvcnk+CiAgPC9yZGY6RGVzY3JpcHRpb24+CiA8L3JkZjpSREY+CjwveDp4bXBtZXRhPgo8P3hwYWNrZXQgZW5kPSJyIj8+0k1/ggAAAYFpQ0NQc1JHQiBJRUM2MTk2Ni0yLjEAACiRdZHLS0JBFIc/tTLKKCgiooWEtcroAVKbFkovqBZqkNVGr69A7XKvEtI2aCsURG16LeovqG3QOgiKIojWrovaVNzO1UCJPMOZ881v5hxmzoA1mFLSet0QpDNZzT/tdS6Flp32Ik3YaaCbzrCiq/OBqSA17eMBixnv3Gat2uf+teZoTFfA0ig8oahaVnhGeG4jq5q8K9yhJMNR4XPhAU0uKHxv6pEyF01OlPnLZC3o94G1TdiZqOJIFStJLS0sL8eVTuWU3/uYL3HEMosBib3iPej4mcaLk1km8eFhmHGZPbgZYVBW1MgfKuUvsC65iswqeTTWSJAky4CoOakekxgXPSYjRd7s/9++6vHRkXJ1hxfqXwzjrQ/sO/BdMIzPY8P4PgHbM1xlKvnrRzD2LnqhorkOoXULLq4rWmQPLreh60kNa+GSZBO3xuPwegYtIWi/haaVcs9+9zl9hOCmfNUN7B9Av5xvXf0BNK5nz8UnBsYAAAAJcEhZcwAACxMAAAsTAQCanBgAAAhNSURBVHic7ZprjF1VGYafuXWklHILWC4F5BYRiDQYf8hNEEERMUbAYBOEEBJQNIaYYLEaDISLhcAPYyOCP5QgeEEjIAG8BBUVKxcFAmiFVkUFbGk7LTOdzpnNj+97s769zjnDnMM5c07JfpOdtfde93d9t7X2hgoVKlSoUKFChQoVKlToOIa62PaAp7sBBwPzgQlgKuS1095bAiL+EIyUwq+XgHd63uAM9UXGucBNwM6zqLPdQJMbAR7DiJkAtvr9Tz2/mfTq/bUkYlcBw1n72y00wWOxyW3zdNqvGnCol8klQs97kSRvi6cXeN4wjTEQro6hGyI77enzwGZsQgU28Jr3eVGT/vV8KjCKkTvq79Z7WmR1BrBFKcLVMZK6QVDh7f4H+Ku/E2mSrvMw493MYC8O96rzt9C+MODPNWAhsHt41xGSumX0NLivN3g/BewKnO/vGtmit2fP64AX/V4ERQKWA2uBfwM/amO8XcUgpkZDlAetid9J2RbVPP0H9YY3ryPD/kTW5wBpca+nrF4FcHHWXs/QaACDWbovME4y1JGsc7zMcFbnVyTvVwA/yPpT+StCezVMOgtMvWW7eub1NJmDgbMxryWMZOlybOCTnmoij3p+7n2eoCxBl/v74dDmZ0Jb05Tb/UU2xjmHOj4IeJkk2r8H9vG8Ecox0fOUVUxS9MlQBmzl12ZlTvO8t3l6OuXQQf2L0Eu9XLOQoOtQx9/DBjROWr1NwIc9fxCY5/dnUV5lEfWk54vMPYANpElPAu8IfR9EUr1aKCcynyYR2TP1EkHXUF45DbIAvhrKi6RfUiZJ5c8NZQ+jbK9Wh/ojwDMN+hJRExiB0GMDrc5Pon4Fa6QB3wPsGOq9h/LkVe5ZEuknUrZXd4f6P8zycoI+5uVG6APIDn2WsjqIAN2vBd4b6kktt2WpoutPk9S2AK7z91+hMTl6vtrL9QU5gkg6iiT6U6QVjZO5zMvuFfKnw/0/Pf+LlAk6BVgSykejLHLltTq+F+sEtGJDwLepX9mp8O4BL3tZViZ6tGUktZkATsDIy9sSsa9g2xbo4+OQ6E7PxjaWUZqiyv0X+DjwHGmimviDwDdJJLxMiokiOVGSPtBgDIIi7iH6IKoeIA1yd+AO6qVJ6VYSQVFl1pNUNbrweB8l7grvTzHXkI9hmMbS1BfqF1fyTFIgKWmKk43kNLtyciRJf/Q+RmiuWjtgbv8MzJbNGd5oJbSBBTsulefS6ufGNl4zkRbzDs/63BM4HtuorgQewnb3UTV/h5HWNeReIhfreA2RNowAnwD+T72na+XSZG8D9gcuxMj4E7CxSZ1pzNgr+l7UESbeAAvarLczKdibrYo1utY1eT+FETHuab4Iq1odcKtGawFwL/Zl4iVgDNs3verX+nC/wfPHsNUdwzwYwEeBbwD7+cDbNZ6TGMkDNLdFa4E/YxvpnwAvtNJBq7vd/TE9LzCdny1q2CZ2I0biX4A1GEHtQKTOy96vw7Ytj2NHKY/789Y2+2lr5X5O2q2/WbwZ6dmCScNjwMOYV3uOejJEpFRwmhbQzuB2xDaFi4Gd/Fro6XzMS+gaxUR/hGS8R0kH6wtb6Fdkvgbch6n6KuysuubtzsO85DjpCCZiyMvOGt0OnGIUOw8jagzYBViBHXNM0/oWYcLrDJI8q0KHce9jE2YHN2DbkRXYWZEWp2tQxNzIrQ+FQUdEAk7G3LKCwFY82TbK50AxmJxN2LC0EwR0CvIswrsx1dBgt4b7Vki6FvtkdB8WCDaKeya9/UmM0NhX/kmpJ4jecRHwLcpSoKDtRcqb1pmIEYmTwPu97YXYIdwl2N5vdZO6MZrWzxM9gewCmM25HLMHGtx4uL8d+AL1B2DTWZqrku71rT5iGHgXJmG3Yufdkp4XvE7PNqxRnT6FxTlRnWQ7tmAH+AdgHkllNlK2TTlJkTjdfyn03ewk8UAsLOnqHmwmaD8G9kXiZ6RJyRbo+S7sKATSZyBJ1SXYrzFSCalLJGmMsqoV2P9DgpyEHEeOOf8MFMX1LNLnGnkb6f4r2EGa8GOSNBXY4T6kk8MC29zmh2Xj2BblNcrkfj+0nR+MKdSYc9UaCOnNlKUm2pXvkv4QA7M7BclQr8OCz0VZvUMx1RDhIulh4BhsvxdJvj+MqWcfDCO0UqeQVjPuoP+FfQGNeB/1nuVDnndilqefrH5NIkkELsei9r/782ZP/0D6aNhzkkTQR6j3NitJRlEbyt2wE4CoGleF9i4O9V8lbYaPCO/jV5Alni8CpXZPYb/XxDH2DBLpZZhxXoFJghA9y0OUJ/Jbf6+V/g6JiDUYsZrgl0nqK8lbHdpeSdn7rSH9hNWXXzpkFDX5GynbnU3A3qEs2PGECIp/fQj6IXSKpGo3hPyllLcha0i2r+eH9dqHaU8GSXqWkiam1dcnYqnfnpSPTO/39/JAAEdTjoPk7o8J4zgE++1P7ZwaxtdX0ICOJE1E0nO950UyjyMFlPJ8KgOJ7CupV7VnsKOOSMIt2EfK+f7ccwmK0GBGsR8vo925PZSJKvg5ysZ7hb9v9G/0I9R7NcVY8SNBPp620A0DppVchon8Zsyj3YttQaD+TOborI3/Zc9FaPccjJxh0oHYAZ7WSJG9FiH20zK6aeGP8nQB8BtSTDRIOvbUBJeEPKgnCGzy+lPtQn+nUCLOI9/U9h0k0gdiKnUbSfSjnYg/eUoFZVc+2KB8Xu/zmFR+jfQZqq9szUxoNNBcWjX500g2RQY9l6jZtL/dkCPE8+iZCFtM+UCrYHZBnrzgcJP23xKQFF1KIkd/5/dlBNxL7MccfTevUKFChQoVKlSoUKFChR7jdRpEjLjWfMzWAAAAAElFTkSuQmCC"
++    private static let codexPNG = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAQKADAAQAAAABAAAAQAAAAABlmWCKAAAEXUlEQVR4Ae1bS3baMBQlbefQWWb2sDMYZgY7MMPOYAdkB84Okh1AVkC6ArwD6ArsrsB01o7SexM5UYRsLFn+pXnn3Eh6ep/7noTISU8Hgw/5vzvwuaHyx8hzCfwRI9NeAUfgLxdtyUWNiQPEZoEUHxgJYHiSCD+pSwAf+AE0LnU0gIWzMBa/BOZAkUTYfABoT7l/Hpr56bIBQ1C+BhIxTjCaSALjjXDg+EvMax1cNYDFbwTTeUXGBxErwngEZkACZOJjQpufmaLK6OIRZPER4AN82KoKH8tvAB9MNmAi8F2M1BNXgA9cAta3xcUN2IMASbYhvAkbgI0iGn9IQyR97ABicFgDtwBvZCPiIUsXipc5xODEG9lIE9YdbEDWjEaakHa4AWwED6g2WSFy1u0uj8G5Dph8C3gItgT42s6BGdB1IdevLkjyxHcCXT5xHbdFlQYM4bwHUkAXvA868rcSD14x0Iciz3E0bkB28ucC92U/yOvAp5yNB+gnOXt9VOfWomvAAhXO+lilDWddA+5sAvXVR20AT39kUcwcPvydgr4R0FvZgrnpw3arVMsHNLWIY5rXxH6lcHxZqjeAJ2kqR8XhN9Y3iq7tZVSGwBRGJl3NbGNN8K7dgkDD8URFo6wo03FxEm0woM40Tl32KbiMNRzfqMIKhOM3kV4X1NdVlGlcchm+UnueqW+Aul927cMw1BgvNbq2VD4SXxclX2HTtKuyPa+Zp0mwrRhXzuFifnILMs5TB0TXWTBpHDuI66LwLMZK4vZm6jkiyoJV2UKREWh73Mnk5DeA/7hwkDct57rfJVzEtaRz4jaDhof9JHIDqNg8ae1/HOF6p3GfaXRtqvy85ENsVLmioSbwtGLMKnzyfHPfAfJnEXmORfoYfmygKjsoivza2AtVkvKaRcQWpAM5iJiz020UeC5nYQPI3QNSA/I7OinCRprEOEfa5X6gcNUup9CWTTrWRLgt6b+Gnc5fE/JF5WFWNr6uhulLpIIJjXTOqm6tieGV9I01viaqXck8j5JdKidQvwblvZm8KJgnmr2NRqdTJTqlgS4ysM1MS/uE8JA7lzffZ5HFGJT0y+INFX+TZWyYizkXcoIv8sJyPoHfDtgAnC8BEznA+AZIgLIyguE14Jd1EHZHjPdlfUIYsmPvCQu1+KI3QLXt+zpCASenX9QAXs33IqxlblPMe7j+fKQ9m+LpQ+c+N4H8q3zLdOovu6YHEfIEXUiKIKbJ27InVxbuuSg8ixFg0lZBJnkXGeE6xnXHm8CTr1WGiL4HTE6kSVseUO3S5SZ4tVcvErAJ7HaTp3suV9hU8XKeAIu4A43gx7JVYSO2wLlTqmM/Rd5h1eovqgaQ/MeYz4CRpDti/gD4YpT3oLKWAzyXgJP/NmPNwtCRDXLxsdkhTuWTN+Tu1DxEtBQw/ViweQunTFoMxhNcAVugqBFsFG1qK9zlGwCeVjKE10R4+mJMMB6BXn3GBfePoVcd+AexFYvTjbNKmAAAAABJRU5ErkJggg=="
++}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70df383374
+index 0000000000000000000000000000000000000000..abf8a359c7dad70e19ae4bbb4c261211672cddca
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3958 @@
+@@ -0,0 +1,4084 @@
 +import AppKit
 +import Foundation
 +import os
@@ -32168,6 +32961,9 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +    private let forgeProjectsSection = OmniSidebarItem(kind: .section, key: "forge-projects", title: "Projects")
 +    private var forgeProjects: [[String: Any]] = []
 +    private var projectLayout = OmniProjectLayout()
++    // Agent folders' icons and colours by path (`agent_folders` in settings).
++    private var agentFolderIcons: [String: String] = [:]
++    private var agentFolderColors: [String: String] = [:]
 +    private var projectTree = OmniGroupTree()
 +    private var projectsRequestInFlight = false
 +    // The page shown when a project folder was selected; see syncSelection.
@@ -32884,7 +33680,8 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            let groups = settings["sidebar_groups"] as? [String] ?? []
 +            self.projectLayout = OmniProjectLayout(settings["projects"])
 +            let order = settings["sidebar_order"] as? [String] ?? []
-+            guard groups != self.configuredGroups || order != self.sidebarOrder else { return }
++            let appearanceChanged = self.readAgentFolderAppearance(settings)
++            guard groups != self.configuredGroups || order != self.sidebarOrder || appearanceChanged else { return }
 +            self.configuredGroups = groups
 +            self.sidebarOrder = order
 +            self.rebuild()
@@ -33105,6 +33902,8 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +                    }
 +                    let row = item(.group, key: group.path, title: group.name, route: .group(group.path))
 +                    row.groupPath = group.path
++                    row.icon = OmniAgentIcon(spec: agentFolderIcons[group.path])
++                    row.iconColor = agentFolderColors[group.path]
 +                    row.children = children
 +                    return row
 +                }
@@ -33223,6 +34022,13 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            // included), else per folder, newest activity first.
 +            var order: [(key: String, title: String)] = []
 +            var byGroup: [String: [OmniSidebarItem]] = [:]
++            // A forge project's root, for its header's icon and colour.
++            var groupRoots: [String: String] = [:]
++            for session in sessions {
++                if let project = session["project"] as? [String: Any], let id = project["id"] as? String {
++                    groupRoots["project|" + id] = project["root"] as? String ?? id
++                }
++            }
 +            for entry in rest {
 +                if byGroup[entry.group.key] == nil {
 +                    order.append(entry.group)
@@ -33231,6 +34037,10 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            }
 +            for group in order {
 +                let section = item(.section, key: group.key, title: group.title.isEmpty ? "No Folder" : group.title)
++                if let root = groupRoots[group.key] {
++                    (section.icon, section.iconColor) = projectLayout.appearance(root)
++                    section.icon = section.icon ?? .symbol(SFSymbol.shippingbox.rawValue)
++                }
 +                section.children = byGroup[group.key] ?? []
 +                items.append(section)
 +            }
@@ -33516,11 +34326,13 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +                    let row = item(.project, key: root, title: title, detail: OmniSessionText.age(updated),
 +                                   route: .project(root))
 +                    row.groupPath = projectLayout.folders[root] ?? ""
++                    (row.icon, row.iconColor) = projectLayout.appearance(root)
 +                    row.children = []
 +                    return row
 +                case .group(let group):
 +                    let row = item(.projectFolder, key: group.path, title: group.name)
 +                    row.groupPath = group.path
++                    (row.icon, row.iconColor) = projectLayout.appearance(OmniProjectLayout.folderKey(group.path))
 +                    row.children = rows(group.children)
 +                    return row
 +                }
@@ -34171,8 +34983,57 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
 +            guard let self, let settings = response["settings"] as? [String: Any] else { return }
 +            self.projectLayout = OmniProjectLayout(settings["projects"])
++            self.readAgentFolderAppearance(settings)
 +            self.rebuild()
 +        }
++    }
++
++    // Whether the agent folders' look changed.
++    @discardableResult
++    private func readAgentFolderAppearance(_ settings: [AnyHashable: Any]) -> Bool {
++        let folders = settings["agent_folders"] as? [String: Any] ?? [:]
++        let icons = folders["icons"] as? [String: String] ?? [:]
++        let colors = folders["colors"] as? [String: String] ?? [:]
++        guard icons != agentFolderIcons || colors != agentFolderColors else { return false }
++        agentFolderIcons = icons
++        agentFolderColors = colors
++        return true
++    }
++
++    // Saves the agent folders' look; shown at once, put back if refused.
++    private func saveAgentFolderAppearance(icons: [String: String], colors: [String: String]) {
++        let saved = (agentFolderIcons, agentFolderColors)
++        agentFolderIcons = icons.filter { !$0.value.isEmpty }
++        agentFolderColors = colors.filter { !$0.value.isEmpty }
++        rebuild()
++        OmniSchedulerClient.request(["op": "set_settings",
++                                     "settings": ["agent_folders": ["icons": agentFolderIcons, "colors": agentFolderColors]]]) { [weak self] response in
++            guard let self, response["ok"] as? Bool != true else { return }
++            (self.agentFolderIcons, self.agentFolderColors) = saved
++            self.rebuild()
++        }
++    }
++
++    // An agent folder's look follows it to a new path; a dissolved one loses it.
++    private func moveAgentFolderAppearance(from path: String, to newPath: String) {
++        func moved(_ map: [String: String]) -> [String: String] {
++            var result: [String: String] = [:]
++            for (key, value) in map {
++                if key == path || key.hasPrefix(path + "/") {
++                    let parent = OmniGroupTree.parent(of: path)
++                    // Dissolving moves the contents to the parent: the look goes.
++                    guard newPath != parent, !newPath.isEmpty else { continue }
++                    result[newPath + key.dropFirst(path.count)] = value
++                } else {
++                    result[key] = value
++                }
++            }
++            return result
++        }
++        let icons = moved(agentFolderIcons)
++        let colors = moved(agentFolderColors)
++        guard icons != agentFolderIcons || colors != agentFolderColors else { return }
++        saveAgentFolderAppearance(icons: icons, colors: colors)
 +    }
 +
 +    func paneSessionsChanged() {
@@ -34324,7 +35185,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +    func handleDoubleClick(row: Int, at point: NSPoint?) {
 +        guard let item = outlineView.item(atRow: row) as? OmniSidebarItem,
 +              item.kind == .agent || item.isFolder || item.kind == .project else { return }
-+        if item.kind == .agent, let point,
++        if Self.takesAppearance(item), let point,
 +           let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? OmniSidebarCell,
 +           let icon = cell.iconFrame, cell.convert(icon, to: outlineView).insetBy(dx: -3, dy: -3).contains(point) {
 +            showAppearancePicker(for: item, anchor: cell.convert(icon, to: outlineView))
@@ -34336,12 +35197,37 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +    // The picker last shown, for tests; the popover owns it.
 +    private(set) var appearancePopover: NSPopover?
 +
++    // Agents, agent folders, projects and project folders share one picker.
 +    private func showAppearancePicker(for row: OmniSidebarItem, anchor: NSRect) {
 +        let name = row.title
++        let kind = row.kind
++        let path = row.groupPath
++        let root = Self.projectRoot(row)
 +        appearancePopover = OmniAppearancePicker.show(icon: row.icon, color: row.iconColor, relativeTo: anchor,
 +                                                      of: outlineView) { [weak self] icon, color in
-+            self?.setAppearance(of: name, ["icon": icon, "color": color])
++            guard let self else { return }
++            switch kind {
++            case .agent:
++                self.setAppearance(of: name, ["icon": icon, "color": color])
++            case .group:
++                var icons = self.agentFolderIcons
++                var colors = self.agentFolderColors
++                icons[path] = icon
++                colors[path] = color
++                self.saveAgentFolderAppearance(icons: icons, colors: colors)
++            case .project, .projectFolder:
++                guard let key = kind == .project ? root : OmniProjectLayout.folderKey(path) else { return }
++                var layout = self.projectLayout
++                layout.setAppearance(key, icon: icon, color: color)
++                self.saveProjectLayout(layout)
++            default:
++                break
++            }
 +        }
++    }
++
++    private static func takesAppearance(_ row: OmniSidebarItem) -> Bool {
++        return row.kind == .agent || row.kind == .group || row.kind == .project || row.kind == .projectFolder
 +    }
 +
 +    private func beginEditing(_ item: OmniSidebarItem, fromKeyboard: Bool) {
@@ -34478,6 +35364,9 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +    private func moveGroup(_ path: String, to newPath: String) {
 +        OmniSchedulerClient.request(["op": "rename_group", "from": path, "to": newPath]) { [weak self] response in
 +            guard let self else { return }
++            if response["ok"] as? Bool == true {
++                self.moveAgentFolderAppearance(from: path, to: newPath)
++            }
 +            if response["ok"] as? Bool != true, let row = self.itemCache["group|\(path)"] {
 +                self.showRenameProblem(Self.problem(response, fallback: "The folder could not be changed."), on: row)
 +            } else if response["ok"] as? Bool == true, case .group(let shown) = self.contentHost.route,
@@ -34653,6 +35542,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            menu.addItem(move)
 +        case .group:
 +            add("Rename Folder", #selector(renameItem(_:)), row)
++            add("Icon & Colour…", #selector(editAppearance(_:)), row)
 +            if !row.groupPath.contains("/") {
 +                add("New Subfolder", #selector(newGroup(_:)), row.groupPath)
 +            }
@@ -34664,6 +35554,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +        case .project:
 +            guard let root = Self.projectRoot(row) else { break }
 +            add("Rename…", #selector(renameItem(_:)), row)
++            add("Icon & Colour…", #selector(editAppearance(_:)), row)
 +            if projectLayout.name(root) != nil {
 +                add("Use Folder Name", #selector(resetProjectName(_:)), root)
 +            }
@@ -34690,6 +35581,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            add("Reveal in Finder", #selector(revealProject(_:)), root)
 +        case .projectFolder:
 +            add("Rename Folder", #selector(renameItem(_:)), row)
++            add("Icon & Colour…", #selector(editAppearance(_:)), row)
 +            if !row.groupPath.contains("/") {
 +                add("New Subfolder", #selector(newProjectFolder(_:)), row.groupPath)
 +            }
@@ -34875,6 +35767,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +                    revert("group|\(path)", Self.problem(response, fallback: "The folder could not be moved."))
 +                    return
 +                }
++                self.moveAgentFolderAppearance(from: path, to: newPath)
 +                self.request(["op": "set_sidebar_order", "items": order], revertKey: "group|\(newPath)", revert: revert)
 +            }
 +        }
@@ -34994,7 +35887,8 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            let accessory: NSView? = item === terminalsSection ? newTerminalButton
 +                : item === agentsSection ? newAgentButton
 +                : item === forgeProjectsSection ? projectsHeaderAccessory : nil
-+            cell.configure(title: item.title, accessory: accessory)
++            cell.configure(title: item.title, accessory: accessory, icon: item.icon,
++                           iconColor: OmniAgentColor.color(item.iconColor))
 +            cell.toolTip = item === agentsSection ? "Keyboard\n" + OmniSidebarShortcuts.tooltip : nil
 +            return cell
 +        }
@@ -35007,15 +35901,16 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +            cell.configure(title: item.title, detail: item.detail, icon: icon,
 +                           iconColor: OmniAgentColor.color(item.iconColor), status: item.color, pulses: item.pulses)
 +        case .project:
-+            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.shippingbox.rawValue),
-+                           iconColor: nil, status: nil, pulses: false)
++            cell.configure(title: item.title, detail: item.detail, icon: item.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
++                           iconColor: OmniAgentColor.color(item.iconColor), status: nil, pulses: false)
 +        case .memoryResult:
 +            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.brain.rawValue),
 +                           iconColor: nil, status: nil, pulses: false)
 +        case .group, .projectFolder:
 +            let open = outlineView.isItemExpanded(item)
-+            cell.configure(title: item.title, detail: "", icon: .symbol(open ? SFSymbol.folder.rawValue : SFSymbol.folderFill.rawValue),
-+                           iconColor: nil, status: nil, pulses: false)
++            cell.configure(title: item.title, detail: "",
++                           icon: item.icon ?? .symbol(open ? SFSymbol.folder.rawValue : SFSymbol.folderFill.rawValue),
++                           iconColor: OmniAgentColor.color(item.iconColor), status: nil, pulses: false)
 +        default:
 +            cell.configure(title: item.title, detail: item.detail, color: item.color, pulses: item.pulses)
 +        }
@@ -35265,7 +36160,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +        default:
 +            if flags == .command, key == "i" {
 +                // Taken even off an agent: Edit Session would edit a hidden tab.
-+                if let item = selectedItem, item.kind == .agent {
++                if let item = selectedItem, Self.takesAppearance(item) {
 +                    showAppearancePicker(for: item)
 +                }
 +            } else if flags == .command, key == "n" {
@@ -35363,6 +36258,10 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +private final class OmniSidebarSectionCell: NSTableCellView {
 +    private let label = NSTextField(labelWithString: "")
 +    private var accessory: NSView?
++    // A project's icon in its colour, before a Sessions-mode project header.
++    private let iconView = NSImageView()
++    private let emojiLabel = NSTextField(labelWithString: "")
++    private var hasIcon = false
 +
 +    init() {
 +        super.init(frame: NSRect(x: 0, y: 0, width: 220, height: 26))
@@ -35375,7 +36274,23 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +        it_fatalError("init(coder:) is not supported")
 +    }
 +
-+    func configure(title: String, accessory: NSView?) {
++    func configure(title: String, accessory: NSView?, icon: OmniAgentIcon? = nil, iconColor: NSColor? = nil) {
++        hasIcon = icon != nil
++        iconView.removeFromSuperview()
++        emojiLabel.removeFromSuperview()
++        switch icon {
++        case .symbol(let name)?:
++            iconView.image = OmniIconImage.image(name)
++            iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
++            iconView.contentTintColor = iconColor ?? OmniTheme.secondaryText
++            addSubview(iconView)
++        case .emoji(let emoji)?:
++            emojiLabel.stringValue = emoji
++            emojiLabel.font = NSFont.systemFont(ofSize: 11)
++            addSubview(emojiLabel)
++        case nil:
++            break
++        }
 +        label.stringValue = title
 +        self.accessory?.removeFromSuperview()
 +        self.accessory = accessory
@@ -35388,7 +36303,11 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +    override func resizeSubviews(withOldSize oldSize: NSSize) {
 +        super.resizeSubviews(withOldSize: oldSize)
 +        let accessoryWidth: CGFloat = accessory.map { $0 is NSButton ? 22 : $0.frame.width + 2 } ?? 0
-+        label.frame = NSRect(x: 2, y: (bounds.height - 16) / 2, width: max(0, bounds.width - accessoryWidth - 6), height: 16)
++        let labelX: CGFloat = hasIcon ? 20 : 2
++        iconView.frame = NSRect(x: 2, y: (bounds.height - 16) / 2, width: 14, height: 16)
++        emojiLabel.frame = NSRect(x: 1, y: (bounds.height - 16) / 2, width: 18, height: 16)
++        label.frame = NSRect(x: labelX, y: (bounds.height - 16) / 2,
++                             width: max(0, bounds.width - accessoryWidth - 4 - labelX), height: 16)
 +        accessory?.frame = NSRect(x: bounds.width - accessoryWidth - 2, y: (bounds.height - 20) / 2, width: accessoryWidth - 2, height: 20)
 +    }
 +}
@@ -35488,7 +36407,7 @@ index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70
 +        dotTrailing = true
 +        switch icon {
 +        case .symbol(let name):
-+            iconView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil) ??
++            iconView.image = OmniIconImage.image(name) ??
 +                NSImage(systemSymbolName: OmniAgentIcon.defaultSymbol, accessibilityDescription: nil)
 +            iconView.contentTintColor = iconColor ?? OmniTheme.secondaryText
 +            iconView.isHidden = false
@@ -36173,10 +37092,10 @@ index 0000000000000000000000000000000000000000..080d28cd96db8a18b7c64ff05da1efd6
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..1a7fa2bd208fd67f0fa515a898764c6cbbb6c5de
+index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79bea24b304
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,315 @@
+@@ -0,0 +1,329 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -36206,6 +37125,20 @@ index 0000000000000000000000000000000000000000..1a7fa2bd208fd67f0fa515a898764c6c
 +    static let titlebarSeparator: NSColor = .separatorColor
 +    static let secondaryText: NSColor = .secondaryLabelColor
 +    static let tertiaryText: NSColor = .tertiaryLabelColor
++    // Cards: Markdown, file boxes and their header bars sit a shade lighter
++    // than the page, with a hairline border.
++    static let cardFill = NSColor(name: nil) { appearance in
++        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++            ? NSColor.white.withAlphaComponent(0.045)
++            : NSColor.black.withAlphaComponent(0.025)
++    }
++    // Folders in file listings, as a repository host tints them.
++    static let folderTint = NSColor.systemBlue.withAlphaComponent(0.75)
++    static let cardBorder = NSColor(name: nil) { appearance in
++        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++            ? NSColor.white.withAlphaComponent(0.12)
++            : NSColor.black.withAlphaComponent(0.12)
++    }
 +
 +    // MARK: - Status
 +

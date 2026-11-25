@@ -17,9 +17,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   project or folder. The arrangement is saved in OmniTerm's settings; a
   project's new name is OmniTerm's alone.
 - A project's page has tabs: Home (facts, worktrees and branches at a glance,
-  recent sessions, README), Worktrees & Branches, Sessions & Agents,
-  Knowledge, Files (a folder browser) and Settings. ⌘1 to ⌘6 switch tabs.
-  Env files, secrets and keys are listed but never opened.
+  recent sessions, README), Branches, Sessions, Knowledge, Files and Settings.
+  ⌘1 to ⌘6 switch tabs. Env files, secrets and keys are listed but never
+  opened.
+- Agent folders, projects and project folders take an icon and colour with
+  the same picker as agents (Icon & Colour…, Command-I, or a double-click on
+  the icon). A project's look shows on its page, the Dashboard, the projects
+  list and its heading in Sessions mode.
 - OmniTerm bundles Forge inside the app (Contents/Resources/Forge), so the
   Projects features work on a Mac without Forge installed; an installed Forge
   is used first. Forge stays its own repository.
@@ -37,9 +41,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   with an All Projects button.
 - The Projects header has View All (the page listing every project) and a +
   that adds a folder.
+- A project's page reads like a repository host: its icon and colour in the
+  heading, tabs with icons and an underline, the README in a bordered file box,
+  and Files and Knowledge as bordered folder listings (folders first, a
+  breadcrumb of links, sizes and dates), opened files in a box above them.
+- Parsed Markdown sits on a lighter rounded card: READMEs and files, run
+  summaries and final messages, the memory digest, and the agent prompt and
+  Unblocker policy editors.
+- Sessions show Claude's and Codex's own marks, in subtle grey, instead of
+  generic symbols.
 
 ### Fixed
 
+- A project page opened just after launch no longer stays on “unknown
+  project”: it asks again while the project list loads.
 - OmniTerm no longer slows to a crawl after a few project actions: a long
   README was laid out in quadratic time on the main thread, using a full core
   and gigabytes of memory, and was laid out again on every page reload.
