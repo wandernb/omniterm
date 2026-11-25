@@ -6756,10 +6756,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..496300af24f9b72e02c54fefc66cc49ac3ed54e3
+index 0000000000000000000000000000000000000000..3d4f4bab709674f2d6f2d984bd8a2a97dea0d02c
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1903 @@
+@@ -0,0 +1,1928 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7300,6 +7300,31 @@ index 0000000000000000000000000000000000000000..496300af24f9b72e02c54fefc66cc49a
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(commandI))
 +        let popover = try XCTUnwrap(sidebar.appearancePopover)
 +        XCTAssertTrue(popover.contentViewController is OmniAppearancePicker)
++    }
++
++    // Command-K opens the navigator over the window (and closes it), Command-F
++    // goes to the search field, Command-, opens Settings.
++    func testCommandKFAndCommaOpenTheNavigatorSearchAndSettings() throws {
++        showSidebarWithPages()
++        let content = try XCTUnwrap(window.contentView)
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(40, "k", .command)))
++        let nav = try XCTUnwrap(content.subviews.compactMap { $0 as? OmniQuickNav }.first, "Command-K shows the navigator")
++        XCTAssertTrue(window.firstResponder === nav.field.currentEditor(), "with the keyboard in its field")
++        wait("the navigator lists the pages") { nav.shownHits.contains { $0.title == "Settings" } }
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(40, "k", .command)))
++        XCTAssertNil(nav.superview, "Command-K again closes it")
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(3, "f", .command)))
++        XCTAssertTrue(window.firstResponder === searchField.currentEditor(), "Command-F goes to the search")
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(43, ",", .command)))
++        XCTAssertEqual(sidebar.shownRoute, .settings, "Command-, opens Settings")
++        // Every mode shows the options button.
++        for mode: OmniSidebarMode in [.projects, .sessions, .agents] {
++            sidebar.setMode(mode)
++            let options = Self.find(NSButton.self, in: sidebar.view) { $0.toolTip == "View options" }
++            XCTAssertNotNil(options, "\(mode)")
++            XCTAssertFalse(options?.isHidden ?? true)
++            XCTAssertGreaterThan(options?.frame.minX ?? 0, searchField.frame.maxX - 1, "right of the search field")
++        }
 +    }
 +
 +    func testControlCommandSFocusesTheSidebarAndPlainKeysAreLeftAlone() {
