@@ -121,9 +121,10 @@ line break.
 
 ## The window
 
-The terminal window has a sidebar on the left with two modes, switched at its
-top or with Shift-Command-1 and 2. **Inbox**, **Memory** and **Settings** show
-in both.
+The terminal window has a sidebar on the left with three modes, Projects,
+Sessions and Agents, switched at its top or with Shift-Command-1, 2 and 3.
+**Dashboard**, **Inbox**, **Memory**, **Unblocker** and **Settings** sit on a
+panel above the switch, the same in every mode.
 
 - **Agents**: **Dashboard**, then your agents in their folders, their live
   runs, and every other terminal tab under Terminals. Choosing an agent, run or

@@ -6747,7 +6747,7 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c2be1a32d
+index 0000000000000000000000000000000000000000..688bb242118ea9829f64a2b7e8fe1d02c20611a5
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
 @@ -0,0 +1,1746 @@
@@ -7185,8 +7185,6 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +        XCTAssertEqual(sidebar.paneTitle, "Dashboard")
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .inbox, "The Inbox is next to Overview")
-+        outlineView.keyDown(with: down)
-+        XCTAssertEqual(sidebar.shownRoute, .projects, "Projects follows the Inbox")
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .memory)
 +        XCTAssertEqual(sidebar.paneTitle, "Memory")
@@ -7854,11 +7852,13 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +        sidebar.setMode(.sessions)
 +        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
 +        XCTAssertEqual(cell(1)?.textField?.stringValue, "Inbox")
-+        XCTAssertEqual(cell(2)?.textField?.stringValue, "Projects")
-+        XCTAssertEqual(cell(3)?.textField?.stringValue, "Memory")
++        XCTAssertEqual(cell(2)?.textField?.stringValue, "Memory")
 +        XCTAssertNotNil(row(titled: "Settings"))
 +        XCTAssertNil(row(titled: "Alpha"))
 +        XCTAssertEqual(OmniSidebarMode.stored(in: OmniSidebarViewController.preferencesDomain), .sessions)
++        sidebar.setMode(.projects)
++        XCTAssertEqual((0..<5).map { cell($0)?.textField?.stringValue }, ["Dashboard", "Inbox", "Memory", "Unblocker", "Settings"],
++                       "Every mode shows the same top pages")
 +        sidebar.setMode(.agents)
 +        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
 +        XCTAssertEqual(OmniSidebarMode.stored(in: OmniSidebarViewController.preferencesDomain), .agents)
@@ -7873,7 +7873,7 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +
 +    func testSharedPagesAreOrdinaryRowsSetApartByTheModeSwitch() throws {
 +        showSidebarWithPages()
-+        let titles = ["Dashboard", "Inbox", "Projects", "Memory", "Unblocker", "Settings"]
++        let titles = ["Dashboard", "Inbox", "Memory", "Unblocker", "Settings"]
 +        for (index, title) in titles.enumerated() {
 +            XCTAssertEqual(cell(index)?.textField?.stringValue, title)
 +            XCTAssertEqual(outlineView.rect(ofRow: index).height, OmniTheme.Sidebar.topRowHeight)
@@ -7890,7 +7890,7 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +
 +        sidebar.focusSidebar()
 +        XCTAssertEqual(sidebar.shownRoute, .overview)
-+        for route: OmniPaneRoute in [.inbox, .projects, .memory, .unblocker, .settings] {
++        for route: OmniPaneRoute in [.inbox, .memory, .unblocker, .settings] {
 +            XCTAssertTrue(sidebar.handleWindowKeyDown(down))
 +            XCTAssertEqual(sidebar.shownRoute, route)
 +        }
@@ -8161,12 +8161,12 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +        XCTAssertNil(row(titled: "ws-a"))
 +    }
 +
-+    func testShiftCommandOneAndTwoSwitchModes() throws {
++    func testShiftCommandTwoAndThreeSwitchModes() throws {
 +        showSidebarWithPages()
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(19, "2", [.shift, .command])))
 +        XCTAssertEqual(sidebar.mode, .sessions)
 +        XCTAssertNil(row(titled: "Alpha"))
-+        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(18, "1", [.shift, .command])))
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(20, "3", [.shift, .command])))
 +        XCTAssertEqual(sidebar.mode, .agents)
 +        XCTAssertNotNil(row(titled: "Alpha"))
 +    }
@@ -8364,10 +8364,10 @@ index 0000000000000000000000000000000000000000..76002493cae477e53a345014028da82c
 +        return (fake.requests("set_settings").last?["settings"] as? [String: Any])?["projects"] as? [String: Any]
 +    }
 +
-+    func testShiftCommandThreeShowsProjectsInTheirFolders() throws {
++    func testShiftCommandOneShowsProjectsInTheirFolders() throws {
 +        showProjects()
 +        sidebar.setMode(.agents)
-+        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(20, "3", [.shift, .command])))
++        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(18, "1", [.shift, .command])))
 +        XCTAssertEqual(sidebar.mode, .projects)
 +        let work = try XCTUnwrap(row(titled: "Work"))
 +        let web = try XCTUnwrap(row(titled: "web"))
@@ -16627,7 +16627,7 @@ index 0000000000000000000000000000000000000000..4bb104397f44c89ec48b100ce208fb88
 +}
 diff --git a/sources/OmniTerm/OmniKeyboardMap.swift b/sources/OmniTerm/OmniKeyboardMap.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..fb273d2b6f60790630a16c1034e50cd6141c8a92
+index 0000000000000000000000000000000000000000..7653eca1ac2870dd416b88b835d4d21061a33aa7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniKeyboardMap.swift
 @@ -0,0 +1,233 @@
@@ -16678,7 +16678,7 @@ index 0000000000000000000000000000000000000000..fb273d2b6f60790630a16c1034e50cd6
 +        ]),
 +        Group(title: "Window", shortcuts: [
 +            Shortcut(keys: "⌃⌘S", action: "Focus the sidebar"),
-+            Shortcut(keys: "⇧⌘1 ⇧⌘2", action: "Sidebar: Agents or Sessions"),
++            Shortcut(keys: "⇧⌘1 ⇧⌘2 ⇧⌘3", action: "Sidebar: Projects, Sessions or Agents"),
 +            Shortcut(keys: "⌃⌘1", action: "Show or hide the sidebar"),
 +            Shortcut(keys: "⌃⌘2", action: "Show or hide the runs and settings"),
 +            Shortcut(keys: "⌃⌘3", action: "Show or hide the terminal band"),
@@ -31112,7 +31112,7 @@ index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d4eb31c9b
+index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0aa6a0e79
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
 @@ -0,0 +1,661 @@
@@ -31571,7 +31571,7 @@ index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d
 +        ("Return", "Rename the agent or folder; elsewhere, go to the page"),
 +        ("Tab", "Go to the page or terminal; on a page, its next part"),
 +        ("⌃⌘1 – ⌃⌘4", "Show or hide the sidebar, run list, terminal and diff"),
-+        ("⇧⌘1 ⇧⌘2", "Agents or Sessions"),
++        ("⇧⌘1 ⇧⌘2 ⇧⌘3", "Projects, Sessions or Agents"),
 +        ("⌘I", "Icon & Colour"),
 +        ("⌥⌘↑ ⌥⌘↓", "Move up or down"),
 +        ("⌘N", "New Agent"),
@@ -31659,16 +31659,16 @@ index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d
 +    // Its place in the sidebar's mode switch.
 +    var segment: Int {
 +        switch self {
-+        case .agents: return 0
++        case .projects: return 0
 +        case .sessions: return 1
-+        case .projects: return 2
++        case .agents: return 2
 +        }
 +    }
 +
 +    init(segment: Int) {
 +        switch segment {
++        case 0: self = .projects
 +        case 1: self = .sessions
-+        case 2: self = .projects
 +        default: self = .agents
 +        }
 +    }
@@ -31779,10 +31779,10 @@ index 0000000000000000000000000000000000000000..63ac4d06ae63e81c81e27bb6996eac8d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91bebab9d5a
+index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef04bd484d
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3756 @@
+@@ -0,0 +1,3813 @@
 +import AppKit
 +import Foundation
 +import os
@@ -32012,7 +32012,7 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +    private let runsSection = OmniSidebarItem(kind: .section, key: "runs", title: "Runs")
 +    private let terminalsSection = OmniSidebarItem(kind: .section, key: "terminals", title: "Terminals")
 +    // Sessions mode.
-+    private let modeControl = NSSegmentedControl(labels: ["Agents", "Sessions", "Projects"], trackingMode: .selectOne,
++    private let modeControl = NSSegmentedControl(labels: ["Projects", "Sessions", "Agents"], trackingMode: .selectOne,
 +                                                 target: nil, action: nil)
 +    private(set) var mode: OmniSidebarMode = .agents
 +    // The search bar above the list, with the pin beside it.
@@ -32162,9 +32162,15 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +        modeControl.selectedSegment = mode.segment
 +        modeControl.target = self
 +        modeControl.action = #selector(modeControlChanged(_:))
-+        modeControl.setToolTip("Agents and runs (⇧⌘1)", forSegment: 0)
++        for (segment, symbol) in [SFSymbol.shippingbox, .bubbleLeftAndBubbleRight, .sparkles].enumerated() {
++            let image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)?
++                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .medium))
++            modeControl.setImage(image, forSegment: segment)
++            modeControl.setImageScaling(.scaleProportionallyDown, forSegment: segment)
++        }
++        modeControl.setToolTip("Forge projects, in your folders (⇧⌘1)", forSegment: 0)
 +        modeControl.setToolTip("All Claude and Codex sessions (⇧⌘2)", forSegment: 1)
-+        modeControl.setToolTip("Forge projects, in your folders (⇧⌘3)", forSegment: 2)
++        modeControl.setToolTip("Agents and runs (⇧⌘3)", forSegment: 2)
 +        modeControl.setAccessibilityLabel("Sidebar mode")
 +        // The search bar serves both modes; large, so it reads as the
 +        // sidebar's main control.
@@ -33173,10 +33179,9 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +        }
 +    }
 +
-+    // The pages both modes share, then the mode switch.
++    // The pages every mode shows, the same in each, then the mode switch.
 +    private var sharedItems: [OmniSidebarItem] {
-+        let projects = mode == .projects ? [] : [projectsItem]
-+        return [overviewItem, inboxItem] + projects + [memoryItem, unblockerItem, settingsItem, modeSwitchItem]
++        return [overviewItem, inboxItem, memoryItem, unblockerItem, settingsItem, modeSwitchItem]
 +    }
 +
 +    // Agents mode search: rows whose name or detail holds the query; a
@@ -33272,6 +33277,7 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +    // ⌘⇧1 and ⌘⇧2, the switch, and tests.
 +    func setMode(_ newMode: OmniSidebarMode) {
 +        modeControl.selectedSegment = newMode.segment
++        modeControl.superview?.needsLayout = true
 +        guard newMode != mode else { return }
 +        mode = newMode
 +        newMode.store(in: Self.preferencesDomain)
@@ -34730,7 +34736,11 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +    // Every row a person can select shows the pointer over it.
 +    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
 +        guard let item = item as? OmniSidebarItem, item.isSelectable else { return nil }
-+        return OmniSidebarRowView()
++        let rowView = OmniSidebarRowView()
++        if item.isTopGroup {
++            rowView.panelEdge = item === overviewItem ? .top : (item === settingsItem ? .bottom : .middle)
++        }
++        return rowView
 +    }
 +
 +    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -34944,7 +34954,7 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +        }
 +        // Shift-Command-1 and 2: the sidebar's Agents and Sessions modes.
 +        if flags == [.shift, .command], event.keyCode == 18 || event.keyCode == 19 || event.keyCode == 20 {
-+            setMode(event.keyCode == 18 ? .agents : event.keyCode == 19 ? .sessions : .projects)
++            setMode(event.keyCode == 18 ? .projects : event.keyCode == 19 ? .sessions : .agents)
 +            return true
 +        }
 +        // A page's zone has the keyboard: its keys go to it ahead of the
@@ -35367,8 +35377,31 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +        isHovered = false
 +    }
 +
++    // The top group's rows share one lighter, rounded panel; each row
++    // draws its slice of it.
++    enum PanelEdge { case top, middle, bottom }
++    var panelEdge: PanelEdge?
++
 +    override func drawBackground(in dirtyRect: NSRect) {
 +        super.drawBackground(in: dirtyRect)
++        if let panelEdge {
++            let sidebar = OmniTheme.Sidebar.self
++            var rect = bounds.insetBy(dx: sidebar.panelInsetX, dy: 0)
++            let radius = sidebar.panelCornerRadius
++            // Extend past the edge that joins the next row, so only the
++            // panel's outer corners show rounded.
++            switch panelEdge {
++            case .middle: rect = rect.insetBy(dx: 0, dy: -radius)
++            case .top:
++                rect.size.height += radius
++                if !isFlipped { rect.origin.y -= radius }
++            case .bottom:
++                rect.size.height += radius
++                if isFlipped { rect.origin.y -= radius }
++            }
++            sidebar.panelFill.setFill()
++            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
++        }
 +        guard isHovered, !isSelected else { return }
 +        let sidebar = OmniTheme.Sidebar.self
 +        OmniTheme.Sidebar.hover.setFill()
@@ -35377,12 +35410,10 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +    }
 +}
 +
-+// Holds the Agents/Sessions switch as a row under the shared pages: a
-+// rule on top sets it apart from them, and it sits close to the list
-+// it switches.
++// Holds the Agents/Sessions/Projects switch as a row under the shared
++// pages' panel, close to the list it switches.
 +private final class OmniSidebarModeSwitchCell: NSTableCellView {
-+    static let ruleY: CGFloat = 8
-+    static let controlTop: CGFloat = 19
++    static let controlTop: CGFloat = 10
 +    static let controlHeight: CGFloat = 24
 +    static let bottomMargin: CGFloat = 3
 +    static let rowHeight = controlTop + controlHeight + bottomMargin
@@ -35400,14 +35431,40 @@ index 0000000000000000000000000000000000000000..1dce676d8b0b37627465c22c968ee91b
 +    override func layout() {
 +        super.layout()
 +        guard let control else { return }
-+        control.frame = NSRect(x: 0, y: Self.controlTop, width: max(60, bounds.width - 4), height: Self.controlHeight)
++        // Span the row like the panel above, not the indented cell.
++        let inset = OmniTheme.Sidebar.panelInsetX
++        let rowWidth = superview?.bounds.width ?? bounds.width
++        let width = max(60, rowWidth - inset * 2)
++        control.frame = NSRect(x: inset - frame.minX, y: Self.controlTop, width: width, height: Self.controlHeight)
++        if let segments = control as? NSSegmentedControl {
++            Self.fit(segments, width: width - 8)
++        }
 +    }
 +
-+    override func draw(_ dirtyRect: NSRect) {
-+        let inset = OmniTheme.Sidebar.groupRuleInset
-+        OmniTheme.titlebarSeparator.setFill()
-+        NSRect(x: inset, y: Self.ruleY, width: max(0, bounds.width - inset * 2), height: 1).fill()
++    // Every segment shows its icon and label when they fit; in a narrow
++    // sidebar the others keep only their icons and the selected one its
++    // label too.
++    static let labels = ["Projects", "Sessions", "Agents"]
++    private static let segmentChrome: CGFloat = 32
++    private static let iconOnlyWidth: CGFloat = 34
++
++    static func fit(_ segments: NSSegmentedControl, width: CGFloat) {
++        let count = min(segments.segmentCount, labels.count)
++        guard count > 0 else { return }
++        let font = segments.font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
++        let needed = labels.prefix(count).map { ($0 as NSString).size(withAttributes: [.font: font]).width + segmentChrome }
++        let share = floor(width / CGFloat(count))
++        let allFit = needed.allSatisfy { $0 <= share }
++        for segment in 0..<count {
++            let selected = segment == segments.selectedSegment
++            let showsLabel = allFit || selected
++            segments.setLabel(showsLabel ? labels[segment] : "", forSegment: segment)
++            let others = CGFloat(count - 1) * iconOnlyWidth
++            segments.setWidth(allFit ? share : (selected ? max(iconOnlyWidth, width - others) : iconOnlyWidth),
++                              forSegment: segment)
++        }
 +    }
++
 +}
 +
 +// The rule under Dashboard and Inbox, in the title-bar separator's colour.
@@ -35870,10 +35927,10 @@ index 0000000000000000000000000000000000000000..080d28cd96db8a18b7c64ff05da1efd6
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..cbff946a288544bc292c017672c5e8b9b1cf7360
+index 0000000000000000000000000000000000000000..1a7fa2bd208fd67f0fa515a898764c6cbbb6c5de
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,315 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -36018,6 +36075,15 @@ index 0000000000000000000000000000000000000000..cbff946a288544bc292c017672c5e8b9
 +        static let hover = NSColor.labelColor.withAlphaComponent(0.06)
 +        static let rowInsetX: CGFloat = 10
 +        static let rowCornerRadius: CGFloat = 5
++
++        // The top group sits on a slightly lighter rounded panel.
++        static let panelInsetX: CGFloat = 6
++        static let panelCornerRadius: CGFloat = 8
++        static let panelFill = NSColor(name: nil) { appearance in
++            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++                ? NSColor.white.withAlphaComponent(0.06)
++                : NSColor.white.withAlphaComponent(0.55)
++        }
 +
 +        // The gap and rule between the top group and Agents.
 +        static let groupGap: CGFloat = 10

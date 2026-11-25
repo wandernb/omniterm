@@ -24,6 +24,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   Projects features work on a Mac without Forge installed; an installed Forge
   is used first. Forge stays its own repository.
 
+### Changed
+
+- The sidebar's top pages (Dashboard, Inbox, Memory, Unblocker, Settings) are
+  the same in every mode and sit on a lighter rounded panel. Projects left that
+  list: it is the switch's first mode. In a narrow sidebar the switch shows
+  only the selected mode's name, the others as icons.
+
 ### Fixed
 
 - The Projects list and sidebar show at once after a launch, from the last
