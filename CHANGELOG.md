@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-25
+
 ### Added
 
 - The sidebar has a third mode, Projects, first in the switch before Sessions
@@ -879,7 +881,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/wandernb/omniterm/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/wandernb/omniterm/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/wandernb/omniterm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wandernb/omniterm/compare/v0.2.0...v0.3.0
