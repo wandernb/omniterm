@@ -682,7 +682,7 @@ index 0000000000000000000000000000000000000000..4a612dc5d42a720ee4b4c6d3be50e191
 +}
 diff --git a/ModernTests/OmniInboxViewControllerTests.swift b/ModernTests/OmniInboxViewControllerTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..de5d66c862a6d62231fed06588ce97dee4f53dc6
+index 0000000000000000000000000000000000000000..2103058d514687e64675bc231b009fc0a79feac4
 --- /dev/null
 +++ b/ModernTests/OmniInboxViewControllerTests.swift
 @@ -0,0 +1,475 @@
@@ -1151,12 +1151,12 @@ index 0000000000000000000000000000000000000000..de5d66c862a6d62231fed06588ce97de
 +        }
 +        XCTAssertTrue(general.zoneHandleKey(key(125)))
 +        XCTAssertTrue(general.zoneHandleKey(key(125)))
-+        XCTAssertEqual(general.selectedKey, "center")
++        XCTAssertEqual(general.selectedKey, "escape")
 +        requests = []
 +        XCTAssertTrue(general.zoneHandleKey(key(36)))
 +        wait("Return saves the switch") { self.requests.contains { $0["op"] as? String == "set_settings" } }
 +        let sent = requests.first { $0["op"] as? String == "set_settings" }?["settings"] as? [String: Any]
-+        XCTAssertEqual(sent?["center_window_on_open"] as? Bool, false)
++        XCTAssertEqual(sent?["double_escape_to_hide"] as? Bool, false)
 +        _ = general.zoneHandleKey(key(48))
 +        XCTAssertEqual(exits.last, .next, "Tab moves to the next section")
 +    }
@@ -6747,10 +6747,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..1775e5928cfc211f6ff2abbba560111b3f76e116
+index 0000000000000000000000000000000000000000..f9a387dea07e826fc81ae90909be3ed6761e49c1
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1560 @@
+@@ -0,0 +1,1575 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7188,6 +7188,8 @@ index 0000000000000000000000000000000000000000..1775e5928cfc211f6ff2abbba560111b
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .memory)
 +        XCTAssertEqual(sidebar.paneTitle, "Memory")
++        outlineView.keyDown(with: down)
++        XCTAssertEqual(sidebar.shownRoute, .unblocker)
 +        outlineView.keyDown(with: down)
 +        XCTAssertEqual(sidebar.shownRoute, .settings, "Settings closes the top group")
 +        outlineView.keyDown(with: down)
@@ -7840,18 +7842,18 @@ index 0000000000000000000000000000000000000000..1775e5928cfc211f6ff2abbba560111b
 +                          "The sidebar does reach under the title bar here")
 +        let first = outlineView.convert(outlineView.rect(ofRow: 0), to: nil)
 +        XCTAssertLessThanOrEqual(first.maxY, titleBarBottom + 0.5, "The Dashboard row is fully below the title bar")
-+        // The Agents and Sessions switch sits between the title bar and the rows.
-+        XCTAssertGreaterThan(first.maxY, titleBarBottom - 40 - 34, "and right under the mode switch, not pushed further down")
++        // The search bar sits between the title bar and the rows.
++        XCTAssertGreaterThan(first.maxY, titleBarBottom - 40 - 44, "and right under the search bar, not pushed further down")
 +        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
 +    }
 +
-+    func testSessionsModeKeepsInboxMemoryAndSettingsAndDropsAgentRows() throws {
++    func testSessionsModeKeepsTheSharedPagesAndDropsAgentRows() throws {
 +        showSidebarWithPages()
 +        sidebar.setMode(.sessions)
-+        XCTAssertEqual(cell(0)?.textField?.stringValue, "Inbox")
-+        XCTAssertEqual(cell(1)?.textField?.stringValue, "Memory")
-+        XCTAssertEqual(cell(2)?.textField?.stringValue, "Settings")
-+        XCTAssertNil(row(titled: "Dashboard"))
++        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
++        XCTAssertEqual(cell(1)?.textField?.stringValue, "Inbox")
++        XCTAssertEqual(cell(2)?.textField?.stringValue, "Memory")
++        XCTAssertNotNil(row(titled: "Settings"))
 +        XCTAssertNil(row(titled: "Alpha"))
 +        XCTAssertEqual(OmniSidebarMode.stored(in: OmniSidebarViewController.preferencesDomain), .sessions)
 +        sidebar.setMode(.agents)
@@ -7866,35 +7868,48 @@ index 0000000000000000000000000000000000000000..1775e5928cfc211f6ff2abbba560111b
 +        return subviews(OmniSidebarBadge.self, of: cell).first
 +    }
 +
-+    func testDashboardAndInboxAreOrdinaryRowsSetApartByARule() throws {
++    func testSharedPagesAreOrdinaryRowsSetApartByTheModeSwitch() throws {
 +        showSidebarWithPages()
-+        XCTAssertEqual(cell(0)?.textField?.stringValue, "Dashboard")
-+        XCTAssertEqual(cell(1)?.textField?.stringValue, "Inbox")
-+        XCTAssertEqual(cell(2)?.textField?.stringValue, "Memory")
-+        XCTAssertEqual(cell(3)?.textField?.stringValue, "Settings")
-+        for index in 0...3 {
++        let titles = ["Dashboard", "Inbox", "Memory", "Unblocker", "Settings"]
++        for (index, title) in titles.enumerated() {
++            XCTAssertEqual(cell(index)?.textField?.stringValue, title)
 +            XCTAssertEqual(outlineView.rect(ofRow: index).height, OmniTheme.Sidebar.topRowHeight)
 +            XCTAssertEqual(cell(index)?.textField?.font, OmniTheme.Sidebar.topTitleFont, "A medium title, not semibold")
 +            let icon = try XCTUnwrap(subviews(NSImageView.self, of: try XCTUnwrap(cell(index))).first { !$0.isHidden })
 +            XCTAssertEqual(icon.frame.width, OmniTheme.Sidebar.iconSlot)
 +            XCTAssertEqual(icon.contentTintColor, OmniTheme.Sidebar.iconTint)
 +        }
-+        XCTAssertFalse(outlineView.delegate?.outlineView?(outlineView, shouldSelectItem: try XCTUnwrap(outlineView.item(atRow: 4))) ?? true,
-+                       "The rule under them is not a row to select")
-+        XCTAssertEqual(outlineView.rect(ofRow: 4).height, OmniTheme.Sidebar.groupGap + 1)
++        let switchRow = titles.count
++        XCTAssertFalse(outlineView.delegate?.outlineView?(outlineView, shouldSelectItem: try XCTUnwrap(outlineView.item(atRow: switchRow))) ?? true,
++                       "The mode switch under them is not a row to select")
++        let modeSwitch = try XCTUnwrap(outlineView.view(atColumn: 0, row: switchRow, makeIfNecessary: true))
++        XCTAssertNotNil(subviews(NSSegmentedControl.self, of: modeSwitch).first, "The Agents/Sessions switch is that row")
 +
 +        sidebar.focusSidebar()
 +        XCTAssertEqual(sidebar.shownRoute, .overview)
++        for route: OmniPaneRoute in [.inbox, .memory, .unblocker, .settings] {
++            XCTAssertTrue(sidebar.handleWindowKeyDown(down))
++            XCTAssertEqual(sidebar.shownRoute, route)
++        }
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(down))
-+        XCTAssertEqual(sidebar.shownRoute, .inbox)
-+        XCTAssertTrue(sidebar.handleWindowKeyDown(down))
-+        XCTAssertEqual(sidebar.shownRoute, .memory)
-+        XCTAssertTrue(sidebar.handleWindowKeyDown(down))
-+        XCTAssertEqual(sidebar.shownRoute, .settings)
-+        XCTAssertTrue(sidebar.handleWindowKeyDown(down))
-+        XCTAssertEqual(sidebar.shownRoute, .agent("Alpha"), "Down skips the rule and the Agents header")
++        XCTAssertEqual(sidebar.shownRoute, .agent("Alpha"), "Down skips the mode switch and the Agents header")
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(up))
 +        XCTAssertEqual(sidebar.shownRoute, .settings)
++    }
++
++    func testTheSearchBarFiltersAgentsToo() throws {
++        showSidebarWithPages()
++        XCTAssertEqual(searchField.placeholderString, "Search agents")
++        XCTAssertNil(searchField.searchMenuTemplate, "The provider menu is for sessions")
++        search("zzz-no-such-agent")
++        XCTAssertNil(row(titled: "Alpha"))
++        XCTAssertNotNil(row(titled: "Dashboard"), "The shared pages stay")
++        search("alp")
++        XCTAssertNotNil(row(titled: "Alpha"))
++        search("")
++        sidebar.setMode(.sessions)
++        XCTAssertEqual(searchField.placeholderString, "Search sessions")
++        XCTAssertNotNil(searchField.searchMenuTemplate)
 +    }
 +
 +    func testAHairlineSeparatesTheTitleBarFromTheSidebarAndTheContent() throws {
@@ -8142,10 +8157,10 @@ index 0000000000000000000000000000000000000000..1775e5928cfc211f6ff2abbba560111b
 +        showSidebarWithPages()
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(19, "2", [.shift, .command])))
 +        XCTAssertEqual(sidebar.mode, .sessions)
-+        XCTAssertNil(row(titled: "Dashboard"))
++        XCTAssertNil(row(titled: "Alpha"))
 +        XCTAssertTrue(sidebar.handleWindowKeyDown(keyEvent(18, "1", [.shift, .command])))
 +        XCTAssertEqual(sidebar.mode, .agents)
-+        XCTAssertNotNil(row(titled: "Dashboard"))
++        XCTAssertNotNil(row(titled: "Alpha"))
 +    }
 +
 +    // A fake session of `count` records: a prompt, then replies and tool
@@ -8432,7 +8447,7 @@ index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cc
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..ce009bc356f951ec90c4013244db749d4674f87b 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..064517592fb5db0a55af46986d40e4b61be832a8 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
 @@ -5,6 +5,44 @@ right-to-left rendering, selection, and copy
@@ -8502,7 +8517,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..ce009bc356f951ec90c4013244db749d
  - Commands saved to Command History no longer
    include a right-hand prompt (such as zsh’s
    RPROMPT) drawn on the same line.
-@@ -2418,3 +2464,191 @@ Bug Fixes:
+@@ -2418,3 +2464,197 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -8656,9 +8671,15 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..ce009bc356f951ec90c4013244db749d
 +sessions that stop and wait; omni blocked
 +lists them. Permission and dialog prompts
 +raise one urgent Inbox item and are never
-+answered. The opt-in Omni Unblocker agent
-+(omni unblocker) answers idle sessions from
-+their project guidance.
++answered. The Omni Unblocker answers
++goal-driven sessions in the background. It
++is no longer an agent with runs and tabs: it
++has its own Unblocker page in the sidebar to
++switch it on or off, choose its model, edit
++its policy and audit every decision. When
++auto mode refused a command the goal needs,
++its go-ahead now pre-approves exactly that
++command once.
 +The sidebar has two modes, Agents and
 +Sessions (⇧⌘1 and ⇧⌘2). Sessions lists
 +every Claude Code and Codex session on the
@@ -8695,10 +8716,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..ce009bc356f951ec90c4013244db749d
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84f2885609 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c6ec2ae0614423899d67c1517ee763190d949a75 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,28 @@
+@@ -7,6 +7,29 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -8712,6 +8733,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
 +		5D0A7B1C2E3F000000000003 /* OmniKeyboardMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000004 /* OmniKeyboardMap.swift */; };
 +		5D0A7B1C2E3F000000000005 /* OmniMemoryPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */; };
 +		5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */; };
++		5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
 +		0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */; };
@@ -8727,7 +8749,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5160,29 @@
+@@ -5138,6 +5161,30 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -8742,6 +8764,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
 +		5D0A7B1C2E3F000000000004 /* OmniKeyboardMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniKeyboardMap.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSettingsPane.swift; sourceTree = "<group>"; };
++		5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniUnblockerPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTerminalSnapshotView.swift; sourceTree = "<group>"; };
@@ -8757,7 +8780,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10652,29 @@
+@@ -10607,6 +10654,30 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -8772,6 +8795,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
 +				5D0A7B1C2E3F000000000004 /* OmniKeyboardMap.swift */,
 +				5D0A7B1C2E3F000000000006 /* OmniMemoryPane.swift */,
 +				5D0A7B1C2E3F0000000000A2 /* OmniSettingsPane.swift */,
++				5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
 +				0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */,
@@ -8787,7 +8811,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18636,7 @@
+@@ -18568,7 +18639,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -8796,7 +8820,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18646,7 @@
+@@ -18578,7 +18649,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -8805,7 +8829,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18833,27 @@
+@@ -18765,6 +18836,28 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -8818,6 +8842,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
 +				5D0A7B1C2E3F000000000003 /* OmniKeyboardMap.swift in Sources */,
 +				5D0A7B1C2E3F000000000005 /* OmniMemoryPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000A1 /* OmniSettingsPane.swift in Sources */,
++				5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
 +				0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */,
@@ -8833,7 +8858,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20837,7 @@
+@@ -20748,6 +20841,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -8841,7 +8866,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21649,7 @@
+@@ -21559,7 +21653,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8850,7 +8875,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21682,7 @@
+@@ -21592,7 +21686,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8859,7 +8884,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21819,8 @@
+@@ -21729,8 +21823,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8870,7 +8895,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22907,8 @@
+@@ -22817,8 +22911,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8881,7 +8906,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24773,7 @@
+@@ -24683,7 +24777,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -8890,7 +8915,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24860,7 @@
+@@ -24770,7 +24864,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8899,7 +8924,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24947,7 @@
+@@ -24857,7 +24951,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8908,7 +8933,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25034,7 @@
+@@ -24944,7 +25038,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -8917,7 +8942,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25330,8 @@
+@@ -25240,8 +25334,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8928,7 +8953,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25425,8 @@
+@@ -25335,8 +25429,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -8939,7 +8964,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25630,7 @@
+@@ -25540,7 +25634,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -8948,7 +8973,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..789dbd062ab8098b6d2089e4afdf6f84
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25663,7 @@
+@@ -25573,7 +25667,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9613,7 +9638,7 @@ index 523711ff7af3baa9fc76521b5cec79b940659faf..499ea2aa4234300100afff565ad7a4af
  // In big sur, sheets aren't key windows any more. This finds the current sheet for the key window and returns it.
  @property(nonatomic, readonly) NSWindow *it_keyWindow;
 diff --git a/sources/AppKit/iTermApplication.m b/sources/AppKit/iTermApplication.m
-index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539e77b7d42 100644
+index a56037c6cf057bea51441220684b06421d322893..15c872f0b9bd187a88d40574cff58e17d890e84e 100644
 --- a/sources/AppKit/iTermApplication.m
 +++ b/sources/AppKit/iTermApplication.m
 @@ -30,6 +30,17 @@
@@ -9652,7 +9677,7 @@ index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539
          NSSetUncaughtExceptionHandler(&iTermUncaughtExceptionHandler);
          [sharedApplication addObserver:sharedApplication
                              forKeyPath:@"modalWindow"
-@@ -864,11 +879,102 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -864,11 +879,107 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
              }
              break;
          }
@@ -9749,14 +9774,19 @@ index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539
 +                                             now - _omniTermLastEscapeTime <= self.omniTermDoubleEscapeInterval);
 +                _omniTermLastEscapeTime = isDoubleEscape ? 0 : now;
 +                if (isDoubleEscape) {
-+                    [self.keyWindow orderOut:nil];
++                    PseudoTerminal *terminal = [PseudoTerminal castFrom:self.keyWindow.windowController];
++                    if (terminal) {
++                        [terminal omniHideWindow];
++                    } else {
++                        [self.keyWindow orderOut:nil];
++                    }
 +                    return;
 +                }
 +            }
              event.it_functionModifierPressed = _functionPressed;
              event = [self eventByRemappingForSecureInput:event];
              if (!event) {
-@@ -883,6 +989,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -883,6 +994,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  #endif
              RLog(@"NSKeyDown event taking the regular path");
              break;
@@ -9764,7 +9794,7 @@ index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539
          case NSEventTypeKeyUp:
              RLog(@"begin key-up");
  #if DEBUG
-@@ -955,6 +1062,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -955,6 +1067,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      }];
  }
  
@@ -9798,7 +9828,7 @@ index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539
  - (void)setIsUIElement:(BOOL)uiElement {
      if (uiElement == _isUIElement) {
          return;
-@@ -978,6 +1112,26 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -978,6 +1117,26 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
                                                          object:self];
  }
  
@@ -9825,13 +9855,13 @@ index a56037c6cf057bea51441220684b06421d322893..13b9a83a8a5fb313285dff54f66c1539
  - (NSArray<NSWindow *> *)orderedWindowsPlusVisibleHotkeyPanels {
      NSArray<NSWindow *> *panels = [[iTermHotKeyController sharedInstance] visibleFloatingHotkeyWindows] ?: @[];
      return [panels arrayByAddingObjectsFromArray:[self orderedWindows]];
-@@ -1282,4 +1436,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -1282,4 +1441,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  }
  
  @end
 -
 diff --git a/sources/AppKit/iTermApplicationDelegate.h b/sources/AppKit/iTermApplicationDelegate.h
-index b08222c47618882dbfe47127239b8018e74d4777..3dcf7cba449d1a0d039e3eff5510956199467d63 100644
+index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f03b40f00d 100644
 --- a/sources/AppKit/iTermApplicationDelegate.h
 +++ b/sources/AppKit/iTermApplicationDelegate.h
 @@ -51,6 +51,8 @@ extern NSString *const iTermApplicationWillTerminate;
@@ -9843,7 +9873,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..3dcf7cba449d1a0d039e3eff55109561
  
  void TurnOnDebugLoggingAutomatically(void);
  
-@@ -99,6 +101,13 @@ void TurnOnDebugLoggingAutomatically(void);
+@@ -99,6 +101,16 @@ void TurnOnDebugLoggingAutomatically(void);
  - (void)newTabAtIndex:(NSNumber *)index
         didMakeSession:(void (^)(PTYSession *session))didMakeSession;
  
@@ -9853,23 +9883,27 @@ index b08222c47618882dbfe47127239b8018e74d4777..3dcf7cba449d1a0d039e3eff55109561
 +// The in-app settings transaction (an OmniSettingsTransaction) wired to this
 +// app's global hotkey, login item and scheduler.
 +- (id)omniSettingsTransaction;
++// Command-Q: puts every OmniTerm window away and hides the app. A pinned
++// terminal window is hidden with the app rather than ordered out.
++- (void)hideAllOmniTermWindows;
 +
  #pragma mark - Actions
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7bf5372a28 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..827daf6e5a97095e892e3fcbcdd9d2bfeb7ffc15 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
-@@ -26,6 +26,7 @@
+@@ -26,6 +26,8 @@
   */
  
  #import "iTermApplicationDelegate.h"
++#import <os/log.h>
 +#import "OmniScheduler.h"
  
  #import "AppearancePreferencesViewController.h"
  #import "ColorsMenuItemView.h"
-@@ -50,6 +51,7 @@
+@@ -50,6 +52,7 @@
  #import "NSWindow+iTerm.h"
  #import "NSWorkspace+iTerm.h"
  #import "PTYSession.h"
@@ -9877,7 +9911,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  #import "PTYTab.h"
  #import "PTYTextView.h"
  #import "PTYTextView+ARC.h"
-@@ -66,6 +68,9 @@
+@@ -66,6 +69,9 @@
  #import "iTerm2SharedARC-Swift.h"
  #import "iTermAPIConnectionIdentifierController.h"
  #import "iTermGraphDatabase.h"
@@ -9887,7 +9921,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  #import "iTermAPIHelper.h"
  #import "iTermAboutWindowController.h"
  #import "iTermAdvancedSettingsModel.h"
-@@ -135,6 +140,7 @@
+@@ -135,6 +141,7 @@
  #import "iTermWebSocketCookieJar.h"
  #import <Quartz/Quartz.h>
  #import <objc/runtime.h>
@@ -9895,7 +9929,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  
  #include "iTermFileDescriptorClient.h"
  #include <libproc.h>
-@@ -147,6 +153,7 @@ static NSString *kUseBackgroundPatternIndicatorKey = @"Use background pattern in
+@@ -147,6 +154,7 @@ static NSString *kUseBackgroundPatternIndicatorKey = @"Use background pattern in
  NSString *kUseBackgroundPatternIndicatorChangedNotification = @"kUseBackgroundPatternIndicatorChangedNotification";
  NSString *const kSavedArrangementDidChangeNotification = @"kSavedArrangementDidChangeNotification";
  NSString *const kNonTerminalWindowBecameKeyNotification = @"kNonTerminalWindowBecameKeyNotification";
@@ -9903,7 +9937,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  static NSString *const kMarkAlertAction = @"Mark Alert Action";
  NSString *const kMarkAlertActionModalAlert = @"Modal Alert";
  NSString *const kMarkAlertActionPostNotification = @"Post Notification";
-@@ -186,6 +193,15 @@ static BOOL hasBecomeActive = NO;
+@@ -186,6 +194,15 @@ static BOOL hasBecomeActive = NO;
  
  @property(nonatomic, readwrite) BOOL workspaceSessionActive;
  
@@ -9919,19 +9953,34 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  @end
  
  
-@@ -213,6 +229,11 @@ static BOOL hasBecomeActive = NO;
+@@ -213,6 +230,14 @@ static BOOL hasBecomeActive = NO;
      IBOutlet SUUpdater * suUpdater;
      IBOutlet NSMenuItem *_showTipOfTheDay;  // Here because we must remove it for older OS versions.
      BOOL quittingBecauseLastWindowClosed_;
 +    BOOL _omniTermExplicitlyTerminating;
++    // While a pinned window's Space is being switched to: the observer that
++    // brings it forward once the switch ends.
++    id _omniPinnedSpaceObserver;
++    NSInteger _omniPinnedSpaceGeneration;
 +    OmniDockPresence *_omniDockPresence;
 +    iTermHotKey *_omniTermGlobalHotKey;
 +    OmniScheduler *_omniScheduler;
-+    BOOL _omniTermCenterOnOpen;
  
      IBOutlet NSMenuItem *_splitHorizontallyWithCurrentProfile;
      IBOutlet NSMenuItem *_splitVerticallyWithCurrentProfile;
-@@ -982,10 +1003,24 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -446,6 +471,11 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+ 
+ - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
+     const SEL action = [menuItem action];
++    if (action == @selector(toggleOmniTermWindowPin:)) {
++        PseudoTerminal *terminal = [self omniTermPinTarget];
++        menuItem.state = terminal.omniWindowPinned ? NSControlStateValueOn : NSControlStateValueOff;
++        return terminal != nil;
++    }
+     if (action == @selector(newSessionInTabAtIndex:) ||
+         action == @selector(newSession:) ||
+         action == @selector(newSessionWithSameProfile:)) {
+@@ -982,10 +1012,24 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  // User clicked on the dock icon.
  - (BOOL)applicationShouldHandleReopen:(NSApplication *)theApplication
                      hasVisibleWindows:(BOOL)flag {
@@ -9960,7 +10009,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  }
  
  - (void)applicationDidChangeScreenParameters:(NSNotification *)aNotification
-@@ -1042,6 +1077,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -1042,6 +1086,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
          return NSTerminateCancel;
      }
  
@@ -9977,7 +10026,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
      // Capture the option-key state for the “Quit and Close All Windows”
      // detection below. We sample it before any modal prompt so a slow user
      // releasing the key doesn’t change the answer.
-@@ -1178,6 +1223,15 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -1178,6 +1232,15 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  
  - (void)applicationWillTerminate:(NSNotification *)aNotification {
      RLog(@"applicationWillTerminate called");
@@ -9993,24 +10042,41 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
      [iTermController releaseSharedInstance];
      [[iTermModifierRemapper sharedInstance] setRemapModifiers:NO];
      DLog(@"applicationWillTerminate returning");
-@@ -1399,6 +1453,10 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1358,6 +1421,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+     DLog(@"Application will resign active.");
+ }
+ 
++// Unhiding brings back only the windows that were up when the app hid, so
++// they may come back on screen.
++- (void)applicationWillUnhide:(NSNotification *)notification {
++    [OmniDockPresence beginExplicitShow];
++}
++
++- (void)applicationDidUnhide:(NSNotification *)notification {
++    [OmniDockPresence endExplicitShow];
++}
++
+ - (void)applicationWillHide:(NSNotification *)aNotification {
+     for (NSWindow *aWindow in [[NSApplication sharedApplication] windows]) {
+         [self hideToolTipsInView:[aWindow contentView]];
+@@ -1399,6 +1472,10 @@ void TurnOnDebugLoggingAutomatically(void) {
      } else {
          suUpdater.delegate = (id<SUUpdaterDelegate>)[iTermTestHostIsolation updaterDelegate];
      }
 +    // OmniTerm must launch as a background menu-bar utility. Establish this
 +    // before restoration can briefly order a terminal window onscreen.
-+    [[iTermApplication sharedApplication] setIsUIElement:YES];
++    [[iTermApplication sharedApplication] omniSetShowsInDock:NO];
 +    [NSApp hide:nil];
      [[iTermApplication sharedApplication] updateAppearance];
      [[iTermUserDefaults userDefaults] it_addObserverForKey:kPreferenceKeyTabStyle
                                                       block:^(id _Nonnull newValue) {
-@@ -1604,6 +1662,95 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1604,6 +1681,95 @@ void TurnOnDebugLoggingAutomatically(void) {
  - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
      [iTermMacOS13RequirementNotice maybeShow];
      DLog(@"didFinishLaunching");
 +    // OmniTerm is permanently a menu-bar utility, independently of the shared
 +    // iTerm2 preference suite.
-+    [[iTermApplication sharedApplication] setIsUIElement:YES];
++    [[iTermApplication sharedApplication] omniSetShowsInDock:NO];
 +    [NSApp hide:nil];
 +    for (NSWindow *window in NSApp.windows) {
 +        [window orderOut:nil];
@@ -10100,7 +10166,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  
      // When running an isolated instance via -suite, overlay the suite name on
      // the dock icon so it's obvious which instance this dock icon belongs to.
-@@ -1901,6 +2048,267 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1901,6 +2067,267 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
  #endif
  
@@ -10368,7 +10434,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2347,392 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -1939,45 +2366,491 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -10429,8 +10495,6 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
 +}
 +
 +- (void)applyOmniTermBehaviorSettings:(NSDictionary *)settings {
-+    id centerValue = settings[@"center_window_on_open"];
-+    _omniTermCenterOnOpen = centerValue ? [centerValue boolValue] : YES;
 +    id doubleEscapeValue = settings[@"double_escape_to_hide"];
 +    iTermApplication *application = [iTermApplication sharedApplication];
 +    application.omniTermDoubleEscapeEnabled = doubleEscapeValue ? [doubleEscapeValue boolValue] : YES;
@@ -10601,8 +10665,8 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  
 -    item = [[[NSMenuItem alloc] initWithTitle:NSLocalizedStringWithDefaultValue(@"StatusMenu.BringAllToFront", nil, [NSBundle mainBundle], @"Bring All Windows to Front", @"Status-icon menu item to bring all windows to front")
 -                                       action:@selector(arrangeInFront:)
-+    item = [[[NSMenuItem alloc] initWithTitle:@"OmniTerm Settings…"
-+                                       action:@selector(showOmniTermSettings:)
++    item = [[[NSMenuItem alloc] initWithTitle:@"Pin Window"
++                                       action:@selector(toggleOmniTermWindowPin:)
                                  keyEquivalent:@""] autorelease];
 +    item.target = self;
      [menu addItem:item];
@@ -10611,8 +10675,12 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
 -    _statusIconBuriedSessions = [[[NSMenu alloc] init] autorelease];
 -    item.submenu = _statusIconBuriedSessions;
 -    item.title = NSLocalizedStringWithDefaultValue(@"StatusMenu.BuriedSessions", nil, [NSBundle mainBundle], @"Buried Sessions", @"Status-icon submenu title for buried sessions");
--    [menu addItem:item];
--
++    item = [[[NSMenuItem alloc] initWithTitle:@"OmniTerm Settings…"
++                                       action:@selector(showOmniTermSettings:)
++                                keyEquivalent:@""] autorelease];
++    item.target = self;
+     [menu addItem:item];
+ 
 -    [[iTermBuriedSessions sharedInstance] setMenus:[NSArray arrayWithObjects:_buriedSessions, _statusIconBuriedSessions, nil]];
 +    [menu addItem:[NSMenuItem separatorItem]];
  
@@ -10639,33 +10707,36 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
      return menu;
  }
  
++- (PseudoTerminal *)omniTermPinTarget {
++    return [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
++}
++
++// Pinning takes the window's frame as it is now; a hidden window keeps the
++// one it was last shown with.
++- (void)toggleOmniTermWindowPin:(id)sender {
++    PseudoTerminal *terminal = [self omniTermPinTarget];
++    [terminal omniSetWindowPinned:!terminal.omniWindowPinned];
++}
++
 +- (void)toggleOmniTermWindows:(id)sender {
 +    const BOOL hasVisibleTerminal = [self.terminals anyWithBlock:^BOOL(PseudoTerminal *terminal) {
 +        return terminal.window.isVisible;
 +    }];
 +    if (hasVisibleTerminal) {
 +        for (PseudoTerminal *terminal in self.terminals) {
-+            [terminal.window orderOut:nil];
++            [terminal omniHideWindow];
 +        }
 +        return;
 +    }
 +
-+    for (PseudoTerminal *terminal in self.terminals) {
-+        [terminal omniRestoreWindowFrameOnScreen:nil centered:NO];
-+        [terminal.window makeKeyAndOrderFront:nil];
-+    }
++    [OmniDockPresence performExplicitShow:^{
++        for (PseudoTerminal *terminal in self.terminals) {
++            [terminal omniRestoreWindowFrameOnScreen:nil centered:NO];
++            [terminal.window makeKeyAndOrderFront:nil];
++        }
++    }];
 +    [_omniDockPresence reconcileShowingWindow];
 +    [NSApp activateIgnoringOtherApps:YES];
-+}
-+
-+- (NSScreen *)omniTermScreenAtMouseLocation {
-+    const NSPoint mouseLocation = NSEvent.mouseLocation;
-+    for (NSScreen *screen in NSScreen.screens) {
-+        if (NSPointInRect(mouseLocation, screen.frame)) {
-+            return screen;
-+        }
-+    }
-+    return NSScreen.mainScreen;
 +}
 +
 +- (void)openOmniTerm:(id)sender {
@@ -10679,36 +10750,125 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
 +    }
 +
 +    NSWindow *window = terminal.window;
-+    NSScreen *screen = [self omniTermScreenAtMouseLocation];
-+    // The size the person gave the window comes back, whatever iTerm2 did to
-+    // it while hidden; without a stored one, only the position changes.
-+    const BOOL restored = [terminal omniRestoreWindowFrameOnScreen:_omniTermCenterOnOpen ? screen : nil
-+                                                          centered:_omniTermCenterOnOpen];
-+    if (!restored && _omniTermCenterOnOpen) {
-+        NSRect frame = window.frame;
-+        const NSRect visibleFrame = screen.visibleFrame;
-+        frame.origin.x = NSMidX(visibleFrame) - NSWidth(frame) / 2;
-+        frame.origin.y = NSMidY(visibleFrame) - NSHeight(frame) / 2;
-+        frame.origin.x = MAX(NSMinX(visibleFrame), MIN(frame.origin.x, NSMaxX(visibleFrame) - NSWidth(frame)));
-+        frame.origin.y = MAX(NSMinY(visibleFrame), MIN(frame.origin.y, NSMaxY(visibleFrame) - NSHeight(frame)));
-+        [window setFrame:frame display:YES];
++    if (terminal.omniWindowPinned) {
++        [self openPinnedOmniTermWindow:terminal];
++        return;
 +    }
++    // The place and size the person gave the window come back, whatever
++    // iTerm2 did to it while hidden. It is never recentered.
++    [terminal omniRestoreWindowFrameOnScreen:nil centered:NO];
 +
 +    NSWindowCollectionBehavior behavior = window.collectionBehavior;
 +    behavior &= ~NSWindowCollectionBehaviorCanJoinAllSpaces;
 +    behavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
 +    window.collectionBehavior = behavior;
-+    [NSApp unhide:nil];
-+    [window makeKeyAndOrderFront:nil];
++    [OmniDockPresence performExplicitShow:^{
++        [NSApp unhide:nil];
++        [window makeKeyAndOrderFront:nil];
++    }];
 +    [_omniDockPresence reconcileShowingWindow];
 +    [NSApp activateIgnoringOtherApps:YES];
++}
++
++// Pinned: the window keeps its frame and its Space. It was put away by
++// hiding the app, not ordered out, so it is still on the Space it was pinned
++// on; activating it there switches to that Space and brings it in front.
++- (void)openPinnedOmniTermWindow:(PseudoTerminal *)terminal {
++    NSWindow *window = terminal.window;
++    // Shown on another Space, ordering it front would bring it here; put it
++    // away first so it comes back on its own Space.
++    if (window.isVisible && !window.isOnActiveSpace) {
++        [window orderOut:nil];
++    }
++    [terminal omniRestoreWindowFrameOnScreen:nil centered:NO];
++    NSWindowCollectionBehavior behavior = window.collectionBehavior;
++    behavior &= ~(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorMoveToActiveSpace);
++    window.collectionBehavior = behavior;
++    [terminal omniMoveWindowToPinnedSpace];
++    [OmniDockPresence performExplicitShow:^{
++        [NSApp unhide:nil];
++        [window makeKeyAndOrderFront:nil];
++    }];
++    [_omniDockPresence reconcileShowingWindow];
++    [NSApp activateIgnoringOtherApps:YES];
++    [self omniBringPinnedWindowForwardAfterSpaceChange:window];
++    // Shown, it is on a Space; remember it for the next relaunch, once the
++    // switch to that Space has finished.
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++        [terminal omniNoteWindowSpace];
++    });
++}
++
++static os_log_t OmniTermWindowLog(void) {
++    static os_log_t log;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        log = os_log_create("com.omniterm.app", "window-frame");
++    });
++    return log;
++}
++
++// Switching to the pinned window's Space ends with macOS activating the
++// frontmost app there, which can leave OmniTerm behind; once the switch ends,
++// bring the window forward again. Only a switch within two seconds counts.
++- (void)omniBringPinnedWindowForwardAfterSpaceChange:(NSWindow *)window {
++    [self omniStopWaitingForPinnedSpaceChange];
++    const NSInteger generation = ++_omniPinnedSpaceGeneration;
++    __block iTermApplicationDelegate *weakSelf = self;
++    _omniPinnedSpaceObserver =
++        [[[NSWorkspace sharedWorkspace].notificationCenter addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
++                                                                       object:nil
++                                                                        queue:[NSOperationQueue mainQueue]
++                                                                   usingBlock:^(NSNotification *notification) {
++        [weakSelf omniStopWaitingForPinnedSpaceChange];
++        os_log(OmniTermWindowLog(), "space switched: window here %d, front %d; bringing forward",
++               window.isOnActiveSpace, NSApp.isActive);
++        if (!window.isVisible || !window.isOnActiveSpace) {
++            return;
++        }
++        [OmniDockPresence performExplicitShow:^{
++            [window makeKeyAndOrderFront:nil];
++        }];
++        [NSApp activateIgnoringOtherApps:YES];
++    }] retain];
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++        if (weakSelf->_omniPinnedSpaceGeneration == generation) {
++            [weakSelf omniStopWaitingForPinnedSpaceChange];
++        }
++    });
++}
++
++- (void)omniStopWaitingForPinnedSpaceChange {
++    if (_omniPinnedSpaceObserver) {
++        [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:_omniPinnedSpaceObserver];
++        [_omniPinnedSpaceObserver release];
++        _omniPinnedSpaceObserver = nil;
++    }
++}
++
++// Whether the hotkey should put the window away rather than bring it up. A
++// pinned window on another Space, or wholly covered by other windows, comes
++// to the front instead.
++- (BOOL)omniTermWindowIsUp:(PseudoTerminal *)terminal {
++    NSWindow *window = terminal.window;
++    if (!window.isVisible || NSApp.isHidden) {
++        return NO;
++    }
++    if (!terminal.omniWindowPinned) {
++        return YES;
++    }
++    // Pinned: hide it only when it shows on the current Space; on another
++    // Space, or wholly covered, the shortcut switches to it instead.
++    return window.isOnActiveSpace && (window.occlusionState & NSWindowOcclusionStateVisible) != 0;
 +}
 +
 +- (NSArray<iTermHotKey *> *)omniTermGlobalHotKeyPressed:(NSDictionary *)userData
 +                                                siblings:(NSArray<iTermHotKey *> *)siblings {
 +    PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
-+    if (terminal.window.isVisible) {
-+        [terminal.window orderOut:nil];
++    const BOOL up = [self omniTermWindowIsUp:terminal];
++    os_log(OmniTermWindowLog(), "hotkey: %{public}s (pinned %d)", up ? "hide" : "show", terminal.omniWindowPinned);
++    if (up) {
++        [terminal omniHideWindow];
 +    } else {
 +        // The hotkey is for the terminal only. Activating the app would bring
 +        // the Inbox forward with it, so put the Inbox away first.
@@ -10766,7 +10926,10 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
 +// returning when the hotkey later unhides the app.
 +- (void)hideAllOmniTermWindows {
 +    for (PseudoTerminal *terminal in self.terminals) {
-+        [terminal.window orderOut:nil];
++        // A pinned window stays on its Space, hidden with the app.
++        if (!terminal.omniWindowPinned) {
++            [terminal.window orderOut:nil];
++        }
 +    }
 +    [[self omniInboxWindowIfLoaded] orderOut:nil];
 +    [NSApp hide:nil];
@@ -10781,13 +10944,14 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3171,61 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3289,67 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
 +    // omniterm://inbox opens the Inbox, for the widget. omniterm://memory opens
 +    // the Memory page, optionally on a tab (omniterm://memory/graph?mode=mindmap,
 +    // omniterm://memory/search?q=words, omniterm://memory/graph?select=ID or ?open=ID).
++    // omniterm://unblocker opens the Unblocker page.
 +    // omniterm://sessions shows the sidebar's Sessions mode, omniterm://session/claude:ID
 +    // one session's page (?message=ID: from that message; ?system=1: with its system
 +    // prompt open). Nothing else is accepted.
@@ -10796,6 +10960,11 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
 +            [[OmniInboxWindowController sharedInstance] showSelecting:nil];
 +        } else if ([url.host isEqualToString:@"settings"]) {
 +            [self showOmniTermSettings:nil];
++        } else if ([url.host isEqualToString:@"unblocker"]) {
++            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
++            [self openOmniTerm:nil];
++            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
++            [terminal omniShowUnblocker];
 +        } else if ([url.host isEqualToString:@"memory"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -10843,7 +11012,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3354,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3478,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -10866,7 +11035,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3500,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3624,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -10875,7 +11044,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +3964,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4088,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -10891,7 +11060,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4730,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4854,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -10908,11 +11077,11 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1905caff038372806ce989b1765eef7b
      }
 -    
 -    [[iTermApplication sharedApplication] setIsUIElement:enableLSUI];
-+    [[iTermApplication sharedApplication] setIsUIElement:YES];
++    [[iTermApplication sharedApplication] omniSetShowsInDock:NO];
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +4976,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5100,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -12631,7 +12800,7 @@ index 0000000000000000000000000000000000000000..285b59c9505d5df83f3be7e14d37a9d7
 +}
 diff --git a/sources/OmniTerm/OmniCardPane.swift b/sources/OmniTerm/OmniCardPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..ef96fa2e045deb60df1cfbd4c7f14c88ce5db866
+index 0000000000000000000000000000000000000000..36d2c07662d94fef305493793fb82c44ab8b65e7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniCardPane.swift
 @@ -0,0 +1,1115 @@
@@ -12741,7 +12910,7 @@ index 0000000000000000000000000000000000000000..ef96fa2e045deb60df1cfbd4c7f14c88
 +        case .run(let id):
 +            previewRunID = id
 +            details = OmniRunReportPane(runID: id, compact: true)
-+        case .overview, .group, .inbox, .memory, .settings, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .session:
 +            details = NSView()
 +        }
 +        super.init()
@@ -12847,7 +13016,7 @@ index 0000000000000000000000000000000000000000..ef96fa2e045deb60df1cfbd4c7f14c88
 +            OmniSchedulerClient.request(["op": "get_run", "id": id]) { [weak self] response in
 +                self?.renderRun(response)
 +            }
-+        case .overview, .group, .inbox, .memory, .settings, .session:
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, .session:
 +            break
 +        }
 +    }
@@ -13752,10 +13921,10 @@ index 0000000000000000000000000000000000000000..ef96fa2e045deb60df1cfbd4c7f14c88
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b286353ad684a9db283a32225a7cb48cb89a40d
+index 0000000000000000000000000000000000000000..9011b9344793611b24b858d321e34212f4c68280
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,771 @@
+@@ -0,0 +1,779 @@
 +import AppKit
 +import Foundation
 +
@@ -13772,6 +13941,8 @@ index 0000000000000000000000000000000000000000..2b286353ad684a9db283a32225a7cb48
 +    case memory
 +    // Settings: notifications, app behaviour and new-agent defaults.
 +    case settings
++    // The background unblocker: its switch, policy and audit trail.
++    case unblocker
 +    // A Claude or Codex session from the machine's history, by its
 +    // provider-qualified ID (`claude:<id>`).
 +    case session(String)
@@ -13910,6 +14081,8 @@ index 0000000000000000000000000000000000000000..2b286353ad684a9db283a32225a7cb48
 +            pane = OmniMemoryPane()
 +        case .settings:
 +            pane = OmniSettingsPane()
++        case .unblocker:
++            pane = OmniUnblockerPane()
 +        case .session(let id):
 +            pane = OmniSessionPane(sessionID: id)
 +        case .agent, .run:
@@ -14115,7 +14288,11 @@ index 0000000000000000000000000000000000000000..2b286353ad684a9db283a32225a7cb48
 +        // dashboard tab, rather than closing the terminal tab hidden underneath.
 +        if coversTerminal, modifiers == .command || modifiers == [.command, .option],
 +           event.charactersIgnoringModifiers?.lowercased() == "w" {
-+            window?.orderOut(nil)
++            if let terminal = window?.windowController as? PseudoTerminal {
++                terminal.omniHideWindow()
++            } else {
++                window?.orderOut(nil)
++            }
 +            return true
 +        }
 +        return super.performKeyEquivalent(with: event)
@@ -14529,10 +14706,10 @@ index 0000000000000000000000000000000000000000..2b286353ad684a9db283a32225a7cb48
 +}
 diff --git a/sources/OmniTerm/OmniDockPresence.swift b/sources/OmniTerm/OmniDockPresence.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4891041d0b3d3f01dcc2be4727771c09044c0e48
+index 0000000000000000000000000000000000000000..d135fcd08f95267dcae95ead3f7f70b9213a84b7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniDockPresence.swift
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,159 @@
 +//
 +//  OmniDockPresence.swift
 +//  iTerm2SharedARC
@@ -14581,6 +14758,34 @@ index 0000000000000000000000000000000000000000..4891041d0b3d3f01dcc2be4727771c09
 +            return false
 +        }
 +        return window.isVisible || window.isMiniaturized
++    }
++
++    // Only an explicit open (the status menu, the shortcut, the Dock tile, an
++    // omniterm:// link) or the app being unhidden may bring a hidden terminal
++    // window on screen. Restoration, startup cleanup and background runs order
++    // windows in all the time; refusing those at the window, rather than
++    // ordering them out afterwards, keeps launch and relaunch in the menu bar.
++    // Main thread only.
++    private static var explicitShowDepth = 0
++
++    @objc(mayOrderInWindowPresent:)
++    static func mayOrderIn(windowPresent: Bool) -> Bool {
++        return windowPresent || explicitShowDepth > 0
++    }
++
++    @objc(performExplicitShow:)
++    static func performExplicitShow(_ block: () -> Void) {
++        beginExplicitShow()
++        defer { endExplicitShow() }
++        block()
++    }
++
++    @objc static func beginExplicitShow() {
++        explicitShowDepth += 1
++    }
++
++    @objc static func endExplicitShow() {
++        explicitShowDepth = max(0, explicitShowDepth - 1)
 +    }
 +
 +    private let anyWindowVisible: () -> Bool
@@ -20952,10 +21157,10 @@ index 0000000000000000000000000000000000000000..0d4f4f82ae79286132d67a5d1ab9bcf4
 +}
 diff --git a/sources/OmniTerm/OmniPanelLayout.swift b/sources/OmniTerm/OmniPanelLayout.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a7896b0cc795cfa6e76b71d9123f4acdbdf35a1a
+index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc02a314e8
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanelLayout.swift
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,261 @@
 +import AppKit
 +import Foundation
 +
@@ -20999,6 +21204,11 @@ index 0000000000000000000000000000000000000000..a7896b0cc795cfa6e76b71d9123f4acd
 +    // The terminal window's frame the person last gave it, in screen
 +    // coordinates; nil until they move or resize it.
 +    var windowFrame: NSRect?
++    // Pinned, the window keeps `windowFrame` exactly: it cannot be moved or
++    // resized, and opening it never moves it to the pointer's screen.
++    var windowPinned = false
++    // The Space a pinned window was last on, so a relaunch can put it back.
++    var windowSpace: UInt64?
 +    static let windowMinSize = NSSize(width: 480, height: 320)
 +
 +    init() {
@@ -21026,6 +21236,8 @@ index 0000000000000000000000000000000000000000..a7896b0cc795cfa6e76b71d9123f4acd
 +        bandCollapsed = flag("band_collapsed")
 +        diffCollapsed = flag("diff_collapsed")
 +        memoryListWidth = number("memory_list_width").map(Self.clampedMemoryListWidth)
++        windowPinned = flag("window_pinned")
++        windowSpace = number("window_space").flatMap { $0 >= 1 ? UInt64($0) : nil }
 +        if let x = number("window_x"), let y = number("window_y"), let width = number("window_width"),
 +           let height = number("window_height"), width >= Self.windowMinSize.width, height >= Self.windowMinSize.height {
 +            windowFrame = NSRect(x: x, y: y, width: width, height: height)
@@ -21040,12 +21252,16 @@ index 0000000000000000000000000000000000000000..a7896b0cc795cfa6e76b71d9123f4acd
 +            "runs_collapsed": runsCollapsed,
 +            "band_collapsed": bandCollapsed,
 +            "diff_collapsed": diffCollapsed,
++            "window_pinned": windowPinned,
 +        ]
 +        if let runsWidth {
 +            result["runs_width"] = Double(runsWidth)
 +        }
 +        if let detailsShare {
 +            result["details_share"] = Double(detailsShare)
++        }
++        if let windowSpace {
++            result["window_space"] = Double(windowSpace)
 +        }
 +        if let memoryListWidth {
 +            result["memory_list_width"] = Double(memoryListWidth.rounded())
@@ -22831,10 +23047,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c5f812733
+index 0000000000000000000000000000000000000000..8ab4bac05024ad91dcfe9eb9b800107a4376c0d6
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4133 @@
+@@ -0,0 +1,4200 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -22862,6 +23078,10 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +@property(nonatomic) dispatch_source_t timer;
 +@property(nonatomic) dispatch_source_t knowledgeTimer;
 +@property(nonatomic, retain) NSTask *knowledgeTask;
++// The background unblocker pass (`omni unblocker pass`): at most one at a time.
++@property(nonatomic, retain) NSTask *unblockerTask;
++@property(nonatomic) NSTimeInterval unblockerStarted;
++@property(nonatomic) NSTimeInterval unblockerChecked;
 +@property(nonatomic) sqlite3 *knowledgeDatabase;
 +// Read from other threads by the direct read path.
 +@property(atomic) BOOL knowledgeRestored;
@@ -22910,6 +23130,10 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +// How long a session waits before the unblocker answers it: long enough for the
 +// person, if present, to reply themselves (helpers/omni_blocks.py UNBLOCK_AFTER).
 +static const NSInteger OmniUnblockerMinimumAge = 45;
++// How often the tick asks whether a session waits for the unblocker, and how
++// long one pass may run before it is stopped (six blocks of four minutes, plus slack).
++static const NSTimeInterval OmniUnblockerCheckInterval = 20;
++static const NSTimeInterval OmniUnblockerPassLimit = 30 * 60;
 +// A run closed by retention before turns were tracked: its outcome is unknown.
 +static NSString *const OmniRetentionUnknownReason = @"retention closed the session; whether the agent had finished was not recorded";
 +// The outcome of a run whose agent had finished before retention closed its session.
@@ -22936,7 +23160,9 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +                                                    @"write_weekly_summary", @"record_block", @"list_blocked",
 +                                                    @"get_block", @"answer_block", @"skip_block",
 +                                                    @"get_unblock", @"set_unblock", @"rename_session",
-+                                                    @"get_system_prompt" ]];
++                                                    @"get_system_prompt", @"consume_grant",
++                                                    @"record_unblock_audit", @"unblocker_audit",
++                                                    @"get_unblocker_policy", @"set_unblocker_policy" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -22954,7 +23180,8 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +                                                    @"get_memory", @"memory_events", @"memory_overview",
 +                                                    @"memory_graph", @"memory_digest", @"memory_topics",
 +                                                    @"explain_memory", @"list_blocked", @"get_block",
-+                                                    @"get_unblock", @"get_system_prompt" ]];
++                                                    @"get_unblock", @"get_system_prompt", @"unblocker_audit",
++                                                    @"get_unblocker_policy" ]];
 +    });
 +    return [value isKindOfClass:[NSString class]] && [operations containsObject:value];
 +}
@@ -23026,8 +23253,9 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +                           @"window_x": @[ @-100000, @100000 ],
 +                           @"window_y": @[ @-100000, @100000 ],
 +                           @"window_width": @[ @100, @20000 ],
-+                           @"window_height": @[ @100, @20000 ] } retain];
-+        flags = [[NSSet setWithArray:@[ @"sidebar_collapsed", @"runs_collapsed", @"band_collapsed", @"diff_collapsed" ]] retain];
++                           @"window_height": @[ @100, @20000 ],
++                           @"window_space": @[ @0, @1e15 ] } retain];
++        flags = [[NSSet setWithArray:@[ @"sidebar_collapsed", @"runs_collapsed", @"band_collapsed", @"diff_collapsed", @"window_pinned" ]] retain];
 +    });
 +    NSMutableDictionary *result = [NSMutableDictionary dictionary];
 +    for (id key in (NSDictionary *)value) {
@@ -23127,7 +23355,6 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +              @"retained_run_tabs": @10,
 +              @"timezone": NSTimeZone.localTimeZone.name,
 +              @"launch_at_login": @NO,
-+              @"center_window_on_open": @YES,
 +              @"double_escape_to_hide": @YES,
 +              @"double_escape_interval_ms": @350,
 +              @"summaries": @YES,
@@ -23670,7 +23897,8 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +        if (![key isKindOfClass:[NSString class]] || ![key length] || [key length] > 512 ||
 +            (![value isKindOfClass:[NSDictionary class]] && value != [NSNull null])) return NO;
 +        BOOL validNamespace = NO;
-+        for (NSString *prefix in @[ @"source:", @"message:", @"memory:", @"memory_revision:", @"receipt:", @"vector:", @"metadata:", @"block:" ]) {
++        for (NSString *prefix in @[ @"source:", @"message:", @"memory:", @"memory_revision:", @"receipt:", @"vector:", @"metadata:", @"block:",
++                                     @"unblock-audit:" ]) {
 +            if ([key hasPrefix:prefix]) validNamespace = YES;
 +        }
 +        if (!validNamespace) return NO;
@@ -24518,9 +24746,9 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +// sidebar keys and the layout have their own operations; the global shortcut
 +// and login launch have app side effects, so only the app writes them.
 +static NSArray<NSString *> *OmniSettableSettingKeys(void) {
-+    return @[ @"default_timeout_seconds", @"retained_run_tabs", @"timezone", @"center_window_on_open",
++    return @[ @"default_timeout_seconds", @"retained_run_tabs", @"timezone",
 +              @"double_escape_to_hide", @"double_escape_interval_ms", @"summaries", @"summary_model",
-+              @"notifications", @"agent_defaults" ];
++              @"notifications", @"agent_defaults", @"unblocker" ];
 +}
 +
 +static BOOL OmniIsBoolean(id value) {
@@ -24732,7 +24960,7 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +    if ([key isEqualToString:@"double_escape_interval_ms"]) {
 +        return OmniIsWholeNumber(value) && [value integerValue] >= 150 && [value integerValue] <= 2000 ? value : nil;
 +    }
-+    if ([@[ @"center_window_on_open", @"double_escape_to_hide", @"summaries" ] containsObject:key]) {
++    if ([@[ @"double_escape_to_hide", @"summaries" ] containsObject:key]) {
 +        return OmniIsBoolean(value) ? value : nil;
 +    }
 +    if ([key isEqualToString:@"timezone"]) {
@@ -24745,6 +24973,19 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +    if ([key isEqualToString:@"notifications"]) {
 +        if (![value isKindOfClass:[NSDictionary class]]) return nil;
 +        return OmniValidNotificationSettings(OmniMergedSettingsDictionary(current[@"notifications"], value), YES, invalid);
++    }
++    if ([key isEqualToString:@"unblocker"]) {
++        if (![value isKindOfClass:[NSDictionary class]]) return nil;
++        NSMutableDictionary *merged = [NSMutableDictionary dictionary];
++        if ([current[@"unblocker"] isKindOfClass:[NSDictionary class]]) [merged addEntriesFromDictionary:current[@"unblocker"]];
++        [merged addEntriesFromDictionary:value];
++        for (NSString *field in merged) {
++            if (![@[ @"enabled", @"model" ] containsObject:field]) return nil;
++        }
++        if (merged[@"enabled"] && !OmniIsBoolean(merged[@"enabled"])) return nil;
++        id model = merged[@"model"];
++        if (model && !([model isEqual:@""] || OmniSettingWord(model, 200).length)) return nil;
++        return merged;
 +    }
 +    if ([key isEqualToString:@"agent_defaults"]) {
 +        if (![value isKindOfClass:[NSDictionary class]]) return nil;
@@ -26865,22 +27106,64 @@ index 0000000000000000000000000000000000000000..ef6c84d28cdea632c196fa9fbaa0da8c
 +        NSDictionary *agent = [NSJSONSerialization JSONObjectWithData:[row[@"definition"] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
 +        id next = [self nextRunForAgent:agent after:now];
 +        [self runSQL:@"UPDATE agents SET last_run=?,next_run=? WHERE name=?" bindings:@[ @(now), next, row[@"name"] ]];
-+        if ([agent[@"omni_managed"] isEqual:OmniSessionUnblockerMarker] && ![self unblockerHasWork:row[@"name"]]) {
++        // The old scheduled unblocker agent never runs; the first pass removes it.
++        if ([agent[@"omni_managed"] isEqual:OmniSessionUnblockerMarker]) {
 +            continue;
 +        }
 +        [self startAgentNamed:row[@"name"] reason:@"scheduled" resumeSessionID:nil];
 +    }
++    [self maybeStartUnblockerPass];
 +    [self enforceRunRetention];
 +}
 +
-+// The unblocker is scheduled every minute so a waiting session is answered
-+// within a minute or two, but it starts only when a session waits for it and
-+// it is not already running: an empty run would cost a model call for nothing.
-+- (BOOL)unblockerHasWork:(NSString *)name {
-+    if ([self rowsForSQL:@"SELECT id FROM runs WHERE agent=? AND state IN ('starting','running','evicting') LIMIT 1"
-+                bindings:@[ name ]].count) {
-+        return NO;
++// The unblocker is not an agent: it listens in the background. Each tick, at
++// most every few seconds, it asks whether a goal-driven session has waited
++// long enough and, if so and no pass is live, starts one `omni unblocker pass`
++// with no tab, no run row and no schedule. A pass that hangs is stopped.
++- (void)maybeStartUnblockerPass {
++    const NSTimeInterval now = [NSDate date].timeIntervalSince1970;
++    if (self.unblockerTask) {
++        if (self.unblockerTask.isRunning) {
++            if (now - self.unblockerStarted > OmniUnblockerPassLimit) {
++                NSLog(@"OmniScheduler: stopping an unblocker pass that ran for %.0f s", now - self.unblockerStarted);
++                [self.unblockerTask terminate];
++            }
++            return;
++        }
++        self.unblockerTask = nil;
++        // The next pass waits its interval from the end of this one.
++        self.unblockerChecked = now;
 +    }
++    if (now - self.unblockerChecked < OmniUnblockerCheckInterval) return;
++    self.unblockerChecked = now;
++    NSDictionary *config = [[self settings][@"unblocker"] isKindOfClass:[NSDictionary class]] ? [self settings][@"unblocker"] : @{};
++    if ([config[@"enabled"] isEqual:@NO]) return;
++    const BOOL legacy = [self rowsForSQL:@"SELECT name FROM agents WHERE definition LIKE ? LIMIT 1"
++                                bindings:@[ [NSString stringWithFormat:@"%%%@%%", OmniSessionUnblockerMarker] ]].count > 0;
++    if (!legacy && ![self unblockerHasWork]) return;
++    NSString *omni = [NSBundle.mainBundle pathForResource:@"omni" ofType:nil inDirectory:@"Helpers"];
++    if (!omni) return;
++    NSTask *task = [[[NSTask alloc] init] autorelease];
++    task.executableURL = [NSURL fileURLWithPath:omni];
++    task.arguments = @[ @"unblocker", @"pass", @"--json" ];
++    task.currentDirectoryURL = [NSURL fileURLWithPath:NSHomeDirectory()];
++    NSMutableDictionary *environment = [[NSProcessInfo.processInfo.environment mutableCopy] autorelease];
++    environment[@"OMNITERM_AGENT"] = @"Omni Unblocker";
++    [environment removeObjectForKey:@"OMNITERM_RUN_ID"];
++    task.environment = environment;
++    task.standardInput = [NSFileHandle fileHandleWithNullDevice];
++    task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
++    task.standardError = [NSFileHandle fileHandleWithNullDevice];
++    NSError *error = nil;
++    if (![task launchAndReturnError:&error]) {
++        NSLog(@"OmniScheduler: could not start the unblocker: %@", error);
++        return;
++    }
++    self.unblockerTask = task;
++    self.unblockerStarted = now;
++}
++
++- (BOOL)unblockerHasWork {
 +    NSDictionary *response = [self knowledgeReadResponse:@{ @"op": @"list_blocked", @"answerable_only": @YES,
 +                                                            @"min_age_seconds": @(OmniUnblockerMinimumAge), @"limit": @1 }];
 +    NSArray *blocks = [response[@"blocks"] isKindOfClass:[NSArray class]] ? response[@"blocks"] : nil;
@@ -28917,10 +29200,10 @@ index 0000000000000000000000000000000000000000..4d3472cc3d434a08666cf7e2404a0184
 +}
 diff --git a/sources/OmniTerm/OmniSettingsPane.swift b/sources/OmniTerm/OmniSettingsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..31c65d1deda6767a13ba5169e85fc04ba76968bc
+index 0000000000000000000000000000000000000000..8429a2845555f708ddbe38c0d13445b1252bf8f4
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSettingsPane.swift
-@@ -0,0 +1,790 @@
+@@ -0,0 +1,785 @@
 +import AppKit
 +import Foundation
 +
@@ -29474,9 +29757,6 @@ index 0000000000000000000000000000000000000000..31c65d1deda6767a13ba5169e85fc04b
 +        let login = toggle(settings["launch_at_login"] as? Bool ?? false) { [weak self] on in
 +            self?.save(["launch_at_login": on])
 +        }
-+        let center = toggle(settings["center_window_on_open"] as? Bool ?? true) { [weak self] on in
-+            self?.save(["center_window_on_open": on])
-+        }
 +        let escape = toggle(settings["double_escape_to_hide"] as? Bool ?? true) { [weak self] on in
 +            self?.save(["double_escape_to_hide": on])
 +        }
@@ -29488,7 +29768,6 @@ index 0000000000000000000000000000000000000000..31c65d1deda6767a13ba5169e85fc04b
 +        return [
 +            row("shortcut", "Show or hide OmniTerm", "A global shortcut. Return, then press the keys.", shortcut),
 +            row("login", "Launch at login", loginDetail, login),
-+            row("center", "Center on open", "Center the terminal on the active screen when it opens.", center),
 +            row("escape", "Double Escape hides", "Pressing Escape twice quickly hides the terminal.", escape),
 +            row("escape-interval", "Double Escape delay", "Milliseconds between the two presses, 150 to 2000.", interval, width: 90),
 +            row("general-reset", "Restore defaults", "General settings and new-agent defaults.", restore, width: 100),
@@ -29581,7 +29860,6 @@ index 0000000000000000000000000000000000000000..31c65d1deda6767a13ba5169e85fc04b
 +    @objc private func restoreGeneralDefaults() {
 +        save(["global_shortcut": Self.defaultShortcutValue,
 +              "launch_at_login": false,
-+              "center_window_on_open": true,
 +              "double_escape_to_hide": true,
 +              "double_escape_interval_ms": 350,
 +              "default_timeout_seconds": 7200,
@@ -30362,10 +30640,10 @@ index 0000000000000000000000000000000000000000..662763f12261f4d42c324c79ab2c8659
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f50ab2411
+index 0000000000000000000000000000000000000000..882769735e3e07a7b785c6ca989a57b1f6d89d55
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3045 @@
+@@ -0,0 +1,3346 @@
 +import AppKit
 +import Foundation
 +import os
@@ -30401,12 +30679,15 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        case inbox
 +        case memory
 +        case settings
++        case unblocker
 +        // A Claude or Codex session, in Sessions mode.
 +        case session
 +        // Sessions mode: loads the next page of the list.
 +        case loadMore
 +        // The rule between the top group and Agents.
 +        case divider
++        // The Agents/Sessions switch, under the top group.
++        case modeSwitch
 +    }
 +
 +    let kind: Kind
@@ -30433,12 +30714,12 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +
 +    // Dashboard, Inbox and Memory: the top group.
 +    var isTopGroup: Bool {
-+        return kind == .overview || kind == .inbox || kind == .memory || kind == .settings
++        return kind == .overview || kind == .inbox || kind == .memory || kind == .settings || kind == .unblocker
 +    }
 +
 +    // Headers and the rule are not rows to select.
 +    var isSelectable: Bool {
-+        return kind != .section && kind != .divider
++        return kind != .section && kind != .divider && kind != .modeSwitch
 +    }
 +
 +    init(kind: Kind, key: String, title: String, detail: String = "", route: OmniPaneRoute? = nil,
@@ -30566,12 +30847,16 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    private let inboxItem = OmniSidebarItem(kind: .inbox, key: "inbox", title: "Inbox", route: .inbox)
 +    private let memoryItem = OmniSidebarItem(kind: .memory, key: "memory", title: "Memory", route: .memory)
 +    private let settingsItem = OmniSidebarItem(kind: .settings, key: "settings", title: "Settings", route: .settings)
++    private let unblockerItem = OmniSidebarItem(kind: .unblocker, key: "unblocker", title: "Unblocker", route: .unblocker)
 +    private var inboxUnread = 0
 +    private var inboxAttention = 0
 +    private let topGroupDivider = OmniSidebarItem(kind: .divider, key: "divider", title: "")
++    private let modeSwitchItem = OmniSidebarItem(kind: .modeSwitch, key: "mode-switch", title: "")
 +    // While the sidebar is collapsed to its rail: the toggle that brings it
 +    // back by pointer.
 +    private let revealButton = NSButton()
++    // Pins the window where it is, at its size, beside the mode bar.
++    private let pinButton = NSButton()
 +    // The hairline under the title bar, across the sidebar and the content.
 +    private let titlebarLine = OmniTheme.titlebarSeparatorLine()
 +    private let agentsSection = OmniSidebarItem(kind: .section, key: "agents", title: "Agents")
@@ -30581,7 +30866,10 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    private let modeControl = NSSegmentedControl(labels: ["Agents", "Sessions"], trackingMode: .selectOne,
 +                                                 target: nil, action: nil)
 +    private(set) var mode: OmniSidebarMode = .agents
-+    private static let modeBarHeight: CGFloat = 34
++    // The search bar above the list, with the pin beside it.
++    private static let searchFieldHeight: CGFloat = 30
++    private static let searchFieldGap: CGFloat = 8
++    private static let modeSwitchRowHeight: CGFloat = OmniSidebarModeSwitchCell.rowHeight
 +    private let liveSessionsSection = OmniSidebarItem(kind: .section, key: "live-sessions", title: "Live")
 +    private let recentSessionsSection = OmniSidebarItem(kind: .section, key: "recent-sessions", title: "Recent")
 +    private var sessions: [[AnyHashable: Any]] = []
@@ -30707,15 +30995,15 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        modeControl.setToolTip("Agents and runs (⇧⌘1)", forSegment: 0)
 +        modeControl.setToolTip("All Claude and Codex sessions (⇧⌘2)", forSegment: 1)
 +        modeControl.setAccessibilityLabel("Sidebar mode")
-+        root.addSubview(modeControl)
-+        sessionSearchField.placeholderString = "Filter, or search transcripts"
-+        sessionSearchField.controlSize = .small
-+        sessionSearchField.font = NSFont.systemFont(ofSize: 12)
++        // The search bar serves both modes; large, so it reads as the
++        // sidebar's main control.
++        sessionSearchField.controlSize = .large
++        sessionSearchField.font = NSFont.systemFont(ofSize: 14)
++        sessionSearchField.focusRingType = .default
 +        sessionSearchField.target = self
 +        sessionSearchField.action = #selector(sessionSearchChanged(_:))
 +        sessionSearchField.sendsSearchStringImmediately = false
-+        sessionSearchField.isHidden = mode != .sessions
-+        sessionSearchField.searchMenuTemplate = sessionsFilterMenu()
++        updateSearchFieldForMode()
 +        root.addSubview(sessionSearchField)
 +        separator.boxType = .separator
 +        root.addSubview(separator)
@@ -30751,6 +31039,13 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        revealButton.action = #selector(revealSidebar(_:))
 +        revealButton.isHidden = true
 +        root.addSubview(revealButton)
++        pinButton.bezelStyle = .inline
++        pinButton.isBordered = false
++        pinButton.refusesFirstResponder = true
++        pinButton.target = self
++        pinButton.action = #selector(togglePinButton(_:))
++        root.addSubview(pinButton)
++        updatePinButton()
 +        root.resizeHandle.dragged = { [weak self] point, finished in self?.dragSidebarEdge(to: point, finished: finished) }
 +        root.didResize = { [weak self] size in self?.layout(size) }
 +        // The window adds the sidebar to its root view, beside the tab view;
@@ -30800,11 +31095,18 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        // The rows start under the title bar and its hairline.
 +        let titleTop = titleBarOverlap + 1
 +        layoutTitlebarLine(overlap: titleTop - 1)
-+        modeControl.frame = NSRect(x: 10, y: titleTop + 6, width: max(60, size.width - 21), height: 24)
-+        sessionSearchField.isHidden = modeControl.isHidden || mode != .sessions
-+        sessionSearchField.frame = NSRect(x: 10, y: titleTop + Self.modeBarHeight, width: max(60, size.width - 21), height: 22)
-+        // The rows scroll below the mode bar and search field, never under them.
-+        let bars = (modeControl.isHidden ? 0 : Self.modeBarHeight) + (sessionSearchField.isHidden ? 0 : 30)
++        // The search bar (and the pin) sit on top; the mode switch is a row
++        // of the list, under the shared pages.
++        let headerHidden = scrollView.isHidden
++        sessionSearchField.isHidden = headerHidden
++        pinButton.isHidden = headerHidden
++        sessionSearchField.frame = NSRect(x: 10, y: titleTop + 6,
++                                          width: max(60, size.width - 23 - Self.pinButtonWidth),
++                                          height: Self.searchFieldHeight)
++        pinButton.frame = NSRect(x: sessionSearchField.frame.maxX + 2, y: titleTop + 6 + (Self.searchFieldHeight - 22) / 2,
++                                 width: Self.pinButtonWidth, height: 22)
++        // The rows scroll below the search bar, never under it.
++        let bars = headerHidden ? 0 : 6 + Self.searchFieldHeight + Self.searchFieldGap
 +        let listTop = bars > 0 ? titleTop + bars : 0
 +        scrollView.frame = NSRect(x: 0, y: listTop, width: max(0, size.width - 1), height: max(0, size.height - listTop))
 +        let top = bars > 0 ? 0 : titleTop
@@ -30849,6 +31151,93 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    func relayoutForWindow() {
 +        layout(view.bounds.size)
 +        observeWindowFrame()
++        applyWindowPin()
++    }
++
++    // MARK: - Window pin
++
++    private static let pinButtonWidth: CGFloat = 26
++
++    // Pinned, the window belongs to its Space: showing it switches to that
++    // Space rather than bringing the window to the current one. Moving or
++    // resizing it is still the person's; like an unpinned window it comes
++    // back wherever they left it.
++    @objc var windowPinned: Bool {
++        return panelLayout.layout.windowPinned
++    }
++
++    @objc func setWindowPinned(_ pinned: Bool) {
++        guard let window = view.window else { return }
++        omniWindowFrameLog.notice("pin \(pinned, privacy: .public) \(NSStringFromRect(window.frame), privacy: .public)")
++        panelLayout.update { layout in
++            layout.windowPinned = pinned
++            // A hidden window keeps the frame it was last shown with.
++            if pinned, window.isVisible || layout.windowFrame == nil {
++                layout.windowFrame = window.frame
++            }
++            layout.windowSpace = pinned ? OmniWindowSpaces.space(of: window) : nil
++        }
++        applyWindowPin()
++    }
++
++    // Where the pinned window is now, kept so a relaunch can put it back on
++    // that Space; the window itself keeps its Space while OmniTerm runs.
++    @objc func noteWindowSpace() {
++        if let window = view.window {
++            omniWindowFrameLog.notice("window on space \(OmniWindowSpaces.space(of: window).map(String.init) ?? "none", privacy: .public), active \(OmniWindowSpaces.activeSpace().map(String.init) ?? "?", privacy: .public), front \(NSApp.isActive, privacy: .public)")
++        }
++        guard windowPinned, let window = view.window, let space = OmniWindowSpaces.space(of: window),
++              space != panelLayout.layout.windowSpace else { return }
++        panelLayout.update { $0.windowSpace = space }
++    }
++
++    // Before a pinned window shows: on the Space it belongs to, when it is
++    // on none (after a relaunch) or another, and that Space still exists.
++    @objc func moveWindowToPinnedSpace() {
++        if let window = view.window {
++            omniWindowFrameLog.notice("opening pinned: window on space \(OmniWindowSpaces.space(of: window).map(String.init) ?? "none", privacy: .public), active \(OmniWindowSpaces.activeSpace().map(String.init) ?? "?", privacy: .public), stored \(self.panelLayout.layout.windowSpace.map(String.init) ?? "none", privacy: .public)")
++        }
++        guard windowPinned, let window = view.window, let space = panelLayout.layout.windowSpace,
++              OmniWindowSpaces.space(of: window) != space, OmniWindowSpaces.userSpaces().contains(space) else { return }
++        omniWindowFrameLog.notice("move to space \(space, privacy: .public)")
++        OmniWindowSpaces.move(window, to: space)
++    }
++
++    @objc private func togglePinButton(_ sender: Any?) {
++        setWindowPinned(!windowPinned)
++    }
++
++    var windowPinButton: NSButton {
++        return pinButton
++    }
++
++    private func applyWindowPin() {
++        updatePinButton()
++    }
++
++    private func updatePinButton() {
++        let pinned = windowPinned
++        let symbol: SFSymbol = pinned ? .pinFill : .pin
++        let label = pinned ? "Unpin the window from this Space" : "Pin the window to this Space"
++        pinButton.image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: label)
++        pinButton.contentTintColor = pinned ? OmniTheme.accent : OmniTheme.secondaryText
++        pinButton.toolTip = pinned
++            ? "Pinned to this Space: opening OmniTerm switches here. Click to unpin."
++            : "Pin the window to this Space: opening OmniTerm will switch here"
++        pinButton.setAccessibilityLabel(label)
++    }
++
++    // The screen holding most of the pinned frame, nil when none does.
++    private static func screen(holding frame: NSRect) -> NSScreen? {
++        var best: (screen: NSScreen, area: CGFloat)?
++        for screen in NSScreen.screens {
++            let overlap = screen.frame.intersection(frame)
++            let area = overlap.isNull ? 0 : overlap.width * overlap.height
++            if area > 0, area > (best?.area ?? 0) {
++                best = (screen, area)
++            }
++        }
++        return best?.screen
 +    }
 +
 +    // MARK: - Window frame
@@ -30864,12 +31253,15 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        if let observedWindow {
 +            center.removeObserver(self, name: NSWindow.didEndLiveResizeNotification, object: observedWindow)
 +            center.removeObserver(self, name: NSWindow.didMoveNotification, object: observedWindow)
++            center.removeObserver(self, name: NSWindow.didResizeNotification, object: observedWindow)
 +            center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow)
 +        }
 +        observedWindow = window
 +        center.addObserver(self, selector: #selector(windowDidEndLiveResize(_:)),
 +                           name: NSWindow.didEndLiveResizeNotification, object: window)
 +        center.addObserver(self, selector: #selector(windowDidMove(_:)), name: NSWindow.didMoveNotification, object: window)
++        center.addObserver(self, selector: #selector(windowFrameDidChange(_:)),
++                           name: NSWindow.didResizeNotification, object: window)
 +        center.addObserver(self, selector: #selector(windowOcclusionDidChange(_:)),
 +                           name: NSWindow.didChangeOcclusionStateNotification, object: window)
 +    }
@@ -30904,11 +31296,13 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    // The hotkey, the menu bar or the Dock is showing the window.
 +    @objc func noteWindowShownByPerson() {
 +        windowShownSinceLaunch = true
++        frameSettlesUntil = Date().addingTimeInterval(2)
 +    }
 +
 +    // On quit: where a window still on screen is. A hidden one's was saved
 +    // when it hid.
 +    @objc func saveWindowFrame() {
++        noteWindowSpace()
 +        guard let window = view.window, windowShownSinceLaunch, window.isVisible else { return }
 +        storeWindowPlace(window.frame, reason: "quit")
 +    }
@@ -30940,22 +31334,60 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        storeWindowFrame(window.frame, reason: "resize")
 +    }
 +
++    // Just after the person shows the window, iTerm2 and macOS may still
++    // move or reshape it (initial placement, tiling, a Space change). Until
++    // then, a change the person is not making is undone, not saved.
++    private var frameSettlesUntil = Date.distantPast
++    private var frameRestorePending = false
++
++    private var windowFrameIsSettling: Bool {
++        guard let window = view.window, Date() < frameSettlesUntil, window.isVisible,
++              !window.styleMask.contains(.fullScreen), !window.inLiveResize else { return false }
++        return NSEvent.pressedMouseButtons == 0
++    }
++
++    @objc private func windowFrameDidChange(_ notification: Notification) {
++        guard windowFrameIsSettling, !frameRestorePending, let window = view.window,
++              let stored = panelLayout.layout.windowFrame, window.frame != stored else { return }
++        frameRestorePending = true
++        DispatchQueue.main.async { [weak self] in
++            guard let self else { return }
++            self.frameRestorePending = false
++            guard self.windowFrameIsSettling, let window = self.view.window else { return }
++            omniWindowFrameLog.notice("frame changed to \(NSStringFromRect(window.frame), privacy: .public) while opening; restoring")
++            self.restoreWindowFrame(on: nil, centered: false)
++        }
++    }
++
 +    @objc private func windowDidMove(_ notification: Notification) {
++        if windowFrameIsSettling {
++            windowFrameDidChange(notification)
++            return
++        }
 +        guard let window = notification.object as? NSWindow, window.isVisible, windowShownSinceLaunch,
 +              let stored = panelLayout.layout.windowFrame, stored.origin != window.frame.origin else { return }
 +        panelLayout.update(saving: false) { $0.windowFrame = NSRect(origin: window.frame.origin, size: stored.size) }
 +        panelLayout.saveSoon()
 +    }
 +
-+    // Before the window shows: the frame the person gave it, on `screen`.
-+    // False when there is none yet, so the window keeps iTerm2's.
++    // Before the window shows: the place and size the person gave it, on
++    // `screen` or, without one, on the screen it was on. False when there is
++    // none yet, so the window keeps iTerm2's.
 +    @objc(restoreWindowFrameOnScreen:centered:)
 +    @discardableResult
 +    func restoreWindowFrame(on screen: NSScreen?, centered: Bool) -> Bool {
 +        guard let window = view.window, let stored = panelLayout.layout.windowFrame,
-+              let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame else { return false }
++              let visible = (screen ?? Self.screen(holding: stored) ?? window.screen ?? NSScreen.main)?.visibleFrame
++        else { return false }
 +        appliedStoredWindowFrame = true
-+        let frame = OmniPanelLayout.restoredWindowFrame(stored, in: visible, centered: centered)
++        // Exactly where it was left, pinned or not; moved onto a screen only
++        // when the one it was on has gone.
++        let frame: NSRect
++        if screen == nil, let home = Self.screen(holding: stored), home.frame.contains(stored) {
++            frame = stored
++        } else {
++            frame = OmniPanelLayout.restoredWindowFrame(stored, in: visible, centered: centered)
++        }
 +        omniWindowFrameLog.notice("apply \(NSStringFromRect(frame), privacy: .public) from \(NSStringFromRect(stored), privacy: .public) was \(NSStringFromRect(window.frame), privacy: .public)")
 +        if window.frame != frame {
 +            window.setFrame(frame, display: window.isVisible)
@@ -30966,6 +31398,7 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    // MARK: - Panels
 +
 +    private func panelLayoutDidChange(_ layout: OmniPanelLayout) {
++        applyWindowPin()
 +        applySidebarWidth(layout)
 +        contentHost.panelLayoutDidChange(layout)
 +        updateRevealButton()
@@ -30977,7 +31410,6 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        let collapsed = panelLayout.layout.sidebarCollapsed
 +        revealButton.isHidden = !collapsed
 +        scrollView.isHidden = collapsed
-+        modeControl.isHidden = collapsed
 +        layout(view.bounds.size)
 +    }
 +
@@ -31198,7 +31630,7 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        case .agent(let name): return agentTab(name)
 +        case .run(let id): return runTab(id)
 +        case .session(let id): return sessionTab(id)
-+        case .overview, .group, .inbox, .memory, .settings, nil: return nil
++        case .overview, .group, .inbox, .memory, .settings, .unblocker, nil: return nil
 +        }
 +    }
 +
@@ -31358,7 +31790,13 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +
 +        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
-+        let items = [overviewItem, inboxItem, memoryItem, settingsItem, topGroupDivider, agentsSection, runsSection, terminalsSection]
++        if !sessionQuery.isEmpty {
++            let query = sessionQuery.lowercased()
++            for section in [agentsSection, runsSection, terminalsSection] {
++                section.children = Self.filtered(section.children, query: query)
++            }
++        }
++        let items = sharedItems + [agentsSection, runsSection, terminalsSection]
 +        let structure = items.map(Self.structure).joined(separator: ";")
 +        applyUpdate(items: items, structure: structure)
 +        followCurrentTab(tabs: tabs, dashboardTabIDs: dashboardTabIDs, backgroundAgents: background)
@@ -31411,7 +31849,7 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +            }
 +        }
 +        liveSessionsSection.children = live
-+        var items = [inboxItem, memoryItem, settingsItem, topGroupDivider]
++        var items = sharedItems
 +        if !live.isEmpty {
 +            items.append(liveSessionsSection)
 +        }
@@ -31527,7 +31965,40 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        sessionQuery = query
 +        sessionMatches = []
 +        rebuild()
-+        searchTranscripts()
++        if mode == .sessions {
++            searchTranscripts()
++        }
++    }
++
++    // The pages both modes share, then the mode switch.
++    private var sharedItems: [OmniSidebarItem] {
++        return [overviewItem, inboxItem, memoryItem, unblockerItem, settingsItem, modeSwitchItem]
++    }
++
++    // Agents mode search: rows whose name or detail holds the query; a
++    // folder stays while any row in it matches.
++    private static func filtered(_ rows: [OmniSidebarItem], query: String) -> [OmniSidebarItem] {
++        return rows.compactMap { row in
++            if row.kind == .group {
++                let children = filtered(row.children, query: query)
++                guard !children.isEmpty else { return nil }
++                row.children = children
++                return row
++            }
++            let text = (row.title + " " + row.detail).lowercased()
++            return text.contains(query) ? row : nil
++        }
++    }
++
++    // Placeholder, label and menu follow the mode; only Sessions has the
++    // provider and grouping menu.
++    private func updateSearchFieldForMode() {
++        let sessions = mode == .sessions
++        sessionSearchField.placeholderString = sessions ? "Search sessions" : "Search agents"
++        sessionSearchField.toolTip = sessions ? "Filters sessions and searches their transcripts"
++                                              : "Filters agents, runs and terminals"
++        sessionSearchField.setAccessibilityLabel(sessions ? "Search sessions" : "Search agents")
++        sessionSearchField.searchMenuTemplate = sessions ? sessionsFilterMenu() : nil
 +    }
 +
 +    private func searchTranscripts() {
@@ -31600,10 +32071,12 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        guard newMode != mode else { return }
 +        mode = newMode
 +        newMode.store(in: Self.preferencesDomain)
++        updateSearchFieldForMode()
 +        layout(view.bounds.size)
 +        rebuild()
 +        if newMode == .sessions {
 +            requestSessions(force: true)
++            searchTranscripts()
 +        }
 +    }
 +
@@ -31895,6 +32368,7 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        case .inbox: title = "Inbox"
 +        case .memory: title = "Memory"
 +        case .settings: title = "Settings"
++        case .unblocker: title = "Unblocker"
 +        case .agent(let name): title = name
 +        case .run(let id): title = recentRuns.first { $0.id == id }.map { "\($0.agent) · Run" } ?? "Run"
 +        case .group(let path): title = path.components(separatedBy: "/").last ?? path
@@ -32719,6 +33193,9 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        if item.kind == .divider {
 +            return OmniTheme.Sidebar.groupGap + 1
 +        }
++        if item.kind == .modeSwitch {
++            return Self.modeSwitchRowHeight
++        }
 +        return item.kind == .section ? 26 : (item.detail.isEmpty ? 28 : 38)
 +    }
 +
@@ -32732,6 +33209,11 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +        guard let item = item as? OmniSidebarItem else { return nil }
 +        if item.kind == .divider {
 +            return OmniSidebarDividerCell()
++        }
++        if item.kind == .modeSwitch {
++            let cell = OmniSidebarModeSwitchCell()
++            cell.host(modeControl)
++            return cell
 +        }
 +        if item.kind == .section {
 +            let cell = OmniSidebarSectionCell()
@@ -32769,6 +33251,9 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +                           status: nil, pulses: false)
 +        } else if item.kind == .settings {
 +            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.gearshape.rawValue), iconColor: nil,
++                           status: nil, pulses: false)
++        } else if item.kind == .unblocker {
++            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.forwardCircle.rawValue), iconColor: nil,
 +                           status: nil, pulses: false)
 +        } else if item.kind == .overview {
 +            cell.configure(title: item.title, detail: "", icon: .symbol(SFSymbol.squareGrid2x2.rawValue), iconColor: nil,
@@ -32816,6 +33301,11 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    }
 +
 +    // The status menu's Settings item and omniterm://settings.
++    // omniterm://unblocker.
++    @objc func showUnblocker() {
++        showPane(.unblocker)
++    }
++
 +    @objc func showSettings() {
 +        showPane(.settings)
 +    }
@@ -33338,6 +33828,39 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    }
 +}
 +
++// Holds the Agents/Sessions switch as a row under the shared pages: a
++// rule on top sets it apart from them, and it sits close to the list
++// it switches.
++private final class OmniSidebarModeSwitchCell: NSTableCellView {
++    static let ruleY: CGFloat = 8
++    static let controlTop: CGFloat = 19
++    static let controlHeight: CGFloat = 24
++    static let bottomMargin: CGFloat = 3
++    static let rowHeight = controlTop + controlHeight + bottomMargin
++    private weak var control: NSView?
++
++    override var isFlipped: Bool { true }
++
++    func host(_ control: NSView) {
++        control.removeFromSuperview()
++        addSubview(control)
++        self.control = control
++        needsLayout = true
++    }
++
++    override func layout() {
++        super.layout()
++        guard let control else { return }
++        control.frame = NSRect(x: 0, y: Self.controlTop, width: max(60, bounds.width - 4), height: Self.controlHeight)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        let inset = OmniTheme.Sidebar.groupRuleInset
++        OmniTheme.titlebarSeparator.setFill()
++        NSRect(x: inset, y: Self.ruleY, width: max(0, bounds.width - inset * 2), height: 1).fill()
++    }
++}
++
 +// The rule under Dashboard and Inbox, in the title-bar separator's colour.
 +private final class OmniSidebarDividerCell: NSTableCellView {
 +    override func draw(_ dirtyRect: NSRect) {
@@ -33409,6 +33932,62 @@ index 0000000000000000000000000000000000000000..7add1f6d18139c03374b25ad9079ff0f
 +    func route(forTab tabID: Int32, environments: [[AnyHashable: Any]?]) -> OmniPaneRoute? {
 +        guard tabID != explicitTerminalTabID else { return nil }
 +        return OmniSidebarViewController.runRoute(forSessionEnvironments: environments)
++    }
++}
++
++// The window server's Spaces, through SkyLight. There is no public API for a
++// window's Space; each call is skipped when its symbol is missing.
++enum OmniWindowSpaces {
++    private typealias MainConnection = @convention(c) () -> Int32
++    private typealias CopySpacesForWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
++    private typealias CopyManagedDisplaySpaces = @convention(c) (Int32) -> Unmanaged<CFArray>?
++    private typealias MoveWindowsToManagedSpace = @convention(c) (Int32, CFArray, UInt64) -> Void
++
++    private static let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
++
++    private static func symbol<T>(_ name: String, as type: T.Type) -> T? {
++        guard let skyLight, let pointer = dlsym(skyLight, name) else { return nil }
++        return unsafeBitCast(pointer, to: type)
++    }
++
++    private static var connection: Int32? {
++        return symbol("SLSMainConnectionID", as: MainConnection.self)?()
++    }
++
++    // The window's Space, nil when it is on none (never shown since launch).
++    static func space(of window: NSWindow) -> UInt64? {
++        guard window.windowNumber > 0, let connection,
++              let copy = symbol("SLSCopySpacesForWindows", as: CopySpacesForWindows.self),
++              let spaces = copy(connection, 7, [NSNumber(value: window.windowNumber)] as CFArray)?
++                .takeRetainedValue() as? [NSNumber] else { return nil }
++        return spaces.first.map { $0.uint64Value }
++    }
++
++    // Every desktop Space on every display (full-screen Spaces left out).
++    static func userSpaces() -> Set<UInt64> {
++        guard let connection, let copy = symbol("SLSCopyManagedDisplaySpaces", as: CopyManagedDisplaySpaces.self),
++              let displays = copy(connection)?.takeRetainedValue() as? [[String: Any]] else { return [] }
++        var result = Set<UInt64>()
++        for display in displays {
++            for space in display["Spaces"] as? [[String: Any]] ?? [] where (space["type"] as? Int) == 0 {
++                if let id = (space["ManagedSpaceID"] as? NSNumber)?.uint64Value {
++                    result.insert(id)
++                }
++            }
++        }
++        return result
++    }
++
++    static func activeSpace() -> UInt64? {
++        typealias ActiveSpace = @convention(c) (Int32) -> UInt64
++        guard let connection, let active = symbol("SLSGetActiveSpace", as: ActiveSpace.self) else { return nil }
++        return active(connection)
++    }
++
++    static func move(_ window: NSWindow, to space: UInt64) {
++        guard window.windowNumber > 0, let connection,
++              let move = symbol("SLSMoveWindowsToManagedSpace", as: MoveWindowsToManagedSpace.self) else { return }
++        move(connection, [NSNumber(value: window.windowNumber)] as CFArray, space)
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniTerminalSnapshotView.swift b/sources/OmniTerm/OmniTerminalSnapshotView.swift
@@ -34052,6 +34631,302 @@ index 0000000000000000000000000000000000000000..cbff946a288544bc292c017672c5e8b9
 +        didResize?(bounds.size)
 +    }
 +}
+diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ba1b62bea674ef1508d5eb995ed68d00b87f5b6
+--- /dev/null
++++ b/sources/OmniTerm/OmniUnblockerPane.swift
+@@ -0,0 +1,290 @@
++import AppKit
++import Foundation
++
++// MARK: - Model
++
++// What the Unblocker page shows. Pure so tests can check it without a window.
++enum OmniUnblockerModel {
++    static func outcomeTitle(_ outcome: String) -> String {
++        switch outcome {
++        case "answered": return "Answered"
++        case "allowed": return "Allowed a dialog"
++        case "skipped": return "Left for you"
++        case "error": return "Failed"
++        case "granted_call": return "Pre-approved call ran"
++        case "retired": return "Set up"
++        case "policy": return "Policy edited"
++        default: return "No action"
++        }
++    }
++
++    // The project a session works in: the last folder of its path, skipping
++    // worktree folders such as `@head`.
++    static func project(_ cwd: String?) -> String {
++        guard let cwd, !cwd.isEmpty else { return "" }
++        let parts = cwd.split(separator: "/").map(String.init).filter { !$0.hasPrefix("@") }
++        return parts.last ?? cwd
++    }
++
++    static func title(for entry: [String: Any], now: Date) -> String {
++        let when = Date(timeIntervalSince1970: (entry["at"] as? NSNumber)?.doubleValue ?? 0)
++        let formatter = DateFormatter()
++        formatter.timeStyle = .short
++        formatter.dateStyle = Calendar.current.isDate(when, inSameDayAs: now) ? .none : .short
++        let outcome = outcomeTitle(entry["outcome"] as? String ?? "")
++        let project = project(entry["cwd"] as? String)
++        return [formatter.string(from: when), outcome, project].filter { !$0.isEmpty }.joined(separator: " · ")
++    }
++
++    static func detail(for entry: [String: Any]) -> String {
++        let detail = (entry["detail"] as? String ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
++        return detail.isEmpty ? (entry["goal"] as? String ?? "") : detail
++    }
++}
++
++// MARK: - Page
++
++// The Unblocker page (the `.unblocker` route). The unblocker is not an agent:
++// OmniTerm runs it in the background whenever a goal-driven session waits.
++// Here the person switches it on or off, picks its model, edits the policy it
++// follows and audits everything it did. Settings go through `set_settings`,
++// the policy and audit through the scheduler's knowledge operations.
++final class OmniUnblockerPane: OmniPane, NSTextFieldDelegate {
++    private let scroll = OmniColumnScrollView()
++    private let statusLabel = OmniTheme.meta()
++    private let policyEditor = OmniMarkdownEditor()
++    private var settings: [String: Any] = [:]
++    private var policy = ""
++    private var policyPath = ""
++    private var audit: [[String: Any]] = []
++    private var waiting: [[String: Any]] = []
++    private var policyLoaded = false
++    private(set) var zones: [(title: String, zone: OmniListZone)] = []
++    var now: () -> Date = Date.init
++
++    override var contentViews: [NSView] {
++        return [scroll]
++    }
++
++    override var focusZones: [OmniFocusZone] {
++        return zones.map(\.zone)
++    }
++
++    override init() {
++        super.init()
++        addSubview(scroll)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func layoutPane() {
++        super.layoutPane()
++        scroll.frame = bounds
++    }
++
++    override func reload() {
++        var responses: [String: [AnyHashable: Any]] = [:]
++        let group = DispatchGroup()
++        let requests: [(String, [String: Any])] = [
++            ("settings", ["op": "get_settings"]),
++            ("audit", ["op": "unblocker_audit", "limit": 100]),
++            ("policy", ["op": "get_unblocker_policy"]),
++            ("blocked", ["op": "list_blocked", "state": "open", "limit": 50]),
++        ]
++        for (name, request) in requests {
++            group.enter()
++            OmniSchedulerClient.request(request) { response in
++                responses[name] = response
++                group.leave()
++            }
++        }
++        group.notify(queue: .main) { [weak self] in
++            guard let self else { return }
++            guard let settingsResponse = responses["settings"], OmniPane.isOK(settingsResponse),
++                  let settings = settingsResponse["settings"] as? [String: Any] else {
++                self.showMessage(OmniPane.unreachableMessage(responses["settings"] ?? [:]))
++                return
++            }
++            self.settings = settings
++            self.audit = responses["audit"]?["entries"] as? [[String: Any]] ?? []
++            let blocks = responses["blocked"]?["blocks"] as? [[String: Any]] ?? []
++            self.waiting = blocks.filter { $0["answerable"] as? Bool == true }
++            if let policyResponse = responses["policy"], OmniPane.isOK(policyResponse) {
++                self.policy = policyResponse["policy"] as? String ?? ""
++                self.policyPath = policyResponse["path"] as? String ?? ""
++            }
++            self.rebuild()
++        }
++    }
++
++    private var config: [String: Any] {
++        return settings["unblocker"] as? [String: Any] ?? [:]
++    }
++
++    private func rebuild() {
++        preservingZoneFocus {
++            scroll.rebuildKeepingScroll {
++                build()
++            }
++        }
++        showContent()
++    }
++
++    private func setStatus(_ text: String, error: Bool) {
++        statusLabel.stringValue = text
++        statusLabel.textColor = error ? OmniTheme.failed : OmniTheme.secondaryText
++    }
++
++    // MARK: Building
++
++    private func build() {
++        let column = scroll.column
++        column.removeAll()
++        let previous = zones
++        zones = []
++        column.addText(OmniTheme.title("Unblocker"), spacing: 4)
++        let intro = OmniPaneText.label(
++            "Keeps your goal-driven Claude and Codex sessions moving while you are away. When a session working " +
++            "on a /goal, a loop or a goal command waits 45 seconds, OmniTerm answers it for you within the policy " +
++            "below, allows its dialogs or pre-approves a command auto mode refused. It never acts on a session " +
++            "without a goal, and leaves anything the policy keeps for you.",
++            size: 12.5, color: OmniTheme.secondaryText)
++        column.add(intro, spacing: 6) { [weak intro] width in
++            intro?.sizeThatFits(NSSize(width: width, height: 400)).height ?? 40
++        }
++        if statusLabel.stringValue.isEmpty {
++            setStatus("Changes apply immediately.", error: false)
++        }
++        column.addText(statusLabel, spacing: 10)
++
++        let enabled = toggle(config["enabled"] as? Bool ?? true)
++        let model = NSTextField(string: config["model"] as? String ?? "")
++        model.placeholderString = "Claude’s default"
++        model.font = OmniTheme.Font.rowTitle
++        model.delegate = self
++        model.identifier = NSUserInterfaceItemIdentifier("unblocker-model")
++        let waitingText = waiting.isEmpty ? "None right now" : "\(waiting.count) waiting"
++        let waitingLabel = OmniTheme.meta(waitingText)
++        section("Listener", previous: previous, rows: [
++            ("enabled", OmniSettingRow(title: "Unblock goal sessions",
++                                       detail: "Runs in the background; no agent, run or tab.", control: enabled)),
++            ("model", OmniSettingRow(title: "Model", detail: "The Claude model each decision uses.",
++                                     control: model, controlWidth: 200)),
++            ("waiting", OmniSettingRow(title: "Sessions it can answer", detail: "Goal sessions waiting now.",
++                                       control: waitingLabel, controlWidth: 140)),
++        ])
++
++        column.addSection("Policy")
++        let policyHint = OmniTheme.meta("Your standing rules: which projects are live products and what waits for you. " +
++                                        (policyPath.isEmpty ? "" : "Stored in \(policyPath)."))
++        column.addText(policyHint, spacing: 4)
++        if !policyLoaded || policyEditor.text.isEmpty {
++            policyEditor.text = policy
++            policyLoaded = true
++        }
++        column.add(policyEditor, spacing: 6) { _ in 260 }
++        let save = OmniTheme.button("Save policy", target: self, action: #selector(savePolicy))
++        let revert = OmniTheme.button("Revert", target: self, action: #selector(revertPolicy))
++        section("Policy actions", previous: previous, rows: [
++            ("save-policy", OmniSettingRow(title: "Save the policy", detail: "Used from the next decision on.",
++                                           control: save, controlWidth: 110)),
++            ("revert-policy", OmniSettingRow(title: "Discard edits", detail: "Back to the saved policy.",
++                                             control: revert, controlWidth: 110)),
++        ], header: false)
++
++        let reference = now()
++        let rows: [(key: String, row: OmniSettingRow)] = audit.enumerated().map { index, entry in
++            let cost = (entry["cost_usd"] as? NSNumber).map { String(format: "$%.3f", $0.doubleValue) } ?? ""
++            let row = OmniSettingRow(title: OmniUnblockerModel.title(for: entry, now: reference),
++                                     detail: OmniUnblockerModel.detail(for: entry),
++                                     control: OmniTheme.meta(cost), controlWidth: 70)
++            row.toolTip = OmniUnblockerModel.detail(for: entry)
++            return (key: "audit-\(index)", row: row)
++        }
++        if rows.isEmpty {
++            column.addSection("Audit")
++            column.addText(OmniTheme.meta("Nothing yet. Every decision, and every failure, is listed here for 14 days."),
++                           spacing: 8)
++        } else {
++            section("Audit", previous: previous, rows: rows)
++        }
++    }
++
++    private func section(_ title: String, previous: [(title: String, zone: OmniListZone)],
++                         rows: [(key: String, row: OmniSettingRow)], header: Bool = true) {
++        let column = scroll.column
++        if header {
++            column.addSection(title)
++        }
++        let zone = previous.first { $0.title == title }?.zone ?? OmniListZone()
++        let list = OmniColumnView()
++        list.inset = 0
++        list.topPadding = 0
++        list.bottomPadding = 0
++        list.overlay = zone
++        for (_, row) in rows {
++            list.add(row, spacing: 2) { _ in OmniSettingRow.height }
++        }
++        zone.setItems(rows.map { (key: $0.key, view: $0.row as OmniZoneItem) })
++        column.add(list, spacing: 8) { [weak list] width in
++            list?.layoutColumn(width: width) ?? 0
++        }
++        zones.append((title: title, zone: zone))
++    }
++
++    private func toggle(_ on: Bool) -> NSSwitch {
++        let toggle = NSSwitch()
++        toggle.state = on ? .on : .off
++        toggle.target = self
++        toggle.action = #selector(enabledChanged(_:))
++        return toggle
++    }
++
++    // MARK: Saving
++
++    private func save(_ change: [String: Any]) {
++        OmniSchedulerClient.request(["op": "set_settings", "settings": ["unblocker": change]]) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response), let settings = response["settings"] as? [String: Any] {
++                self.settings = settings
++                self.setStatus("Saved. Changes apply immediately.", error: false)
++            } else {
++                self.setStatus(response["error"] as? String ?? "Could not save the setting.", error: true)
++            }
++            self.rebuild()
++        }
++    }
++
++    @objc private func enabledChanged(_ sender: NSSwitch) {
++        save(["enabled": sender.state == .on])
++    }
++
++    func controlTextDidEndEditing(_ notification: Notification) {
++        guard let field = notification.object as? NSTextField,
++              field.identifier?.rawValue == "unblocker-model" else { return }
++        let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        if value != (config["model"] as? String ?? "") {
++            save(["model": value])
++        }
++    }
++
++    @objc private func savePolicy() {
++        OmniSchedulerClient.request(["op": "set_unblocker_policy", "policy": policyEditor.text]) { [weak self] response in
++            guard let self else { return }
++            if OmniPane.isOK(response) {
++                self.policy = response["policy"] as? String ?? self.policyEditor.text
++                self.setStatus("Policy saved. The previous version is kept beside it as policy.md.previous.", error: false)
++                self.reload()
++            } else {
++                self.setStatus(response["error"] as? String ?? "Could not save the policy.", error: true)
++            }
++        }
++    }
++
++    @objc private func revertPolicy() {
++        policyEditor.text = policy
++        setStatus("Edits discarded.", error: false)
++    }
++}
 diff --git a/sources/PTYSession/PTYSession.h b/sources/PTYSession/PTYSession.h
 index ce73d2698257237277903ae664d5720458239e89..b82b761848dae839259e7d5878244e0d6194365a 100644
 --- a/sources/PTYSession/PTYSession.h
@@ -34143,11 +35018,44 @@ index 5c8f59d81c6663c53e2f482b1d2e4ff944b8a606..998be0b20d1a34b6d2f0f2544c22ecf8
      switch (windowType) {
          case WINDOW_TYPE_COMPACT:
          case WINDOW_TYPE_NORMAL:
+diff --git a/sources/TerminalView/PseudoTerminal+WindowStyle.m b/sources/TerminalView/PseudoTerminal+WindowStyle.m
+index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d1de7aeed 100644
+--- a/sources/TerminalView/PseudoTerminal+WindowStyle.m
++++ b/sources/TerminalView/PseudoTerminal+WindowStyle.m
+@@ -538,6 +538,9 @@ iTermWindowType iTermWindowTypeNormalized(iTermWindowType windowType) {
+     // leaves no key window, so the replacement must take over as key or typing goes nowhere and
+     // menu items that act on the current window (including Window Style itself) are disabled.
+     const BOOL wasKey = self.window.isKeyWindow;
++    // The replacement takes the old window's place on screen, and only if the
++    // old one was there: a hidden OmniTerm window stays hidden.
++    const BOOL wasPresent = [OmniDockPresence windowIsPresent:self.window];
+     // The content view moves to the new window, so a view inside it that had focus (the find bar,
+     // the composer, a tool) can keep it.
+     NSView *previousFocus = [self focusedViewInContentView];
+@@ -551,9 +554,15 @@ iTermWindowType iTermWindowTypeNormalized(iTermWindowType windowType) {
+     }
+     const BOOL changed = [self replaceWindowWithWindowOfType:windowType];
+     [self.window setFrame:frame display:YES];
+-    if (changed && wasKey) {
+-        DLog(@"Make the replacement window key");
+-        [self.window makeKeyAndOrderFront:nil];
++    if (wasPresent) {
++        [OmniDockPresence performExplicitShow:^{
++            if (changed && wasKey) {
++                DLog(@"Make the replacement window key");
++                [self.window makeKeyAndOrderFront:nil];
++            } else {
++                [self.window orderFront:nil];
++            }
++        }];
+     } else {
+         [self.window orderFront:nil];
+     }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..676e069b3cf185cb9a04595c5ace16f3ae61cde7 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..618eb015b0c1ec6ce5d15714d338a0da00a631ca 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,32 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,45 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -34169,8 +35077,21 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..676e069b3cf185cb9a04595c5ace16f3
 +// The window's OmniSidebarViewController, for tests.
 +- (id)omniSidebarForTesting;
 +- (void)omniShowSettings;
++- (void)omniShowUnblocker;
 +// Saves the frame of the window if it is on screen (for quitting).
 +- (void)omniSaveWindowFrame;
++// Pinned, the window keeps its frame: no moving or resizing, and showing it
++// brings it back there on its own Space.
++@property (nonatomic, readonly) BOOL omniWindowPinned;
++- (void)omniSetWindowPinned:(BOOL)pinned;
++// The person putting the window away (Command-W, Escape Escape, the hotkey,
++// the close button). Pinned, the app hides instead, so the window keeps its
++// Space; ordering it out would bring it back on whatever Space is active.
++- (void)omniHideWindow;
++// Pinned: remember the window's Space, and before showing put it back there
++// when a relaunch left it on none.
++- (void)omniNoteWindowSpace;
++- (void)omniMoveWindowToPinnedSpace;
 +@property(nonatomic, readonly) CGFloat omniContentTopInset;
 +
 +// OmniTerm: Control-Command-S focuses the sidebar, and while it has focus its
@@ -34181,7 +35102,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..676e069b3cf185cb9a04595c5ace16f3
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af709c4cf004 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..fdb65867d6283932e8ee53508e12606887817adf 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -34258,7 +35179,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
 +        return [session.environment[@"OMNITERM_KIND"] isEqual:@"dashboard"];
 +    }];
 +    if (isDashboard || [_contentView.tabView numberOfTabViewItems] <= 1) {
-+        [self.window orderOut:nil];
++        [self omniHideWindow];
 +        return;
 +    }
      [self closeTabIfConfirmed:tab];
@@ -34275,7 +35196,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
 +                               [[[self tabForSession:aSession] sessions] count] <= 1;
 +        if (isDashboard || isLastTab) {
 +            RLog(@"OmniTerm hiding the window instead of closing %@", isDashboard ? @"the dashboard" : @"the last tab");
-+            [self.window orderOut:nil];
++            [self omniHideWindow];
 +            return;
 +        }
          [self closeSessionWithConfirmation:aSession];
@@ -34338,12 +35259,12 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
 -
 -    RLog(@"Return %@", @(shouldClose));
 -    return shouldClose;
-+    [self.window orderOut:nil];
++    [self omniHideWindow];
 +    return NO;
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,92 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,121 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -34376,6 +35297,31 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
 +    [_omniSidebar saveWindowFrame];
 +}
 +
++- (BOOL)omniWindowPinned {
++    return _omniSidebar.windowPinned;
++}
++
++- (void)omniSetWindowPinned:(BOOL)pinned {
++    [_omniSidebar setWindowPinned:pinned];
++}
++
++- (void)omniNoteWindowSpace {
++    [_omniSidebar noteWindowSpace];
++}
++
++- (void)omniMoveWindowToPinnedSpace {
++    [_omniSidebar moveWindowToPinnedSpace];
++}
++
++- (void)omniHideWindow {
++    if (self.omniWindowPinned && self.window.isVisible) {
++        [self omniNoteWindowSpace];
++        [(iTermApplicationDelegate *)[NSApp delegate] hideAllOmniTermWindows];
++        return;
++    }
++    [self.window orderOut:nil];
++}
++
 +- (void)omniShowMemoryTab:(NSString *)tab mindMap:(BOOL)mindMap query:(NSString *)query node:(NSString *)node openNode:(BOOL)openNode {
 +    [_omniSidebar showMemoryTab:tab mindMap:mindMap query:query node:node openNode:openNode];
 +}
@@ -34394,6 +35340,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
 +
 +- (void)omniShowSettings {
 +    [_omniSidebar showSettings];
++}
++
++- (void)omniShowUnblocker {
++    [_omniSidebar showUnblocker];
 +}
 +
 +- (BOOL)omniRestoreWindowFrameOnScreen:(NSScreen *)screen centered:(BOOL)centered {
@@ -34437,7 +35387,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7070,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7099,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -34447,7 +35397,19 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7473,6 +7591,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7415,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+ }
+ 
+ - (void)windowWillShowInitial {
++    // OmniTerm: the window has the place and size the person gave it;
++    // iTerm2's window placement preference must not move or resize it.
++    if (_omniSidebar.hasStoredWindowFrame) {
++        return;
++    }
+     [_windowPositioner windowWillShowInitial];
+ }
+ 
+@@ -7473,6 +7625,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -34455,7 +35417,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7707,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7741,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -34467,7 +35429,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8329,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8363,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -34475,7 +35437,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8338,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8372,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -34488,7 +35450,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8490,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8524,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -34497,7 +35459,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8829,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8863,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -34514,7 +35476,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8867,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8901,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -34523,7 +35485,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9118,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9152,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -34532,7 +35494,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12432,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12466,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -34548,7 +35510,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13392,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13426,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -34564,7 +35526,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..44c9f1c716408d1ab8e19cf8d1b2af70
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +13969,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14003,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
@@ -34851,6 +35813,80 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
  
      DLog(@"repositionWidgets - redraw view");
      // Note: this used to call setNeedsDisplay on each session in the current tab.
+diff --git a/sources/TerminalView/iTermWindowImpl.m b/sources/TerminalView/iTermWindowImpl.m
+index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec25c07af6 100644
+--- a/sources/TerminalView/iTermWindowImpl.m
++++ b/sources/TerminalView/iTermWindowImpl.m
+@@ -370,8 +370,20 @@ ITERM_WEAKLY_REFERENCEABLE
+     _layoutDone = YES;
+ }
+ 
++// OmniTerm stays in the menu bar until it is asked for: a hidden window comes
++// on screen only through an explicit open (see OmniDockPresence).
++- (BOOL)omniMayOrderIn:(SEL)selector {
++    if ([OmniDockPresence mayOrderInWindowPresent:[OmniDockPresence windowIsPresent:self]]) {
++        return YES;
++    }
++    RLog(@"OmniTerm keeps hidden window %p off screen (%@)", self, NSStringFromSelector(selector));
++    DLog(@"%@", [NSThread callStackSymbols]);
++    return NO;
++}
++
+ - (void)makeKeyAndOrderFront:(nullable id)sender {
+     DLog(@"%@ makeKeyAndOrderFront: layoutDone=%@ %@", self, @(_layoutDone), [NSThread callStackSymbols]);
++    const BOOL mayOrderIn = [self omniMayOrderIn:_cmd];
+     if (!_layoutDone) {
+         RLog(@"try to call windowWillShowInitial");
+         [self setLayoutDone];
+@@ -384,6 +396,9 @@ ITERM_WEAKLY_REFERENCEABLE
+     DLog(@"%@ - calling makeKeyAndOrderFont, which triggers a window resize", NSStringFromClass([self class]));
+     DLog(@"The current window frame is %fx%f", [self frame].size.width, [self frame].size.height);
+     DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
++    if (!mayOrderIn) {
++        return;
++    }
+     [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
+     self.it_becomingKey = YES;
+     [super makeKeyAndOrderFront:sender];
+@@ -400,12 +415,18 @@ ITERM_WEAKLY_REFERENCEABLE
+ }
+ 
+ - (void)orderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWin {
++    if (place != NSWindowOut && ![self omniMayOrderIn:_cmd]) {
++        return;
++    }
+     DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
+     [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
+     [super orderWindow:place relativeTo:otherWin];
+ }
+ 
+ - (void)orderFrontRegardless {
++    if (![self omniMayOrderIn:_cmd]) {
++        return;
++    }
+     DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
+     DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
+     [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
+@@ -413,6 +434,9 @@ ITERM_WEAKLY_REFERENCEABLE
+ }
+ 
+ - (void)orderFront:(nullable id)sender {
++    if (![self omniMayOrderIn:_cmd]) {
++        return;
++    }
+     DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
+     DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
+     [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
+@@ -420,6 +444,9 @@ ITERM_WEAKLY_REFERENCEABLE
+ }
+ 
+ - (void)orderBack:(nullable id)sender {
++    if (![self omniMayOrderIn:_cmd]) {
++        return;
++    }
+     DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
+     DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
+     [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
 diff --git a/sources/iTermController/iTermController.m b/sources/iTermController/iTermController.m
 index fcee462da8768f15d6e759a234a355cd273d6c99..7016f968d48abf4fa30dd859fb18384c437f5427 100644
 --- a/sources/iTermController/iTermController.m

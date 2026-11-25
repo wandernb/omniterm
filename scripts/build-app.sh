@@ -116,6 +116,10 @@ install -m 0644 "$project_dir/helpers/omni_knowledge_schema.sql" "$app_dir/Conte
 install -m 0644 "$project_dir/assets/OmniTerm.icns" "$app_dir/Contents/Resources/OmniTerm.icns"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile OmniTerm.icns' "$app_dir/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Delete :CFBundleIconName' "$app_dir/Contents/Info.plist" 2>/dev/null || true
+# A menu-bar app from the first instant: launching never flashes a Dock icon
+# or takes focus. OmniDockPresence makes it regular while a window is up.
+/usr/libexec/PlistBuddy -c 'Delete :LSUIElement' "$app_dir/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "$app_dir/Contents/Info.plist"
 # The Inbox widget is a WidgetKit extension compiled here, like the helpers,
 # rather than an Xcode target in the fork.
 widget_dir="$app_dir/Contents/PlugIns/OmniInboxWidget.appex"

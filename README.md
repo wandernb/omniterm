@@ -419,7 +419,10 @@ New Claude Code and Codex sessions then discover the server as `omni`. See
 - The tab bar is always visible and the `Omni` dashboard remains first.
 - New-window requests become tabs; panes and tabs remain unrestricted.
 - A single Escape is delivered to the TTY; two Escapes quickly hide by default.
-- The window opens centered on the current screen and Space by default.
+- The window always reopens at the place and size you left it. Pin it (the pin
+  beside the sidebar's mode switch, or **Pin Window** in the menu bar) to keep it
+  on its own Space: opening it then switches to that Space and brings it to the
+  front. A pinned window can still be moved and resized.
 - Peach `#f7b185` chrome distinguishes it from ordinary iTerm2 windows.
 - OmniTerm-specific settings are available from the menu bar; inherited iTerm2
   settings and Sparkle auto-update are unavailable.
