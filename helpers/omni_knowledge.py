@@ -3639,7 +3639,7 @@ class KnowledgeStore:
         now = time.time()
         record = {"at": now, "outcome": entry.get("outcome")}
         for key, limit in (("session_id", 210), ("block_id", 36), ("cwd", 1024), ("detail", 2000),
-                           ("kind", 20), ("goal", 400), ("model", 100)):
+                           ("kind", 20), ("goal", 400), ("model", 100), ("tier", 20), ("screen", 300)):
             if isinstance(entry.get(key), str) and entry[key]:
                 record[key] = entry[key][:limit]
         for key in ("seconds", "cost_usd"):

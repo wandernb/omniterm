@@ -687,10 +687,10 @@ index 0000000000000000000000000000000000000000..4a612dc5d42a720ee4b4c6d3be50e191
 +}
 diff --git a/ModernTests/OmniInboxViewControllerTests.swift b/ModernTests/OmniInboxViewControllerTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..2103058d514687e64675bc231b009fc0a79feac4
+index 0000000000000000000000000000000000000000..9d91ccb99515932af9a5e1f3d24cc4e2e7e80979
 --- /dev/null
 +++ b/ModernTests/OmniInboxViewControllerTests.swift
-@@ -0,0 +1,475 @@
+@@ -0,0 +1,504 @@
 +//
 +//  OmniInboxViewControllerTests.swift
 +//  ModernTests
@@ -783,6 +783,35 @@ index 0000000000000000000000000000000000000000..2103058d514687e64675bc231b009fc0
 +            $0.stringValue == "Second" && $0.font == OmniTheme.Font.title && !$0.isHiddenOrHasHiddenAncestor
 +        }, "its detail shows the title")
 +        wait("the agents load") { self.requests.contains { $0["op"] as? String == "list_agents" } }
++    }
++
++    // On a narrow window the toolbar's controls never overlap.
++    func testToolbarControlsDoNotOverlapWhenNarrow() throws {
++        for width in [560.0, 680.0, 820.0, 1200.0] {
++            let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 500))
++            let inbox = OmniInboxViewController()
++            inbox.view.frame = host.bounds
++            host.addSubview(inbox.view)
++            inbox.view.resizeSubviews(withOldSize: .zero)
++            let barHeight = OmniTheme.Metrics.barHeight
++            let toolbar: [NSControl] = Self.findAll(in: inbox.view).compactMap { view in
++                guard let control = view as? NSControl, !control.isHiddenOrHasHiddenAncestor,
++                      control.frame.width > 0, let bar = control.superview,
++                      bar.frame.minY == 0, bar.frame.height == barHeight else { return nil }
++                return control
++            }
++            XCTAssertGreaterThanOrEqual(toolbar.count, 2)
++            for (index, first) in toolbar.enumerated() {
++                for second in toolbar.dropFirst(index + 1) {
++                    XCTAssertFalse(first.frame.intersects(second.frame), "\(first) overlaps \(second) at \(width)")
++                }
++                XCTAssertLessThanOrEqual(first.frame.maxX, width, "\(first) runs off at \(width)")
++            }
++        }
++    }
++
++    private static func findAll(in view: NSView) -> [NSView] {
++        return view.subviews + view.subviews.flatMap { findAll(in: $0) }
 +    }
 +
 +    // The button says what it will do, and does it.
@@ -1231,10 +1260,10 @@ index 0000000000000000000000000000000000000000..fb71a73b9f6213ad205d417f3f2d94eb
 +}
 diff --git a/ModernTests/OmniMarkdownEditorTests.swift b/ModernTests/OmniMarkdownEditorTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7f51b556cb664a190156060b07d91121db0a6acf
+index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5e225d906
 --- /dev/null
 +++ b/ModernTests/OmniMarkdownEditorTests.swift
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,320 @@
 +//
 +//  OmniMarkdownEditorTests.swift
 +//  ModernTests
@@ -1496,6 +1525,63 @@ index 0000000000000000000000000000000000000000..7f51b556cb664a190156060b07d91121
 +        short.collapsedHeight = 80
 +        XCTAssertFalse(short.isCollapsible(width: 300))
 +        XCTAssertEqual(short.height(forWidth: 300), shortHeight)
++    }
++
++    // MARK: - Rendered view
++
++    func testFrontMatterIsReadAsProperties() {
++        let text = "---\ntitle: \"Plan\"\ntags: [a, b]\naliases:\n  - one\n  - two\n---\n# Body"
++        let front = OmniMarkdownFrontMatter.parse(text)
++        XCTAssertEqual(front?.entries, [.init(key: "title", value: "Plan"), .init(key: "tags", value: "a, b"),
++                                        .init(key: "aliases", value: "one, two")])
++        XCTAssertEqual(front?.body, "# Body")
++        XCTAssertNil(OmniMarkdownFrontMatter.parse("Text\n---\nMore"), "A rule later on is not front matter")
++        XCTAssertNil(OmniMarkdownFrontMatter.parse("---\nnever closed"))
++
++        let view = OmniMarkdownView(text: text)
++        view.drawsCard = false
++        view.rendersMarkdown = true
++        XCTAssertEqual(view.text, text, "The view keeps the Markdown it was given")
++        XCTAssertEqual(view.textView.string, "Body", "Front matter starts collapsed and syntax is hidden")
++        XCTAssertFalse(view.propertiesButton.isHidden)
++        let collapsed = view.height(forWidth: 300)
++        view.toggleProperties(nil)
++        XCTAssertTrue(view.textView.string.contains("title\tPlan"))
++        XCTAssertGreaterThan(view.height(forWidth: 300), collapsed)
++    }
++
++    func testRenderedTablesListsAndCode() {
++        let rendered = OmniMarkdownRenderer.render("| A | B |\n|---|--:|\n| **x** | `y` |\n\n- [x] done\n1. one\n\n```sh\nls\n```")
++        let string = rendered.string
++        XCTAssertFalse(string.contains("|") || string.contains("**") || string.contains("`") || string.contains("[x]"))
++        var cells = 0
++        rendered.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: rendered.length)) { value, _, _ in
++            if (value as? NSParagraphStyle)?.textBlocks.first is NSTextTableBlock {
++                cells += 1
++            }
++        }
++        XCTAssertGreaterThan(cells, 0)
++        let header = rendered.attribute(.font, at: (string as NSString).range(of: "A").location, effectiveRange: nil) as? NSFont
++        XCTAssertTrue(header?.fontDescriptor.symbolicTraits.contains(.bold) ?? false, "Header cells are bold")
++        XCTAssertTrue(string.contains("☑\tdone"))
++        XCTAssertTrue(string.contains("1.\tone"))
++        let code = rendered.attribute(.font, at: (string as NSString).range(of: "ls").location, effectiveRange: nil) as? NSFont
++        XCTAssertTrue(code?.isFixedPitch ?? false)
++        XCTAssertEqual(OmniMarkdownRenderer.codeBlock("a ``` b"), "````\na ``` b\n````")
++    }
++
++    // Badges, images and raw HTML read as GitHub shows them; code keeps its tags.
++    func testRenderedImagesAndHTMLShowTheirText() {
++        let markdown = "[![Tests](https://x/badge.svg)](https://x/actions) ![Shot](a.png)\n"
++            + "<p align=\"center\">\n<a href=\"https://x\"><strong>Download</strong></a><br>\n</p>\n\n```html\n<b>kept</b>\n```"
++        let text = OmniMarkdownRenderer.render(markdown).string
++        XCTAssertTrue(text.contains("Tests"))
++        XCTAssertTrue(text.contains("Shot"))
++        XCTAssertTrue(text.contains("Download"))
++        XCTAssertFalse(text.contains("!["))
++        XCTAssertFalse(text.contains("<a"))
++        XCTAssertFalse(text.contains("<p"))
++        XCTAssertTrue(text.contains("<b>kept</b>"))
 +    }
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
@@ -6756,10 +6842,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0cf757b5876e43ce7086def3807eda001dcfeb48
+index 0000000000000000000000000000000000000000..75c8a49d76ce49627337df38e9e251f31e6bc94b
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1959 @@
+@@ -0,0 +1,1993 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8231,7 +8317,8 @@ index 0000000000000000000000000000000000000000..0cf757b5876e43ce7086def3807eda00
 +    // Each test starts in Agents mode with no Sessions filters.
 +    private static func clearSessionsPreferences() {
 +        for key in ["OmniSidebarMode", "OmniSessionsProvider", "OmniSessionsGroupByProject", "OmniSessionsHideAgentRuns",
-+                    "OmniSidebarCollapsedProjectFolders", "OmniSessionsView", "OmniAgentsView", "OmniSidebarCollapsedViewGroups"] {
++                    "OmniSidebarCollapsedProjectFolders", "OmniSessionsView", "OmniAgentsView", "OmniSidebarCollapsedViewGroups",
++                    "OmniPinnedSessions"] {
 +            CFPreferencesSetAppValue(key as CFString, nil, scratchDomain)
 +        }
 +        CFPreferencesAppSynchronize(scratchDomain)
@@ -8288,6 +8375,37 @@ index 0000000000000000000000000000000000000000..0cf757b5876e43ce7086def3807eda00
 +        XCTAssertEqual(saved?["groups"] as? [String], ["Work", "New Folder"])
 +    }
 +
++    // Pinned sessions sit above Live; live sessions follow the chosen view;
++    // a double-click renames a session in place.
++    func testPinnedSessionsLiveFoldersAndRenamingInPlace() throws {
++        CFPreferencesSetAppValue("OmniSessionsView" as CFString, "folders" as CFString, Self.scratchDomain)
++        CFPreferencesSetAppValue("OmniPinnedSessions" as CFString, ["claude:s2"] as CFArray, Self.scratchDomain)
++        fake.handlers["get_settings"] = { _ in
++            ["ok": true, "settings": ["session_folders": ["groups": ["Work"], "folders": ["claude:s3": "Work"]]]]
++        }
++        fake.handlers["rename_session"] = { _ in ["ok": true] }
++        showSessions([session("claude:s1", title: "Loose one"), session("claude:s2", title: "Pinned one"),
++                      session("claude:s3", title: "Live filed", live: true)])
++        func isUnder(_ child: String, _ parent: String) -> Bool {
++            guard let childRow = row(titled: child), let parentRow = row(titled: parent) else { return false }
++            return (outlineView.parent(forItem: outlineView.item(atRow: childRow)) as AnyObject?) === (outlineView.item(atRow: parentRow) as AnyObject?)
++        }
++        wait("the pinned and live sessions are placed") {
++            isUnder("Pinned one", "Pinned") && isUnder("Live filed", "Work")
++        }
++        XCTAssertEqual(sidebar.viewMenu.items.first { $0.state == .on }?.title, "My Folders")
++        let loose = try XCTUnwrap(row(titled: "Loose one"))
++        sidebar.handleDoubleClick(row: loose, at: nil)
++        wait("the session title becomes editable") { editor(loose) != nil }
++        let textView = try XCTUnwrap(editor(loose))
++        textView.string = "Renamed one"
++        textView.insertNewline(nil)
++        wait("the rename is sent") { !fake.requests("rename_session").isEmpty }
++        let request = try XCTUnwrap(fake.requests("rename_session").first)
++        XCTAssertEqual(request["session_id"] as? String, "claude:s1")
++        XCTAssertEqual(request["title"] as? String, "Renamed one")
++    }
++
 +    // Agents by project: under their workspace's project, the rest under Other.
 +    func testAgentsByProjectSitUnderTheirProject() throws {
 +        CFPreferencesSetAppValue("OmniAgentsView" as CFString, "projects" as CFString, Self.scratchDomain)
@@ -8308,14 +8426,16 @@ index 0000000000000000000000000000000000000000..0cf757b5876e43ce7086def3807eda00
 +        XCTAssertTrue((outlineView.parent(forItem: outlineView.item(atRow: beta)) as AnyObject?) === (outlineView.item(atRow: other) as AnyObject?))
 +    }
 +
-+    func testSessionsListLiveFirstFiltersAndOpensATranscriptMatchAtItsMessage() throws {
++    func testSessionsListLiveLeadsItsGroupFiltersAndOpensATranscriptMatchAtItsMessage() throws {
 +        showSessions([session("claude:a1", title: "Deploy the API", live: true),
 +                      session("codex:b2", title: "Fix flaky spec", workspace: "/tmp/ws-b"),
 +                      session("claude:c3", title: "Write docs")])
 +        let live = try XCTUnwrap(row(titled: "Deploy the API"))
-+        // Grouped by project by default; without forge, by folder.
++        // Grouped by project by default; without forge, by folder. Grouped,
++        // a live session sits first in its group, not in a Live section.
 +        let folder = try XCTUnwrap(row(titled: "ws-a"))
-+        XCTAssertLessThan(live, folder, "Live sessions lead")
++        XCTAssertEqual(live, folder + 1, "A live session leads its group")
++        XCTAssertNil(row(titled: "Live"))
 +        XCTAssertNil(row(titled: "Recent"))
 +        XCTAssertNotNil(row(titled: "Fix flaky spec"))
 +        XCTAssertEqual(cell(try XCTUnwrap(row(titled: "Fix flaky spec")))?.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
@@ -10307,7 +10427,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a56253fa85 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca4311e0f61e 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11363,7 +11483,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,101 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,107 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -11417,7 +11537,13 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
 +            [self openOmniTerm:nil];
 +            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
 +            NSString *root = [url.host isEqualToString:@"project"] && url.path.length > 1 ? url.path : nil;
-+            [terminal omniShowProjects:root];
++            NSString *file = nil;
++            for (NSURLQueryItem *item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
++                if ([item.name isEqualToString:@"file"] && item.value.length <= 1024) {
++                    file = item.value;
++                }
++            }
++            [terminal omniShowProjects:root file:file];
 +        } else if ([url.host isEqualToString:@"memory"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -11465,7 +11591,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3515,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3521,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11488,7 +11614,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3661,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3667,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11497,7 +11623,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4125,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4131,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11513,7 +11639,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4891,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4897,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11534,7 +11660,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..39ad13c016f7937dbe0a99385c91a5a5
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5137,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5143,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -15706,10 +15832,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4565041a7bc13738fdc0d6d1db1a81c0f22be796
+index 0000000000000000000000000000000000000000..08cd86f9eb49b931ae2d331c228ca140a5afde59
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1184 @@
+@@ -0,0 +1,1198 @@
 +import AppKit
 +import Foundation
 +
@@ -16325,15 +16451,29 @@ index 0000000000000000000000000000000000000000..4565041a7bc13738fdc0d6d1db1a81c0
 +        let inset: CGFloat = 16
 +        severityControl.sizeToFit()
 +        severityControl.frame.origin = NSPoint(x: inset, y: (barHeight - severityControl.frame.height) / 2)
-+        agentPopUp.frame = NSRect(x: severityControl.frame.maxX + 12, y: (barHeight - 26) / 2, width: 180, height: 26)
-+        unreadOnlyButton.sizeToFit()
-+        kindPopUp.frame = NSRect(x: agentPopUp.frame.maxX + 8, y: (barHeight - 26) / 2, width: 190, height: 26)
-+        unreadOnlyButton.frame.origin = NSPoint(x: kindPopUp.frame.maxX + 14,
-+                                                y: (barHeight - unreadOnlyButton.frame.height) / 2)
 +        markAllButton.sizeToFit()
 +        let markAllWidth = markAllButton.frame.width + 8
 +        markAllButton.frame = NSRect(x: size.width - markAllWidth - inset, y: (barHeight - OmniTheme.Metrics.buttonHeight) / 2,
 +                                     width: markAllWidth, height: OmniTheme.Metrics.buttonHeight)
++        // Narrow windows: the pop-ups shrink, then Unread only goes, then
++        // the kind filter, so nothing runs under Mark All as Read.
++        unreadOnlyButton.sizeToFit()
++        let start = severityControl.frame.maxX + 12
++        let room = markAllButton.frame.minX - 12 - start
++        let unreadWidth = unreadOnlyButton.frame.width + 14
++        let minimumPopUp: CGFloat = 110
++        let showsUnread = room >= 2 * minimumPopUp + 8 + unreadWidth
++        let showsKind = room >= 2 * minimumPopUp + 8
++        let popUpRoom = room - (showsUnread ? unreadWidth : 0)
++        let agentWidth = showsKind ? min(180, (popUpRoom - 8) / 2) : min(180, max(0, popUpRoom))
++        agentPopUp.isHidden = agentWidth < 60
++        agentPopUp.frame = NSRect(x: start, y: (barHeight - 26) / 2, width: max(0, agentWidth), height: 26)
++        kindPopUp.isHidden = !showsKind
++        kindPopUp.frame = NSRect(x: agentPopUp.frame.maxX + 8, y: (barHeight - 26) / 2,
++                                 width: showsKind ? min(190, popUpRoom - 8 - agentWidth) : 0, height: 26)
++        unreadOnlyButton.isHidden = !showsUnread
++        unreadOnlyButton.frame.origin = NSPoint(x: kindPopUp.frame.maxX + 14,
++                                                y: (barHeight - unreadOnlyButton.frame.height) / 2)
 +        if split.subviews.count == 2 && listPane.frame.width < 1 {
 +            split.setPosition(Self.listWidth, ofDividerAt: 0)
 +        }
@@ -17138,10 +17278,10 @@ index 0000000000000000000000000000000000000000..1d6c0eeb0f46cb007052ec260f5f3ff7
 +}
 diff --git a/sources/OmniTerm/OmniMarkdownEditor.swift b/sources/OmniTerm/OmniMarkdownEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92f02d4599
+index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e64d473dc
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMarkdownEditor.swift
-@@ -0,0 +1,982 @@
+@@ -0,0 +1,1943 @@
 +import AppKit
 +import Foundation
 +
@@ -17152,6 +17292,7 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +    case heading(Int)
 +    case bold
 +    case italic
++    case strikethrough
 +    case code
 +    // A fenced block's lines, its fences included.
 +    case codeBlock
@@ -17333,6 +17474,21 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +                index = NSMaxRange(link.target) + 1
 +                continue
 +            }
++            if character == tilde {
++                let count = run(string, of: tilde, at: index, end: end)
++                if count == 2, index + 2 < end, string.character(at: index + 2) != space,
++                   let close = closingTildes(string, from: index + 3, end: end) {
++                    let inner = NSRange(location: index + 2, length: close - index - 2)
++                    spans.append(OmniMarkdownSpan(range: NSRange(location: index, length: 2), style: .marker))
++                    spans.append(OmniMarkdownSpan(range: inner, style: .strikethrough))
++                    inline(string, inner, into: &spans)
++                    spans.append(OmniMarkdownSpan(range: NSRange(location: close, length: 2), style: .marker))
++                    index = close + 2
++                } else {
++                    index += count
++                }
++                continue
++            }
 +            if character == star || character == underscore {
 +                let count = run(string, of: character, at: index, end: end)
 +                let opens = index + count < end && string.character(at: index + count) != space &&
@@ -17358,6 +17514,28 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +            }
 +            index += 1
 +        }
++    }
++
++    // Code spans, escapes, links and emphasis in one line of text, for the
++    // rendered view.
++    static func inlineSpans(_ text: String) -> [OmniMarkdownSpan] {
++        let string = text as NSString
++        var spans: [OmniMarkdownSpan] = []
++        inline(string, NSRange(location: 0, length: string.length), into: &spans)
++        return spans
++    }
++
++    // The start of a closing `~~` run after a non-space.
++    private static func closingTildes(_ string: NSString, from start: Int, end: Int) -> Int? {
++        var index = start
++        while index < end {
++            let length = run(string, of: tilde, at: index, end: end)
++            if length == 2, string.character(at: index - 1) != space {
++                return index
++            }
++            index += max(1, length)
++        }
++        return nil
 +    }
 +
 +    private static func closingBackticks(_ string: NSString, count: Int, from start: Int, end: Int) -> Int? {
@@ -17438,7 +17616,7 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +        func order(_ style: OmniMarkdownStyle) -> Int {
 +            switch style {
 +            case .heading, .quote, .listItem, .codeBlock: return 0
-+            case .bold, .italic: return 1
++            case .bold, .italic, .strikethrough: return 1
 +            case .code, .link, .linkTarget: return 2
 +            case .marker: return 3
 +            }
@@ -17455,6 +17633,8 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +                changeFonts(text, span.range) { fonts.convert($0, toHaveTrait: .boldFontMask) }
 +            case .italic:
 +                changeFonts(text, span.range) { fonts.convert($0, toHaveTrait: .italicFontMask) }
++            case .strikethrough:
++                text.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: span.range)
 +            case .code, .codeBlock:
 +                changeFonts(text, span.range) { NSFont.monospacedSystemFont(ofSize: round($0.pointSize * 0.9), weight: .regular) }
 +                text.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: span.range)
@@ -17472,11 +17652,845 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +        }
 +    }
 +
-+    private static func changeFonts(_ text: NSMutableAttributedString, _ range: NSRange, _ change: (NSFont) -> NSFont) {
++    static func changeFonts(_ text: NSMutableAttributedString, _ range: NSRange, _ change: (NSFont) -> NSFont) {
 +        text.enumerateAttribute(.font, in: range) { value, subrange, _ in
 +            guard let font = value as? NSFont else { return }
 +            text.addAttribute(.font, value: change(font), range: subrange)
 +        }
++    }
++}
++
++// MARK: - Rendered Markdown
++
++// YAML front matter: a leading `---` line, closed by `---` or `...`. Only
++// the shape Obsidian shows as properties is read: `key: value`, inline
++// `[a, b]` lists and indented `- item` lists.
++struct OmniMarkdownFrontMatter: Equatable {
++    struct Entry: Equatable {
++        let key: String
++        let value: String
++    }
++
++    let entries: [Entry]
++    // The text after the closing line.
++    let body: String
++
++    static func parse(_ text: String) -> OmniMarkdownFrontMatter? {
++        let lines = text.components(separatedBy: "\n")
++        guard let first = lines.first, first.trimmingCharacters(in: .whitespaces) == "---" else { return nil }
++        guard let close = lines.indices.dropFirst().first(where: {
++            let line = lines[$0].trimmingCharacters(in: .whitespaces)
++            return line == "---" || line == "..."
++        }) else {
++            return nil
++        }
++        var entries: [(key: String, values: [String])] = []
++        for line in lines[1..<close] {
++            let trimmed = line.trimmingCharacters(in: .whitespaces)
++            if trimmed.isEmpty || trimmed.hasPrefix("#") {
++                continue
++            }
++            let indented = line.hasPrefix(" ") || line.hasPrefix("\t")
++            if (indented || trimmed.hasPrefix("- ")), !entries.isEmpty {
++                let item = trimmed.hasPrefix("- ") ? String(trimmed.dropFirst(2)) : trimmed
++                entries[entries.count - 1].values.append(unquoted(item))
++                continue
++            }
++            guard let colon = trimmed.firstIndex(of: ":") else {
++                entries.append((key: trimmed, values: []))
++                continue
++            }
++            let key = unquoted(String(trimmed[..<colon]))
++            let value = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
++            var values: [String] = []
++            if value.hasPrefix("["), value.hasSuffix("]") {
++                values = value.dropFirst().dropLast().split(separator: ",").map { unquoted(String($0)) }.filter { !$0.isEmpty }
++            } else if !value.isEmpty, !["|", ">", "|-", ">-", "|+", ">+"].contains(value) {
++                values = [unquoted(value)]
++            }
++            entries.append((key: key, values: values))
++        }
++        return OmniMarkdownFrontMatter(entries: entries.map { Entry(key: $0.key, value: $0.values.joined(separator: ", ")) },
++                                       body: lines[(close + 1)...].joined(separator: "\n"))
++    }
++
++    private static func unquoted(_ value: String) -> String {
++        let trimmed = value.trimmingCharacters(in: .whitespaces)
++        for quote in ["\"", "'"] where trimmed.count >= 2 && trimmed.hasPrefix(quote) && trimmed.hasSuffix(quote) {
++            return String(trimmed.dropFirst().dropLast())
++        }
++        return trimmed
++    }
++}
++
++// A text block drawn as a rounded fill and, optionally, a bar down its left
++// edge: fenced code, quotes, callouts and front matter. Paragraphs of one
++// block share one instance, so copying returns it.
++final class OmniMarkdownBlock: NSTextBlock {
++    var fill: NSColor?
++    var bar: NSColor?
++    var cornerRadius: CGFloat = 6
++
++    override func copy(with zone: NSZone? = nil) -> Any {
++        return self
++    }
++
++    override func drawBackground(withFrame frameRect: NSRect, in controlView: NSView?,
++                                 characterRange charRange: NSRange, layoutManager: NSLayoutManager) {
++        var rect = frameRect
++        rect.origin.x += width(for: .margin, edge: .minX)
++        rect.size.width -= width(for: .margin, edge: .minX) + width(for: .margin, edge: .maxX)
++        rect.origin.y += width(for: .margin, edge: .minY)
++        rect.size.height -= width(for: .margin, edge: .minY) + width(for: .margin, edge: .maxY)
++        guard rect.width > 0, rect.height > 0 else { return }
++        if let fill {
++            fill.setFill()
++            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
++        }
++        if let bar {
++            bar.setFill()
++            NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: 3, height: rect.height),
++                         xRadius: 1.5, yRadius: 1.5).fill()
++        }
++    }
++}
++
++// Markdown to an attributed string, as GitHub or Obsidian's reading view
++// show it: the syntax is gone, code sits on shaded blocks, tables are text
++// tables. Links are colored only, never clickable, as the text is untrusted.
++enum OmniMarkdownRenderer {
++    static func render(_ markdown: String, fontSize: CGFloat = 13,
++                       properties: [OmniMarkdownFrontMatter.Entry] = []) -> NSAttributedString {
++        let builder = Builder(fontSize: fontSize)
++        if !properties.isEmpty {
++            builder.properties(properties)
++        }
++        // Native lines: walking the characters of bridged ones is slow.
++        let lines = webSimplified(markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
++        builder.blocks(lines, context: [], color: nil)
++        let out = builder.out
++        if out.length > 0, out.string.hasSuffix("\n") {
++            out.deleteCharacters(in: NSRange(location: out.length - 1, length: 1))
++        }
++        return out
++    }
++
++    // What GitHub shows of images and raw HTML, outside code fences: an
++    // image becomes its alt text (a linked badge, a link with that text),
++    // a tag goes and its text stays; a line of tags only is dropped.
++    private static let linkedImage = webPattern("\\[!\\[([^\\]]*)\\]\\([^)]*\\)\\]\\(([^)]*)\\)")
++    private static let image = webPattern("!\\[([^\\]]*)\\]\\([^)]*\\)")
++    private static let imageTag = webPattern("<img\\b[^>]*?\\balt=\"([^\"]*)\"[^>]*>", caseInsensitive: true)
++    private static let lineBreakTag = webPattern("<br\\s*/?>", caseInsensitive: true)
++    private static let tag = webPattern("</?[A-Za-z][A-Za-z0-9-]*(\\s[^<>]*)?/?>|<!--.*?-->")
++
++    private static func webPattern(_ pattern: String, caseInsensitive: Bool = false) -> NSRegularExpression {
++        do {
++            return try NSRegularExpression(pattern: pattern, options: caseInsensitive ? [.caseInsensitive] : [])
++        } catch {
++            it_fatalError("bad pattern \(pattern): \(error)")
++        }
++    }
++
++    static func webSimplified(_ lines: [String]) -> [String] {
++        var fence: String?
++        var result: [String] = []
++        result.reserveCapacity(lines.count)
++        for line in lines {
++            let trimmed = line.trimmingCharacters(in: .whitespaces)
++            if let open = fence {
++                if trimmed.hasPrefix(open) {
++                    fence = nil
++                }
++                result.append(line)
++                continue
++            }
++            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
++                fence = String(trimmed.prefix(3))
++                result.append(line)
++                continue
++            }
++            guard line.contains("<") || line.contains("![") else {
++                result.append(line)
++                continue
++            }
++            var text = line
++            func replace(_ pattern: NSRegularExpression, _ template: String) {
++                text = pattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template)
++            }
++            replace(linkedImage, "[$1]($2)")
++            replace(image, "$1")
++            replace(imageTag, "$1")
++            replace(lineBreakTag, "  ")
++            let hadTags = text.contains("<")
++            replace(tag, "")
++            if hadTags, text.trimmingCharacters(in: .whitespaces).isEmpty, !trimmed.isEmpty {
++                continue
++            }
++            result.append(text)
++        }
++        return result
++    }
++
++    // `text` as a fenced block no line of it can close.
++    static func codeBlock(_ text: String, language: String = "") -> String {
++        var longest = 0
++        var current = 0
++        for character in text {
++            current = character == "`" ? current + 1 : 0
++            longest = max(longest, current)
++        }
++        let fence = String(repeating: "`", count: max(3, longest + 1))
++        return fence + language + "\n" + text + "\n" + fence
++    }
++
++    // MARK: Line shapes
++
++    struct ListMarker {
++        let indent: Int
++        let ordered: Bool
++        let number: Int
++        let delimiter: String
++        let content: String
++    }
++
++    static func indentation(_ line: String) -> Int {
++        var width = 0
++        for character in line {
++            if character == " " {
++                width += 1
++            } else if character == "\t" {
++                width += 4
++            } else {
++                break
++            }
++        }
++        return width
++    }
++
++    static func isBlank(_ line: String) -> Bool {
++        return line.trimmingCharacters(in: .whitespaces).isEmpty
++    }
++
++    static func listMarker(_ line: String) -> ListMarker? {
++        guard let lead = line.first(where: { $0 != " " && $0 != "\t" }), lead.isASCII,
++              "-*+".contains(lead) || lead.isNumber else {
++            return nil
++        }
++        let characters = Array(line)
++        var index = 0
++        while index < characters.count, characters[index] == " " || characters[index] == "\t" {
++            index += 1
++        }
++        let start = index
++        guard index < characters.count else { return nil }
++        var ordered = false
++        var number = 0
++        var delimiter = ""
++        if "-*+".contains(characters[index]) {
++            index += 1
++        } else {
++            while index < characters.count, index - start < 9, let digit = characters[index].wholeNumberValue,
++                  characters[index].isASCII {
++                number = number * 10 + digit
++                index += 1
++            }
++            guard index > start, index < characters.count, characters[index] == "." || characters[index] == ")" else {
++                return nil
++            }
++            delimiter = String(characters[index])
++            ordered = true
++            index += 1
++        }
++        guard index == characters.count || characters[index] == " " || characters[index] == "\t" else { return nil }
++        while index < characters.count, characters[index] == " " || characters[index] == "\t" {
++            index += 1
++        }
++        return ListMarker(indent: indentation(line), ordered: ordered, number: number, delimiter: delimiter,
++                          content: String(characters[index...]))
++    }
++
++    static func fence(_ line: String) -> (character: Character, count: Int, info: String, indent: Int)? {
++        let indent = indentation(line)
++        guard indent <= 3 else { return nil }
++        let rest = line.drop { $0 == " " || $0 == "\t" }
++        guard let character = rest.first, character == "`" || character == "~" else { return nil }
++        let count = rest.prefix { $0 == character }.count
++        guard count >= 3 else { return nil }
++        let info = rest.dropFirst(count).trimmingCharacters(in: .whitespaces)
++        if character == "`", info.contains("`") {
++            return nil
++        }
++        return (character, count, info, indent)
++    }
++
++    static func heading(_ line: String) -> (level: Int, text: String)? {
++        guard indentation(line) <= 3 else { return nil }
++        let rest = line.drop { $0 == " " || $0 == "\t" }
++        let level = rest.prefix { $0 == "#" }.count
++        guard level >= 1, level <= 6 else { return nil }
++        let after = rest.dropFirst(level)
++        guard after.isEmpty || after.first == " " || after.first == "\t" else { return nil }
++        var text = after.trimmingCharacters(in: .whitespaces)
++        // An optional closing run of #s after a space.
++        let closing = text.reversed().prefix { $0 == "#" }.count
++        if closing > 0 {
++            let kept = text.dropLast(closing)
++            if kept.isEmpty || kept.hasSuffix(" ") {
++                text = kept.trimmingCharacters(in: .whitespaces)
++            }
++        }
++        return (level, text)
++    }
++
++    static func isRule(_ line: String) -> Bool {
++        guard let lead = line.first(where: { $0 != " " && $0 != "\t" }), "-*_".contains(lead),
++              indentation(line) <= 3 else {
++            return false
++        }
++        let characters = line.filter { $0 != " " && $0 != "\t" }
++        guard let first = characters.first, "-*_".contains(first), characters.count >= 3 else { return false }
++        return characters.allSatisfy { $0 == first }
++    }
++
++    static func isQuote(_ line: String) -> Bool {
++        return indentation(line) <= 3 && line.drop { $0 == " " || $0 == "\t" }.first == ">"
++    }
++
++    private static func unquoted(_ line: String) -> String {
++        var rest = line.drop { $0 == " " || $0 == "\t" }
++        if rest.first == ">" {
++            rest = rest.dropFirst()
++            if rest.first == " " {
++                rest = rest.dropFirst()
++            }
++        }
++        return String(rest)
++    }
++
++    // The cells of a table row, split at unescaped pipes outside code.
++    static func cells(_ line: String) -> [String] {
++        var text = line.trimmingCharacters(in: .whitespaces)
++        if text.hasPrefix("|") {
++            text.removeFirst()
++        }
++        if text.hasSuffix("|"), !text.hasSuffix("\\|") {
++            text.removeLast()
++        }
++        var cells: [String] = []
++        var current = ""
++        var inCode = false
++        var escaped = false
++        for character in text {
++            if escaped {
++                current.append(character == "|" ? "|" : "\\" + String(character))
++                escaped = false
++                continue
++            }
++            if character == "\\" {
++                escaped = true
++                continue
++            }
++            if character == "`" {
++                inCode.toggle()
++            }
++            if character == "|", !inCode {
++                cells.append(current.trimmingCharacters(in: .whitespaces))
++                current = ""
++                continue
++            }
++            current.append(character)
++        }
++        if escaped {
++            current.append("\\")
++        }
++        cells.append(current.trimmingCharacters(in: .whitespaces))
++        return cells
++    }
++
++    // The column alignments a delimiter row like `| :-- | :-: |` sets.
++    static func tableAlignments(_ line: String) -> [NSTextAlignment]? {
++        guard line.contains("-"), line.allSatisfy({ "|:- \t".contains($0) }) else { return nil }
++        let cells = Self.cells(line)
++        guard !cells.isEmpty, cells.allSatisfy({ $0.contains("-") }) else { return nil }
++        guard line.contains("|") || cells.count > 1 else { return nil }
++        return cells.map { cell in
++            switch (cell.hasPrefix(":"), cell.hasSuffix(":")) {
++            case (true, true): return .center
++            case (false, true): return .right
++            default: return .natural
++            }
++        }
++    }
++
++    // Checked on every line, so only the shapes its first character allows.
++    static func startsBlock(_ line: String) -> Bool {
++        guard let lead = line.first(where: { $0 != " " && $0 != "\t" }) else { return false }
++        switch lead {
++        case "`", "~": return fence(line) != nil
++        case "#": return heading(line) != nil
++        case ">": return isQuote(line)
++        case "-", "*", "_", "+": return isRule(line) || listMarker(line) != nil
++        default: return lead.isASCII && lead.isNumber && listMarker(line) != nil
++        }
++    }
++
++    // MARK: Building
++
++    fileprivate final class Builder {
++        let out = NSMutableAttributedString()
++        let fontSize: CGFloat
++        private var listIndents: [Int] = []
++        private var listNumbers: [Int] = []
++        private var listOrdered: [Bool] = []
++
++        init(fontSize: CGFloat) {
++            self.fontSize = fontSize
++        }
++
++        private var bodyFont: NSFont {
++            return NSFont.systemFont(ofSize: fontSize)
++        }
++
++        private var codeFill: NSColor {
++            return NSColor.labelColor.withAlphaComponent(0.06)
++        }
++
++        // A block as wide as its container; one without a width shrinks
++        // to a sliver.
++        private func fullWidth<Block: NSTextBlock>(_ block: Block) -> Block {
++            block.setValue(100, type: .percentageValueType, for: .width)
++            return block
++        }
++
++        private func style(_ blocks: [NSTextBlock], spacing: CGFloat = 8,
++                           _ configure: (NSMutableParagraphStyle) -> Void = { _ in }) -> NSParagraphStyle {
++            let paragraph = NSMutableParagraphStyle()
++            paragraph.lineSpacing = 2
++            paragraph.paragraphSpacing = spacing
++            paragraph.textBlocks = blocks
++            configure(paragraph)
++            return paragraph
++        }
++
++        // One paragraph: `content`, its newline, and `style` over both.
++        private func append(_ content: NSAttributedString, _ style: NSParagraphStyle) {
++            let paragraph = NSMutableAttributedString(attributedString: content)
++            var attributes = content.length > 0 ? content.attributes(at: content.length - 1, effectiveRange: nil) :
++                [.font: bodyFont, .foregroundColor: NSColor.labelColor]
++            // A code span's shading would run to the end of the line.
++            for key in [NSAttributedString.Key.backgroundColor, .strikethroughStyle, .underlineStyle] {
++                attributes.removeValue(forKey: key)
++            }
++            paragraph.append(NSAttributedString(string: "\n", attributes: attributes))
++            paragraph.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: paragraph.length))
++            out.append(paragraph)
++        }
++
++        private func plain(_ text: String, font: NSFont, color: NSColor = .labelColor) -> NSMutableAttributedString {
++            return NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
++        }
++
++        // Inline Markdown with its markers removed.
++        func inline(_ text: String, font: NSFont? = nil, color: NSColor? = nil) -> NSMutableAttributedString {
++            let result = plain(text, font: font ?? bodyFont, color: color ?? .labelColor)
++            let spans = OmniMarkdownStyler.inlineSpans(text)
++            let fonts = NSFontManager.shared
++            var removed = IndexSet()
++            for span in spans where span.range.length > 0 {
++                switch span.style {
++                case .bold:
++                    OmniMarkdownStyler.changeFonts(result, span.range) { fonts.convert($0, toHaveTrait: .boldFontMask) }
++                case .italic:
++                    OmniMarkdownStyler.changeFonts(result, span.range) { fonts.convert($0, toHaveTrait: .italicFontMask) }
++                case .strikethrough:
++                    result.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: span.range)
++                case .link:
++                    result.addAttributes([.foregroundColor: NSColor.linkColor,
++                                          .underlineStyle: NSUnderlineStyle.single.rawValue], range: span.range)
++                case .linkTarget, .marker:
++                    removed.insert(integersIn: span.range.location..<NSMaxRange(span.range))
++                case .code, .codeBlock, .heading, .quote, .listItem:
++                    break
++                }
++            }
++            // Code last, so emphasis markers inside it stay as typed.
++            for span in spans where span.style == .code && span.range.length > 0 {
++                OmniMarkdownStyler.changeFonts(result, span.range) {
++                    NSFont.monospacedSystemFont(ofSize: round($0.pointSize * 0.9), weight: .regular)
++                }
++                result.addAttribute(.backgroundColor, value: NSColor.quaternaryLabelColor, range: span.range)
++            }
++            for range in removed.rangeView.reversed() {
++                result.deleteCharacters(in: NSRange(location: range.lowerBound, length: range.count))
++            }
++            return result
++        }
++
++        func blocks(_ lines: [String], context: [NSTextBlock], color: NSColor?) {
++            var index = 0
++            while index < lines.count {
++                let line = lines[index]
++                if OmniMarkdownRenderer.isBlank(line) {
++                    index += 1
++                    continue
++                }
++                let marker = OmniMarkdownRenderer.isRule(line) ? nil : OmniMarkdownRenderer.listMarker(line)
++                if marker == nil {
++                    listIndents.removeAll()
++                    listNumbers.removeAll()
++                    listOrdered.removeAll()
++                }
++                if let open = OmniMarkdownRenderer.fence(line) {
++                    var code: [String] = []
++                    var next = index + 1
++                    while next < lines.count {
++                        if let close = OmniMarkdownRenderer.fence(lines[next]), close.character == open.character,
++                           close.count >= open.count, close.info.isEmpty {
++                            break
++                        }
++                        var codeLine = lines[next]
++                        var strip = open.indent
++                        while strip > 0, codeLine.hasPrefix(" ") {
++                            codeLine.removeFirst()
++                            strip -= 1
++                        }
++                        code.append(codeLine)
++                        next += 1
++                    }
++                    codeBlock(code, language: open.info.split(separator: " ").first.map(String.init) ?? "", context: context)
++                    index = next + 1
++                    continue
++                }
++                if let heading = OmniMarkdownRenderer.heading(line) {
++                    self.heading(heading.text, level: heading.level, context: context)
++                    index += 1
++                    continue
++                }
++                if OmniMarkdownRenderer.isRule(line) {
++                    rule(context: context)
++                    index += 1
++                    continue
++                }
++                if OmniMarkdownRenderer.isQuote(line) {
++                    var inner: [String] = []
++                    while index < lines.count, OmniMarkdownRenderer.isQuote(lines[index]) {
++                        inner.append(OmniMarkdownRenderer.unquoted(lines[index]))
++                        index += 1
++                    }
++                    quote(inner, context: context)
++                    continue
++                }
++                if index + 1 < lines.count, line.contains("|"),
++                   let alignments = OmniMarkdownRenderer.tableAlignments(lines[index + 1]) {
++                    var rows = [OmniMarkdownRenderer.cells(line)]
++                    var next = index + 2
++                    while next < lines.count, lines[next].contains("|"), !OmniMarkdownRenderer.isBlank(lines[next]) {
++                        rows.append(OmniMarkdownRenderer.cells(lines[next]))
++                        next += 1
++                    }
++                    table(rows, alignments: alignments, context: context, color: color)
++                    index = next
++                    continue
++                }
++                if let marker {
++                    var text = [marker.content]
++                    var next = index + 1
++                    while next < lines.count, !OmniMarkdownRenderer.isBlank(lines[next]),
++                          !OmniMarkdownRenderer.startsBlock(lines[next]) {
++                        text.append(lines[next].trimmingCharacters(in: .whitespaces))
++                        next += 1
++                    }
++                    var following = next
++                    while following < lines.count, OmniMarkdownRenderer.isBlank(lines[following]) {
++                        following += 1
++                    }
++                    let last = following >= lines.count || OmniMarkdownRenderer.isRule(lines[following]) ||
++                        OmniMarkdownRenderer.listMarker(lines[following]) == nil
++                    listItem(marker, text: joined(text), last: last, context: context, color: color)
++                    index = next
++                    continue
++                }
++                var text = [line]
++                var next = index + 1
++                var setext = 0
++                while next < lines.count {
++                    let candidate = lines[next]
++                    let trimmed = candidate.trimmingCharacters(in: .whitespaces)
++                    if trimmed.isEmpty {
++                        break
++                    }
++                    if OmniMarkdownRenderer.indentation(candidate) <= 3, trimmed.allSatisfy({ $0 == "=" }) {
++                        setext = 1
++                        next += 1
++                        break
++                    }
++                    if OmniMarkdownRenderer.indentation(candidate) <= 3, trimmed.allSatisfy({ $0 == "-" }) {
++                        setext = 2
++                        next += 1
++                        break
++                    }
++                    if OmniMarkdownRenderer.startsBlock(candidate) {
++                        break
++                    }
++                    if candidate.contains("|"), next + 1 < lines.count,
++                       OmniMarkdownRenderer.tableAlignments(lines[next + 1]) != nil {
++                        break
++                    }
++                    text.append(candidate)
++                    next += 1
++                }
++                if setext > 0 {
++                    self.heading(joined(text), level: setext, context: context)
++                } else {
++                    append(inline(joined(text), color: color), style(context))
++                }
++                index = next
++            }
++        }
++
++        // Soft breaks become spaces; two trailing spaces or a backslash
++        // break the line.
++        private func joined(_ lines: [String]) -> String {
++            var result = ""
++            for (offset, line) in lines.enumerated() {
++                var text = offset == 0 ? line.trimmingCharacters(in: .whitespaces) :
++                    String(line.drop { $0 == " " || $0 == "\t" })
++                let last = offset == lines.count - 1
++                if !last, text.hasSuffix("\\") {
++                    text.removeLast()
++                    result += text + "\u{2028}"
++                } else if !last, line.hasSuffix("  ") {
++                    result += text.trimmingCharacters(in: .whitespaces) + "\u{2028}"
++                } else {
++                    while let end = text.last, end == " " || end == "\t" {
++                        text.removeLast()
++                    }
++                    result += text + (last ? "" : " ")
++                }
++            }
++            return result
++        }
++
++        func properties(_ entries: [OmniMarkdownFrontMatter.Entry]) {
++            let block = fullWidth(OmniMarkdownBlock())
++            block.fill = codeFill
++            block.setWidth(12, type: .absoluteValueType, for: .padding)
++            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
++            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
++            block.setWidth(12, type: .absoluteValueType, for: .margin, edge: .maxY)
++            let keyFont = NSFont.systemFont(ofSize: round(fontSize * 0.92))
++            let widest = entries.map { ($0.key as NSString).size(withAttributes: [.font: keyFont]).width }.max() ?? 0
++            let column = ceil(min(170, max(80, widest + 16)))
++            for entry in entries {
++                let row = plain(entry.key, font: keyFont, color: .secondaryLabelColor)
++                row.append(plain("\t", font: keyFont))
++                row.append(plain(entry.value.isEmpty ? "—" : entry.value, font: bodyFont,
++                                 color: entry.value.isEmpty ? .tertiaryLabelColor : .labelColor))
++                append(row, style([block], spacing: 3) { paragraph in
++                    paragraph.tabStops = [NSTextTab(textAlignment: .left, location: column, options: [:])]
++                    paragraph.headIndent = column
++                    paragraph.lineBreakMode = .byWordWrapping
++                })
++            }
++        }
++
++        private func heading(_ text: String, level: Int, context: [NSTextBlock]) {
++            let scale: [CGFloat] = [1.75, 1.45, 1.2, 1.05, 1.0, 0.95]
++            let font = NSFont.systemFont(ofSize: round(fontSize * scale[level - 1]), weight: level <= 2 ? .bold : .semibold)
++            let content = inline(text, font: font, color: level >= 6 ? .secondaryLabelColor : .labelColor)
++            var blocks = context
++            if level <= 2 {
++                // GitHub's rule under the two top levels.
++                let underline = fullWidth(NSTextBlock())
++                underline.setWidth(1, type: .absoluteValueType, for: .border, edge: .maxY)
++                underline.setBorderColor(.separatorColor, for: .maxY)
++                underline.setWidth(5, type: .absoluteValueType, for: .padding, edge: .maxY)
++                underline.setWidth(10, type: .absoluteValueType, for: .margin, edge: .maxY)
++                blocks.append(underline)
++            }
++            let first = out.length == 0
++            append(content, style(blocks, spacing: level <= 2 ? 0 : 6) { paragraph in
++                paragraph.paragraphSpacingBefore = first ? 0 : (level <= 2 ? 14 : 10)
++            })
++        }
++
++        private func rule(context: [NSTextBlock]) {
++            let block = fullWidth(NSTextBlock())
++            block.setWidth(1, type: .absoluteValueType, for: .border, edge: .maxY)
++            block.setBorderColor(.separatorColor, for: .maxY)
++            block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .minY)
++            block.setWidth(14, type: .absoluteValueType, for: .margin, edge: .maxY)
++            append(plain("", font: NSFont.systemFont(ofSize: 2)), style(context + [block], spacing: 0) { paragraph in
++                paragraph.lineSpacing = 0
++            })
++        }
++
++        private func codeBlock(_ lines: [String], language: String, context: [NSTextBlock]) {
++            let block = fullWidth(OmniMarkdownBlock())
++            block.fill = codeFill
++            block.setWidth(12, type: .absoluteValueType, for: .padding)
++            block.setWidth(9, type: .absoluteValueType, for: .padding, edge: .minY)
++            block.setWidth(9, type: .absoluteValueType, for: .padding, edge: .maxY)
++            block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .maxY)
++            if !language.isEmpty {
++                append(plain(language, font: NSFont.systemFont(ofSize: round(fontSize * 0.8), weight: .medium),
++                             color: .secondaryLabelColor),
++                       style(context + [block], spacing: 5))
++            }
++            let font = NSFont.monospacedSystemFont(ofSize: round(fontSize * 0.9), weight: .regular)
++            let code = style(context + [block], spacing: 0) { paragraph in
++                paragraph.lineSpacing = 1
++            }
++            for line in lines.isEmpty ? [""] : lines {
++                append(plain(line, font: font), code)
++            }
++        }
++
++        private func quote(_ lines: [String], context: [NSTextBlock]) {
++            let block = fullWidth(OmniMarkdownBlock())
++            block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .minX)
++            block.setWidth(4, type: .absoluteValueType, for: .padding, edge: .maxX)
++            block.setWidth(2, type: .absoluteValueType, for: .padding, edge: .minY)
++            block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .maxY)
++            var body = lines
++            // Obsidian's callout: `> [!type] Title`, foldable with + or -.
++            if let first = body.first, first.hasPrefix("[!"), let close = first.firstIndex(of: "]") {
++                let kind = first[first.index(first.startIndex, offsetBy: 2)..<close].lowercased()
++                var title = first[first.index(after: close)...].trimmingCharacters(in: .whitespaces)
++                if title.hasPrefix("+") || title.hasPrefix("-") {
++                    title = String(title.dropFirst()).trimmingCharacters(in: .whitespaces)
++                }
++                let tint = Self.calloutColor(kind)
++                block.fill = tint.withAlphaComponent(0.1)
++                block.bar = tint
++                block.setWidth(14, type: .absoluteValueType, for: .padding, edge: .maxX)
++                block.setWidth(9, type: .absoluteValueType, for: .padding, edge: .minY)
++                block.setWidth(1, type: .absoluteValueType, for: .padding, edge: .maxY)
++                let heading = title.isEmpty ? kind.prefix(1).uppercased() + kind.dropFirst() : title
++                let titleFont = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
++                let paragraphs = body.dropFirst().contains { !OmniMarkdownRenderer.isBlank($0) }
++                append(inline(heading, font: titleFont, color: tint), style(context + [block], spacing: paragraphs ? 6 : 8))
++                body.removeFirst()
++                blocks(body, context: context + [block], color: nil)
++                return
++            }
++            block.bar = NSColor.secondaryLabelColor.withAlphaComponent(0.35)
++            blocks(body, context: context + [block], color: .secondaryLabelColor)
++        }
++
++        private static func calloutColor(_ kind: String) -> NSColor {
++            switch kind {
++            case "tip", "hint", "important", "success", "check", "done":
++                return .systemGreen
++            case "warning", "caution", "attention":
++                return .systemOrange
++            case "danger", "error", "failure", "fail", "missing", "bug":
++                return .systemRed
++            case "question", "help", "faq":
++                return .systemYellow
++            case "example":
++                return .systemPurple
++            case "quote", "cite":
++                return .systemGray
++            default:
++                return .systemBlue
++            }
++        }
++
++        private func table(_ rows: [[String]], alignments: [NSTextAlignment], context: [NSTextBlock], color: NSColor?) {
++            let columns = rows[0].count
++            let table = NSTextTable()
++            table.numberOfColumns = columns
++            table.collapsesBorders = true
++            table.layoutAlgorithm = .automatic
++            table.setWidth(10, type: .absoluteValueType, for: .margin, edge: .maxY)
++            let headerFill = NSColor.labelColor.withAlphaComponent(0.05)
++            for (rowIndex, row) in rows.enumerated() {
++                for column in 0..<columns {
++                    let cell = NSTextTableBlock(table: table, startingRow: rowIndex, rowSpan: 1,
++                                                startingColumn: column, columnSpan: 1)
++                    cell.setWidth(1, type: .absoluteValueType, for: .border)
++                    cell.setBorderColor(.separatorColor)
++                    cell.setWidth(5, type: .absoluteValueType, for: .padding)
++                    cell.setWidth(10, type: .absoluteValueType, for: .padding, edge: .minX)
++                    cell.setWidth(10, type: .absoluteValueType, for: .padding, edge: .maxX)
++                    if rowIndex == 0 {
++                        cell.backgroundColor = headerFill
++                    }
++                    let text = column < row.count ? row[column] : ""
++                    let content = inline(text, color: color)
++                    if rowIndex == 0 {
++                        OmniMarkdownStyler.changeFonts(content, NSRange(location: 0, length: content.length)) {
++                            NSFontManager.shared.convert($0, toHaveTrait: .boldFontMask)
++                        }
++                    }
++                    let alignment = column < alignments.count ? alignments[column] : .natural
++                    append(content, style(context + [cell], spacing: 0) { paragraph in
++                        paragraph.alignment = alignment
++                    })
++                }
++            }
++        }
++
++        private func listItem(_ marker: ListMarker, text: String, last: Bool, context: [NSTextBlock], color: NSColor?) {
++            while let deepest = listIndents.last, deepest > marker.indent {
++                listIndents.removeLast()
++                listNumbers.removeLast()
++                listOrdered.removeLast()
++            }
++            if let deepest = listIndents.last, deepest == marker.indent {
++                // A list of the other kind starts its count again.
++                let same = listOrdered[listOrdered.count - 1] == marker.ordered
++                listNumbers[listNumbers.count - 1] = same ? listNumbers[listNumbers.count - 1] + 1 : marker.number
++                listOrdered[listOrdered.count - 1] = marker.ordered
++            } else {
++                listIndents.append(marker.indent)
++                listNumbers.append(marker.number)
++                listOrdered.append(marker.ordered)
++            }
++            let level = listIndents.count - 1
++            var content = text
++            var task: Bool?
++            if content.hasPrefix("[ ] ") || content == "[ ]" {
++                task = false
++            } else if content.hasPrefix("[x] ") || content.hasPrefix("[X] ") || content == "[x]" || content == "[X]" {
++                task = true
++            }
++            if task != nil {
++                content = String(content.dropFirst(3)).trimmingCharacters(in: .whitespaces)
++            }
++            let step = round(fontSize * 1.7)
++            let head = CGFloat(level + 1) * step
++            let row: NSMutableAttributedString
++            if let task {
++                row = plain(task ? "☑" : "☐", font: NSFont.systemFont(ofSize: round(fontSize * 1.1)),
++                            color: task ? .controlAccentColor : .secondaryLabelColor)
++            } else if marker.ordered {
++                row = plain("\(listNumbers[level])\(marker.delimiter)", font: bodyFont.withMonospacedDigits(),
++                            color: color ?? .secondaryLabelColor)
++            } else {
++                row = plain(["•", "◦", "▪"][level % 3], font: bodyFont, color: color ?? .secondaryLabelColor)
++            }
++            row.append(plain("\t", font: bodyFont))
++            let body = inline(content, color: task == true ? .secondaryLabelColor : color)
++            if task == true {
++                body.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
++                                  range: NSRange(location: 0, length: body.length))
++            }
++            row.append(body)
++            append(row, style(context, spacing: last ? 8 : 3) { paragraph in
++                paragraph.firstLineHeadIndent = CGFloat(level) * step
++                paragraph.headIndent = head
++                paragraph.tabStops = [NSTextTab(textAlignment: .left, location: head, options: [:])]
++            })
++        }
++    }
++}
++
++private extension NSFont {
++    func withMonospacedDigits() -> NSFont {
++        return NSFont.monospacedDigitSystemFont(ofSize: pointSize, weight: .regular)
 +    }
 +}
 +
@@ -17728,6 +18742,20 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +        endEditing()
 +    }
 +
++    // Replaces the text with already rendered Markdown, unstyled: the
++    // read-only view's reading mode.
++    func setRendered(_ rendered: NSAttributedString) {
++        styling = true
++        beginEditing()
++        let oldLength = backing.length
++        cachedString = nil
++        backing.setAttributedString(rendered)
++        edited([.editedCharacters, .editedAttributes], range: NSRange(location: 0, length: oldLength),
++               changeInLength: rendered.length - oldLength)
++        endEditing()
++        styling = false
++    }
++
 +    override func processEditing() {
 +        if !styling, editedMask.contains(.editedCharacters) {
 +            styling = true
@@ -17912,9 +18940,36 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +    static let toggleHeight: CGFloat = 22
 +    private static let inset = NSSize(width: 0, height: 2)
 +
++    static let propertiesHeight: CGFloat = 30
++
 +    let textView: OmniMarkdownTextView
 +    private let clip = OmniMarkdownFlippedView()
 +    private let toggle = NSButton(title: "Show more", target: nil, action: nil)
++    // The Markdown as given; in reading mode the text view holds its
++    // rendering instead.
++    private var source = ""
++    // Reading mode: the Markdown rendered as GitHub or Obsidian show it,
++    // syntax hidden, instead of styled in place.
++    var rendersMarkdown = false {
++        didSet {
++            guard rendersMarkdown != oldValue else { return }
++            if rendersMarkdown {
++                render()
++            } else {
++                textView.markdown = source
++                propertiesButton.isHidden = true
++            }
++            needsLayout = true
++            didChangeHeight?()
++        }
++    }
++    private var frontMatter: OmniMarkdownFrontMatter?
++    // Front matter shows as a Properties disclosure, closed until pressed.
++    private(set) var propertiesExpanded = false
++    let propertiesButton = NSButton(title: "Properties", target: nil, action: nil)
++    private var headerHeight: CGFloat {
++        return propertiesButton.isHidden ? 0 : Self.propertiesHeight
++    }
 +    // Collapse when the text is taller than this; nil always shows it all.
 +    var collapsedHeight: CGFloat? {
 +        didSet { didChangeHeight?() }
@@ -17952,15 +19007,49 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +    override var isFlipped: Bool { true }
 +
 +    var text: String {
-+        get { textView.markdown }
++        get { source }
 +        set {
 +            // A page reload sets the same text again; restyling and laying
 +            // out a long README for nothing blocks the main thread.
-+            guard newValue != textView.markdown else { return }
-+            textView.markdown = newValue
++            guard newValue != source else { return }
++            source = newValue
++            if rendersMarkdown {
++                propertiesExpanded = false
++                render()
++            } else {
++                textView.markdown = newValue
++            }
 +            needsLayout = true
 +            didChangeHeight?()
 +        }
++    }
++
++    private func render() {
++        frontMatter = OmniMarkdownFrontMatter.parse(source)
++        let entries = frontMatter?.entries ?? []
++        let rendered = OmniMarkdownRenderer.render(frontMatter?.body ?? source, fontSize: textView.markdownStorage.fontSize,
++                                                   properties: propertiesExpanded ? entries : [])
++        textView.markdownStorage.setRendered(rendered)
++        textView.setSelectedRange(NSRange(location: 0, length: 0))
++        propertiesButton.isHidden = entries.isEmpty
++        let symbol = propertiesExpanded ? SFSymbol.chevronDown : SFSymbol.chevronRight
++        propertiesButton.image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)?
++            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
++        propertiesButton.title = entries.count == 1 ? "Properties · 1" : "Properties · \(entries.count)"
++    }
++
++    func setPropertiesExpanded(_ expanded: Bool) {
++        guard expanded != propertiesExpanded else { return }
++        propertiesExpanded = expanded
++        if rendersMarkdown {
++            render()
++        }
++        needsLayout = true
++        didChangeHeight?()
++    }
++
++    @objc func toggleProperties(_ sender: Any?) {
++        setPropertiesExpanded(!propertiesExpanded)
 +    }
 +
 +    init(text: String = "", fontSize: CGFloat = 13) {
@@ -17987,6 +19076,16 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +        toggle.action = #selector(toggleExpanded(_:))
 +        toggle.isHidden = true
 +        addSubview(toggle)
++        propertiesButton.isBordered = false
++        propertiesButton.font = NSFont.systemFont(ofSize: 12, weight: .medium)
++        propertiesButton.contentTintColor = .secondaryLabelColor
++        propertiesButton.imagePosition = .imageLeading
++        propertiesButton.alignment = .left
++        propertiesButton.target = self
++        propertiesButton.action = #selector(toggleProperties(_:))
++        propertiesButton.isHidden = true
++        addSubview(propertiesButton)
++        source = text
 +        textView.markdown = text
 +    }
 +
@@ -18013,7 +19112,7 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +
 +    // The height to give the view at a width, its card included.
 +    func height(forWidth width: CGFloat) -> CGFloat {
-+        return textHeight(forWidth: width - 2 * padding) + 2 * padding
++        return textHeight(forWidth: width - 2 * padding) + 2 * padding + headerHeight
 +    }
 +
 +    private func textHeight(forWidth width: CGFloat) -> CGFloat {
@@ -18064,11 +19163,13 @@ index 0000000000000000000000000000000000000000..cbb43fb0746c9f5b94a3996fe500bc92
 +        let full = contentHeight(forWidth: width)
 +        let collapsible = isCollapsible(width: width)
 +        let visible = collapsible && !isExpanded ? visibleCollapsedHeight(width: width) : full
-+        clip.frame = NSRect(x: pad, y: pad, width: width, height: visible)
++        let header = headerHeight
++        propertiesButton.frame = NSRect(x: pad, y: pad, width: min(width, 220), height: max(0, header - 4))
++        clip.frame = NSRect(x: pad, y: pad + header, width: width, height: visible)
 +        textView.frame = NSRect(x: 0, y: 0, width: width, height: full)
 +        toggle.isHidden = !collapsible
 +        toggle.title = isExpanded ? "Show less" : "Show more"
-+        toggle.frame = NSRect(x: pad, y: pad + visible, width: min(width, 120), height: Self.toggleHeight)
++        toggle.frame = NSRect(x: pad, y: pad + header + visible, width: min(width, 120), height: Self.toggleHeight)
 +    }
 +
 +    override func draw(_ dirtyRect: NSRect) {
@@ -23197,10 +24298,10 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..631cf2e5ab1261da47e7d81531410ef437b7cc76
+index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b3009b195
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1536 @@
+@@ -0,0 +1,1547 @@
 +import AppKit
 +import Foundation
 +
@@ -23441,6 +24542,9 @@ index 0000000000000000000000000000000000000000..631cf2e5ab1261da47e7d81531410ef4
 +        // Their bordered file boxes frame them already.
 +        fileView.drawsCard = false
 +        readmeView.drawsCard = false
++        // Read as on a repository host: rendered, not styled in place.
++        fileView.rendersMarkdown = true
++        readmeView.rendersMarkdown = true
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -24109,6 +25213,13 @@ index 0000000000000000000000000000000000000000..631cf2e5ab1261da47e7d81531410ef4
 +
 +    // MARK: Actions
 +
++    // A deep link's file: on Knowledge when it lives there, else on Files.
++    func openFile(_ path: String) {
++        tab = path.hasPrefix("knowledge/") ? .knowledge : .files
++        loadTabData()
++        open(file: path)
++    }
++
 +    private func open(file path: String) {
 +        guard let projectID else { return }
 +        OmniSchedulerClient.request(["op": "get_project_file", "project": projectID, "path": path]) { [weak self] response in
@@ -24119,7 +25230,7 @@ index 0000000000000000000000000000000000000000..631cf2e5ab1261da47e7d81531410ef4
 +            self.openFile = (path: path, text: text)
 +            let lower = path.lowercased()
 +            self.fileView.text = lower.hasSuffix(".md") || lower.hasSuffix(".markdown") ? OmniReportText.sanitized(text) :
-+                "```\n" + OmniReportText.sanitized(text) + "\n```"
++                OmniMarkdownRenderer.codeBlock(OmniReportText.sanitized(text), language: (path as NSString).pathExtension)
 +            self.rebuild()
 +            self.scroll.contentView.scroll(to: .zero)
 +            self.scroll.reflectScrolledClipView(self.scroll.contentView)
@@ -24534,16 +25645,17 @@ index 0000000000000000000000000000000000000000..631cf2e5ab1261da47e7d81531410ef4
 +
 +    override func resizeSubviews(withOldSize oldSize: NSSize) {
 +        super.resizeSubviews(withOldSize: oldSize)
++        // The count keeps its room; a long name truncates before it.
++        let trailing = parts.first { $0.identifier?.rawValue == "trailing" }
++        let trailingWidth = trailing.map { ceil($0.fittingSize.width) } ?? 0
++        let limit = bounds.width - (trailing == nil ? 0 : trailingWidth + 12)
 +        var x: CGFloat = 0
-+        for part in parts {
++        for part in parts where part !== trailing {
 +            let width = ceil(part.fittingSize.width)
-+            if part.identifier?.rawValue == "trailing" {
-+                part.frame = NSRect(x: max(x, bounds.width - width), y: (bounds.height - 16) / 2, width: min(width, bounds.width - x), height: 16)
-+                continue
-+            }
-+            part.frame = NSRect(x: x, y: (bounds.height - 18) / 2, width: min(width, max(0, bounds.width - x)), height: 18)
++            part.frame = NSRect(x: x, y: (bounds.height - 18) / 2, width: min(width, max(0, limit - x)), height: 18)
 +            x = part.frame.maxX + 4
 +        }
++        trailing?.frame = NSRect(x: bounds.width - trailingWidth, y: (bounds.height - 16) / 2, width: trailingWidth, height: 16)
 +    }
 +}
 +
@@ -29513,10 +30625,10 @@ index 0000000000000000000000000000000000000000..e70b13addbcda79d3549a3952a57fcfd
 +@end
 diff --git a/sources/OmniTerm/OmniSearch.swift b/sources/OmniTerm/OmniSearch.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..e6466af36a74fd4388ba32470a5887f51f4e717e
+index 0000000000000000000000000000000000000000..07d0b57809c3eba64c8da793ec2ec87dc4bef70f
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSearch.swift
-@@ -0,0 +1,597 @@
+@@ -0,0 +1,605 @@
 +import AppKit
 +import Foundation
 +
@@ -29834,6 +30946,7 @@ index 0000000000000000000000000000000000000000..e6466af36a74fd4388ba32470a5887f5
 +    private static let maxListHeight: CGFloat = 420
 +
 +    let field = NSSearchField()
++    private let glass = NSImageView()
 +    private let card = OmniQuickNavCard()
 +    private let list = OmniQuickNavList()
 +    private let listScroll = NSScrollView()
@@ -29873,7 +30986,13 @@ index 0000000000000000000000000000000000000000..e6466af36a74fd4388ba32470a5887f5
 +        field.delegate = self
 +        field.target = self
 +        field.action = #selector(queryChanged(_:))
++        // The cell's own magnifier overlaps large text, so it is drawn beside the field instead.
++        (field.cell as? NSSearchFieldCell)?.searchButtonCell = nil
 +        card.addSubview(field)
++        glass.image = NSImage(systemSymbolName: SFSymbol.magnifyingglass.rawValue, accessibilityDescription: nil)
++        glass.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
++        glass.contentTintColor = OmniTheme.secondaryText
++        card.addSubview(glass)
 +        list.pick = { [weak self] index in self?.activate(index) }
 +        listScroll.documentView = list
 +        listScroll.drawsBackground = false
@@ -29917,7 +31036,8 @@ index 0000000000000000000000000000000000000000..e6466af36a74fd4388ba32470a5887f5
 +        let height = 56 + listHeight + 30
 +        card.frame = NSRect(x: (bounds.width - width) / 2, y: min(110, bounds.height * 0.14), width: width, height: height)
 +        card.subviews.first?.frame = card.bounds
-+        field.frame = NSRect(x: 14, y: 14, width: width - 28, height: 28)
++        glass.frame = NSRect(x: 16, y: 16, width: 22, height: 24)
++        field.frame = NSRect(x: 46, y: 14, width: width - 60, height: 28)
 +        listScroll.frame = NSRect(x: 6, y: 56, width: width - 12, height: listHeight)
 +        list.frame = NSRect(x: 0, y: 0, width: listScroll.contentSize.width, height: list.contentHeight)
 +        footer.frame = NSRect(x: 16, y: height - 24, width: width - 32, height: 16)
@@ -33573,10 +34693,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a15351c500
+index 0000000000000000000000000000000000000000..3d3a86657689fc5c83b93360970b2b1c6f0e953e
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4645 @@
+@@ -0,0 +1,4892 @@
 +import AppKit
 +import Foundation
 +import os
@@ -33897,6 +35017,21 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +    private let folderSessionsSection = OmniSidebarItem(kind: .section, key: "folder-sessions", title: "Folders")
 +    private let otherSessionsSection = OmniSidebarItem(kind: .section, key: "other-sessions", title: "Other")
 +    private let allSessionsSection = OmniSidebarItem(kind: .section, key: "all-sessions", title: "All")
++    private let pinnedSessionsSection = OmniSidebarItem(kind: .section, key: "pinned-sessions", title: "Pinned")
++    // Sessions the person pinned, in the order pinned (kept on this Mac).
++    private static let pinnedSessionsKey = "OmniPinnedSessions" as CFString
++    static var pinnedSessions: [String] {
++        return CFPreferencesCopyAppValue(pinnedSessionsKey, preferencesDomain) as? [String] ?? []
++    }
++    // The view pickers on the section headers: Sessions, Agents and Runs.
++    private let sessionsViewButton = NSButton()
++    private let agentsViewButton = NSButton()
++    private let runsViewButton = NSButton()
++    private let sessionsHeaderAccessory = NSView()
++    private let agentsHeaderAccessory = NSView()
++    private let runsHeaderAccessory = NSView()
++    // The Sessions section whose header carries the view picker.
++    private weak var sessionsViewSection: OmniSidebarItem?
 +    private var itemCache: [String: OmniSidebarItem] = [:]
 +    private var reloadDeferred = false
 +    private var configuredGroups: [String] = []
@@ -34056,6 +35191,23 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        newAgentButton.toolTip = "New Agent"
 +        newAgentButton.target = self
 +        newAgentButton.action = #selector(showAgentsMenu(_:))
++        for button in [sessionsViewButton, agentsViewButton, runsViewButton] {
++            button.bezelStyle = .inline
++            button.isBordered = false
++            button.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
++            button.contentTintColor = .secondaryLabelColor
++            button.image = NSImage(systemSymbolName: SFSymbol.chevronUpChevronDown.rawValue, accessibilityDescription: nil)?
++                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .medium))
++            button.imagePosition = .imageTrailing
++            button.toolTip = "Change how this list is arranged"
++            button.target = self
++            button.action = #selector(showViewMenu(_:))
++        }
++        sessionsHeaderAccessory.addSubview(sessionsViewButton)
++        agentsHeaderAccessory.addSubview(agentsViewButton)
++        agentsHeaderAccessory.addSubview(newAgentButton)
++        runsHeaderAccessory.addSubview(runsViewButton)
++        updateViewButtons()
 +        let viewAllProjects = NSButton(title: "View All", target: self, action: #selector(showAllProjects(_:)))
 +        viewAllProjects.bezelStyle = .inline
 +        viewAllProjects.isBordered = false
@@ -34904,12 +36056,18 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +            return
 +        }
 +        let built = buildAgentSections()
++        // By project, a project holds its agents and their runs, live or
++        // not; in folders, runs keep their own section.
 +        if Self.agentsView == .projects {
-+            arrangeAgentsByProject()
++            arrangeAgentsByProject(runs: runsSection.children)
++            runsSection.children = []
++        } else {
++            arrangeRuns()
 +        }
 +        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
-+        let items = sharedItems + [agentsSection, runsSection, terminalsSection]
++        let items = sharedItems + [agentsSection] + (runsSection.children.isEmpty && Self.agentsView == .projects ? [] : [runsSection])
++            + [terminalsSection]
 +        let structure = items.map(Self.structure).joined(separator: ";")
 +        applyUpdate(items: items, structure: structure)
 +        followCurrentTab(tabs: built.tabs, dashboardTabIDs: built.dashboardTabIDs, backgroundAgents: built.background)
@@ -34940,8 +36098,11 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +            row.children = []
 +            return row
 +        }
-+        var live: [OmniSidebarItem] = []
++        var live: [(row: OmniSidebarItem, session: [AnyHashable: Any])] = []
 +        var rest: [(row: OmniSidebarItem, session: [AnyHashable: Any])] = []
++        let pinnedOrder = Self.pinnedSessions
++        let pinnedIDs = Set(pinnedOrder)
++        var pinned: [String: OmniSidebarItem] = [:]
 +        var seen = Set<String>()
 +        for session in sessions {
 +            guard let id = session["session_id"] as? String, seen.insert(id).inserted else { continue }
@@ -34957,15 +36118,24 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +            if let tab = sessionTab(id) {
 +                row.children = [item(.terminal, key: "session-tab-\(tab.uniqueId)", title: tab.title ?? "Terminal", tab: tab)]
 +            }
-+            if OmniSessionText.isLive(session) {
-+                live.append(row)
++            if pinnedIDs.contains(id) {
++                pinned[id] = row
++            } else if OmniSessionText.isLive(session) {
++                live.append((row, session))
 +            } else {
 +                rest.append((row, session))
 +            }
 +        }
-+        liveSessionsSection.children = live
++        pinnedSessionsSection.children = pinnedOrder.compactMap { pinned[$0] }
++        // Only the timeline keeps Live apart; by project or in folders, a
++        // live session sits in its place, first among its neighbours.
++        let separatesLive = Self.sessionsView == .timeline
++        liveSessionsSection.children = separatesLive ? live.map(\.row) : []
 +        var items = sharedItems
-+        if !live.isEmpty {
++        if !pinnedSessionsSection.children.isEmpty {
++            items.append(pinnedSessionsSection)
++        }
++        if separatesLive, !live.isEmpty {
 +            items.append(liveSessionsSection)
 +        }
 +        if !query.isEmpty {
@@ -34987,9 +36157,9 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        }
 +        switch Self.sessionsView {
 +        case .projects:
-+            items += sessionsByProject(rest)
++            items += sessionsByProject(live + rest)
 +        case .folders:
-+            items += sessionsInFolders(rest)
++            items += sessionsInFolders(live + rest)
 +        case .timeline:
 +            // Live above; the last two days; then everything else loaded.
 +            let cutoff = Date().timeIntervalSince1970 - 2 * 86400
@@ -35002,16 +36172,21 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        if sessionsHaveMore {
 +            items.append(moreSessionsItem)
 +        }
++        // The view picker rides on the first list section under Pinned.
++        let picker = items.first { $0.kind == .section && $0 !== pinnedSessionsSection && $0 !== matchesSection }
++        if picker !== sessionsViewSection {
++            sessionsViewSection = picker
++        }
 +        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
-+        let structure = "sessions;" + items.map(Self.structure).joined(separator: ";")
++        let structure = "sessions;\(sessionsViewSection?.key ?? "");" + items.map(Self.structure).joined(separator: ";")
 +        applyUpdate(items: items, structure: structure)
 +        // A tab selected some other way (Resume, the keyboard, a run) takes
 +        // the window from the page, as in Agents mode.
 +        followCurrentTab(tabs: terminal?.tabs() ?? [], dashboardTabIDs: [],
 +                         backgroundAgents: OmniBackgroundAgents.names(agents))
 +        // The start page: the newest session.
-+        if startPagePending, let first = (live.first ?? rest.first?.row)?.route {
++        if startPagePending, let first = (live.first?.row ?? rest.first?.row)?.route {
 +            startPagePending = false
 +            if !contentHost.isShowingPane {
 +                contentHost.show(first)
@@ -35019,6 +36194,57 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        }
 +        layoutContent()
 +        syncSelection()
++    }
++
++    // The header pickers: the view's name, a chevron, and the views.
++    private static func viewTitle(_ view: SessionsView) -> String {
++        switch view {
++        case .projects: return "By Project"
++        case .folders: return "My Folders"
++        case .timeline: return "Live, Recent, All"
++        }
++    }
++
++    private static func viewTitle(_ view: AgentsView) -> String {
++        return view == .projects ? "By Project" : "My Folders"
++    }
++
++    private func updateViewButtons() {
++        func size(_ button: NSButton, title: String, in container: NSView, trailing: CGFloat) {
++            button.title = title
++            button.sizeToFit()
++            let width = ceil(button.frame.width)
++            button.frame = NSRect(x: 0, y: 0, width: width, height: 20)
++            container.frame = NSRect(x: 0, y: 0, width: width + trailing, height: 20)
++        }
++        size(sessionsViewButton, title: Self.viewTitle(Self.sessionsView), in: sessionsHeaderAccessory, trailing: 0)
++        size(runsViewButton, title: Self.viewTitle(Self.agentsView), in: runsHeaderAccessory, trailing: 0)
++        size(agentsViewButton, title: Self.viewTitle(Self.agentsView), in: agentsHeaderAccessory, trailing: 24)
++        newAgentButton.frame = NSRect(x: agentsViewButton.frame.maxX + 4, y: 0, width: 20, height: 20)
++    }
++
++    var viewMenu: NSMenu {
++        let menu = NSMenu(title: "View")
++        if mode == .sessions {
++            let view = Self.sessionsView
++            for option in [SessionsView.projects, .folders, .timeline] {
++                menu.addItem(menuItem(Self.viewTitle(option), #selector(chooseSessionsView(_:)), option.rawValue, on: view == option))
++            }
++            if view == .folders {
++                menu.addItem(.separator())
++                menu.addItem(menuItem("New Folder", #selector(newSessionFolder(_:)), ""))
++            }
++        } else {
++            let view = Self.agentsView
++            for option in [AgentsView.projects, .folders] {
++                menu.addItem(menuItem(Self.viewTitle(option), #selector(chooseAgentsView(_:)), option.rawValue, on: view == option))
++            }
++        }
++        return menu
++    }
++
++    @objc private func showViewMenu(_ sender: NSButton) {
++        viewMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
 +    }
 +
 +    // The options button's menu, for the current mode.
@@ -35090,8 +36316,10 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +                    let children = rowsByRoot[root] ?? []
 +                    guard !children.isEmpty else { return nil }
 +                    let title = projectLayout.name(root) ?? names[root] ?? (root as NSString).lastPathComponent
++                    // Runs listed beside their agents are not counted.
++                    let count = children.filter { $0.kind != .run && $0.kind != .recentRun }.count
 +                    let row = item(.viewGroup, key: "\(prefix)project|\(root)", title: title,
-+                                   detail: children.count == 1 ? "1 \(noun)" : "\(children.count) \(noun)s",
++                                   detail: count == 1 ? "1 \(noun)" : "\(count) \(noun)s",
 +                                   route: .project(root))
 +                    let look = projectLayout.appearance(root)
 +                    row.icon = look.icon ?? .symbol(SFSymbol.shippingbox.rawValue)
@@ -35140,6 +36368,48 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        return [projectSessionsSection, otherSessionsSection].filter { !$0.children.isEmpty }
 +    }
 +
++    // MARK: Pinned sessions
++
++    private func setPinned(_ id: String, _ pin: Bool) {
++        var ids = Self.pinnedSessions.filter { $0 != id }
++        if pin {
++            ids.append(id)
++        }
++        setSessionsPreference(Self.pinnedSessionsKey, ids.isEmpty ? nil : ids as CFArray)
++        rebuild()
++    }
++
++    @objc private func togglePinSession(_ sender: NSMenuItem) {
++        guard let id = sender.representedObject as? String else { return }
++        setPinned(id, !Self.pinnedSessions.contains(id))
++    }
++
++    // Double-click on a session row: its title, renamed the provider's way.
++    private func renameSessionInPlace(_ row: OmniSidebarItem, to newName: String) {
++        guard case .session(let id) = row.route, !newName.isEmpty else {
++            finishInteraction()
++            return
++        }
++        let oldName = row.title
++        row.title = newName
++        outlineView.reloadItem(row)
++        OmniSchedulerClient.request(["op": "rename_session", "session_id": id, "title": newName]) { [weak self] response in
++            guard let self else { return }
++            guard response["ok"] as? Bool == true else {
++                row.title = oldName
++                self.outlineView.reloadItem(row)
++                self.showRenameProblem(response["error"] as? String ?? "The session could not be renamed.", on: row)
++                return
++            }
++            if let index = self.sessions.firstIndex(where: { $0["session_id"] as? String == id }) {
++                self.sessions[index]["title"] = newName
++            }
++            (self.contentHost.pane as? OmniSessionPane)?.reload()
++            self.finishInteraction()
++            self.rebuild()
++        }
++    }
++
 +    private func sessionsInFolders(_ rest: [(row: OmniSidebarItem, session: [AnyHashable: Any])]) -> [OmniSidebarItem] {
 +        let rowsByID = Dictionary(rest.compactMap { entry in (entry.session["session_id"] as? String).map { ($0, entry.row) } },
 +                                  uniquingKeysWith: { first, _ in first })
@@ -35170,8 +36440,13 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +
 +    // Agents by project: the agents under their workspace's project, in the
 +    // person's project folders; agents outside any project under Other.
-+    private func arrangeAgentsByProject() {
++    private func arrangeAgentsByProject(runs: [OmniSidebarItem] = []) {
 +        let rows = Self.flattened(agentsSection.children).filter { $0.kind == .agent }
++        var runsByAgent: [String: [OmniSidebarItem]] = [:]
++        for run in runs {
++            runsByAgent[run.title, default: []].append(run)
++        }
++        let agentNames = Set(rows.map(\.title))
 +        var workspaces: [String: String] = [:]
 +        for agent in agents {
 +            if let name = agent["name"] as? String, let workspace = agent["workspace"] as? String {
@@ -35181,13 +36456,17 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        requestAgentProjects(Array(Set(workspaces.values)))
 +        var byRoot: [String: [OmniSidebarItem]] = [:]
 +        var other: [OmniSidebarItem] = []
++        // Each agent, then its runs (live first, as listed).
 +        for row in rows {
++            let group = [row] + (runsByAgent[row.title] ?? [])
 +            if let workspace = workspaces[row.title], let root = agentProjectRoots[workspace] {
-+                byRoot[root, default: []].append(row)
++                byRoot[root, default: []] += group
 +            } else {
-+                other.append(row)
++                other += group
 +            }
 +        }
++        // Runs of agents not listed (renamed or deleted) go to Other.
++        other += runs.filter { !agentNames.contains($0.title) }
 +        var children = projectTree(prefix: "agents-", rowsByRoot: byRoot, names: [:], noun: "agent")
 +        if !other.isEmpty {
 +            let row = item(.viewGroup, key: "agents-other", title: "Other")
@@ -35195,6 +36474,37 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +            children.append(row)
 +        }
 +        agentsSection.children = children
++    }
++
++    // In folders, runs sit under their agent's folder; runs of agents
++    // outside any folder stay at the top level.
++    private func arrangeRuns() {
++        let rows = runsSection.children
++        guard !rows.isEmpty else { return }
++        var byAgent: [String: [OmniSidebarItem]] = [:]
++        for row in rows {
++            byAgent[row.title, default: []].append(row)
++        }
++        var placed = Set<String>()
++        func build(_ entries: [OmniGroupTree.Entry]) -> [OmniSidebarItem] {
++            return entries.flatMap { entry -> [OmniSidebarItem] in
++                switch entry {
++                case .agent(let name):
++                    placed.insert(name)
++                    return byAgent[name] ?? []
++                case .group(let group):
++                    let children = build(group.children)
++                    guard !children.isEmpty else { return [] }
++                    let row = item(.viewGroup, key: "runs-folder|\(group.path)", title: group.name)
++                    row.icon = OmniAgentIcon(spec: agentFolderIcons[group.path])
++                    row.iconColor = agentFolderColors[group.path]
++                    row.children = children
++                    return [row]
++                }
++            }
++        }
++        let arranged = build(groupTree.entries)
++        runsSection.children = arranged + rows.filter { !placed.contains($0.title) }
 +    }
 +
 +    private func requestAgentProjects(_ workspaces: [String]) {
@@ -35311,12 +36621,14 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +    @objc private func chooseSessionsView(_ sender: NSMenuItem) {
 +        guard let value = sender.representedObject as? String else { return }
 +        setSessionsPreference(Self.sessionsViewKey, value as CFString)
++        updateViewButtons()
 +        rebuild()
 +    }
 +
 +    @objc private func chooseAgentsView(_ sender: NSMenuItem) {
 +        guard let value = sender.representedObject as? String else { return }
 +        setSessionsPreference(Self.agentsViewKey, value as CFString)
++        updateViewButtons()
 +        rebuild()
 +    }
 +
@@ -36517,7 +37829,7 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +    // anywhere else on an agent or group row renames it in place.
 +    func handleDoubleClick(row: Int, at point: NSPoint?) {
 +        guard let item = outlineView.item(atRow: row) as? OmniSidebarItem,
-+              item.kind == .agent || item.isFolder || item.kind == .project else { return }
++              item.kind == .agent || item.isFolder || item.kind == .project || item.kind == .session else { return }
 +        if Self.takesAppearance(item), let point,
 +           let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? OmniSidebarCell,
 +           let icon = cell.iconFrame, cell.convert(icon, to: outlineView).insetBy(dx: -3, dy: -3).contains(point) {
@@ -36643,6 +37955,8 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +            renameProjectFolder(row, to: newName)
 +        case .sessionFolder:
 +            renameSessionFolder(row, to: newName)
++        case .session:
++            renameSessionInPlace(row, to: newName)
 +        default:
 +            renameGroup(row, to: newName)
 +        }
@@ -36864,6 +38178,9 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        switch row.kind {
 +        case .session:
 +            add("Rename…", #selector(renameSession(_:)), row)
++            if case .session(let id) = row.route {
++                add(Self.pinnedSessions.contains(id) ? "Unpin" : "Pin", #selector(togglePinSession(_:)), id)
++            }
 +            if Self.sessionsView == .folders, case .session(let id) = row.route {
 +                let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
 +                let submenu = NSMenu()
@@ -37295,7 +38612,9 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        if item.kind == .section {
 +            let cell = OmniSidebarSectionCell()
 +            let accessory: NSView? = item === terminalsSection ? newTerminalButton
-+                : item === agentsSection ? newAgentButton
++                : item === agentsSection ? agentsHeaderAccessory
++                : item === runsSection ? runsHeaderAccessory
++                : item === sessionsViewSection ? sessionsHeaderAccessory
 +                : item === forgeProjectsSection ? projectsHeaderAccessory : nil
 +            cell.configure(title: item.title, accessory: accessory, icon: item.icon,
 +                           iconColor: OmniAgentColor.color(item.iconColor))
@@ -37430,8 +38749,17 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +
 +    // omniterm://projects, and omniterm://project/<root path>.
 +    @objc func showProjects(_ root: String?) {
++        showProjects(root, file: nil)
++    }
++
++    // omniterm://project/<root>?file=<path>: the project, on that file.
++    @objc(showProjects:file:)
++    func showProjects(_ root: String?, file: String?) {
 +        if let root, !root.isEmpty {
 +            showPane(.project(root))
++            if let file, !file.isEmpty, let pane = contentHost.pane as? OmniProjectsPane {
++                pane.openFile(file)
++            }
 +        } else {
 +            showPane(.projects)
 +        }
@@ -37977,6 +39305,10 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +        }
 +    }
 +
++    // One row is hovered at a time: AppKit misses an exit when rows reload,
++    // scroll or are reused under a still pointer, which left fills behind.
++    private static weak var hovered: OmniSidebarRowView?
++
 +    override func updateTrackingAreas() {
 +        super.updateTrackingAreas()
 +        if let hoverArea {
@@ -37986,14 +39318,49 @@ index 0000000000000000000000000000000000000000..055050144e74bd0be81275762144b8a1
 +                                  owner: self, userInfo: nil)
 +        addTrackingArea(area)
 +        hoverArea = area
++        syncHoverWithPointer()
++    }
++
++    // Whether the pointer is really over this row now.
++    private func syncHoverWithPointer() {
++        guard let window, window.isKeyWindow, !isHidden else {
++            setHovered(false)
++            return
++        }
++        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
++        setHovered(visibleRect.contains(point))
++    }
++
++    private func setHovered(_ hovered: Bool) {
++        if hovered {
++            if let other = Self.hovered, other !== self {
++                other.isHovered = false
++            }
++            Self.hovered = self
++        } else if Self.hovered === self {
++            Self.hovered = nil
++        }
++        isHovered = hovered
 +    }
 +
 +    override func mouseEntered(with event: NSEvent) {
-+        isHovered = true
++        setHovered(true)
 +    }
 +
 +    override func mouseExited(with event: NSEvent) {
-+        isHovered = false
++        setHovered(false)
++    }
++
++    override func prepareForReuse() {
++        super.prepareForReuse()
++        setHovered(false)
++    }
++
++    override func viewDidMoveToWindow() {
++        super.viewDidMoveToWindow()
++        if window == nil {
++            setHovered(false)
++        }
 +    }
 +
 +    // The top group's rows share one lighter, rounded panel; each row
@@ -38888,10 +40255,10 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a6539f939
+index 0000000000000000000000000000000000000000..72e5ac216ebb6328bfdf42b89a0a35695f19ad10
 --- /dev/null
 +++ b/sources/OmniTerm/OmniUnblockerPane.swift
-@@ -0,0 +1,484 @@
+@@ -0,0 +1,529 @@
 +import AppKit
 +import Foundation
 +
@@ -38912,6 +40279,16 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        }
 +    }
 +
++    // Which of the three checks made the call, cheapest first.
++    static func tierTitle(_ tier: String) -> String {
++        switch tier {
++        case "keywords": return "Keyword check (no model)"
++        case "cheap": return "Quick check (cheap model)"
++        case "smart": return "Full decision"
++        default: return tier
++        }
++    }
++
 +    // The project a session works in: the last folder of its path, skipping
 +    // worktree folders such as `@head`.
 +    static func project(_ cwd: String?) -> String {
@@ -38920,11 +40297,23 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        return parts.last ?? cwd
 +    }
 +
-+    static func title(for entry: [String: Any], now: Date) -> String {
-+        let when = Date(timeIntervalSince1970: (entry["at"] as? NSNumber)?.doubleValue ?? 0)
++    // Made once: a formatter per audit row slowed every load of the page.
++    private static let timeFormatter: DateFormatter = {
 +        let formatter = DateFormatter()
 +        formatter.timeStyle = .short
-+        formatter.dateStyle = Calendar.current.isDate(when, inSameDayAs: now) ? .none : .short
++        formatter.dateStyle = .none
++        return formatter
++    }()
++    private static let dateTimeFormatter: DateFormatter = {
++        let formatter = DateFormatter()
++        formatter.timeStyle = .short
++        formatter.dateStyle = .short
++        return formatter
++    }()
++
++    static func title(for entry: [String: Any], now: Date) -> String {
++        let when = Date(timeIntervalSince1970: (entry["at"] as? NSNumber)?.doubleValue ?? 0)
++        let formatter = Calendar.current.isDate(when, inSameDayAs: now) ? timeFormatter : dateTimeFormatter
 +        let outcome = outcomeTitle(entry["outcome"] as? String ?? "")
 +        let project = project(entry["cwd"] as? String)
 +        return [formatter.string(from: when), outcome, project].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -38972,6 +40361,8 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +    private var audit: [[String: Any]] = []
 +    private var waiting: [[String: Any]] = []
 +    private var policyLoaded = false
++    // True until the audit, policy and waiting sessions first arrive.
++    private var knowledgeLoading = true
 +    private(set) var zones: [(title: String, zone: OmniListZone)] = []
 +    var now: () -> Date = Date.init
 +
@@ -38997,29 +40388,47 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        scroll.frame = bounds
 +    }
 +
++    // Settings answer at once; the audit, policy and waiting sessions go to the
++    // knowledge worker, which can be busy with indexing for a moment. The page
++    // shows as soon as the settings arrive and fills in the rest when it comes.
 +    override func reload() {
 +        var responses: [String: [AnyHashable: Any]] = [:]
 +        let group = DispatchGroup()
 +        let requests: [(String, [String: Any])] = [
-+            ("settings", ["op": "get_settings"]),
 +            ("audit", ["op": "unblocker_audit", "limit": 100]),
 +            ("policy", ["op": "get_unblocker_policy"]),
-+            ("blocked", ["op": "list_blocked", "state": "open", "limit": 50]),
++            ("blocked", ["op": "list_blocked", "state": "open", "answerable_only": true, "limit": 50]),
 +        ]
++        var settingsResponse: [AnyHashable: Any]?
++        group.enter()
++        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
++            settingsResponse = response
++            group.leave()
++            DispatchQueue.main.async {
++                guard let self, self.knowledgeLoading else { return }
++                if OmniPane.isOK(response), let settings = response["settings"] as? [String: Any] {
++                    self.settings = settings
++                    self.rebuild()
++                }
++            }
++        }
 +        for (name, request) in requests {
 +            group.enter()
 +            OmniSchedulerClient.request(request) { response in
-+                responses[name] = response
-+                group.leave()
++                DispatchQueue.main.async {
++                    responses[name] = response
++                    group.leave()
++                }
 +            }
 +        }
 +        group.notify(queue: .main) { [weak self] in
 +            guard let self else { return }
-+            guard let settingsResponse = responses["settings"], OmniPane.isOK(settingsResponse),
++            guard let settingsResponse, OmniPane.isOK(settingsResponse),
 +                  let settings = settingsResponse["settings"] as? [String: Any] else {
-+                self.showMessage(OmniPane.unreachableMessage(responses["settings"] ?? [:]))
++                self.showMessage(OmniPane.unreachableMessage(settingsResponse ?? [:]))
 +                return
 +            }
++            self.knowledgeLoading = false
 +            self.settings = settings
 +            self.audit = responses["audit"]?["entries"] as? [[String: Any]] ?? []
 +            if let index = self.pendingAuditIndex {
@@ -39084,7 +40493,7 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        model.font = OmniTheme.Font.rowTitle
 +        model.delegate = self
 +        model.identifier = NSUserInterfaceItemIdentifier("unblocker-model")
-+        let waitingText = waiting.isEmpty ? "None right now" : "\(waiting.count) waiting"
++        let waitingText = knowledgeLoading ? "Checking…" : waiting.isEmpty ? "None right now" : "\(waiting.count) waiting"
 +        let waitingLabel = OmniTheme.meta(waitingText)
 +        section("Listener", previous: previous, rows: [
 +            ("enabled", OmniSettingRow(title: "Unblock goal sessions",
@@ -39099,7 +40508,7 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        let policyHint = OmniTheme.meta("Your standing rules: which projects are live products and what waits for you. " +
 +                                        (policyPath.isEmpty ? "" : "Stored in \(policyPath)."))
 +        column.addText(policyHint, spacing: 4)
-+        if !policyLoaded || policyEditor.text.isEmpty {
++        if !knowledgeLoading && (!policyLoaded || policyEditor.text.isEmpty) {
 +            policyEditor.text = policy
 +            policyLoaded = true
 +        }
@@ -39128,7 +40537,8 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        }
 +        if rows.isEmpty {
 +            column.addSection("Audit")
-+            column.addText(OmniTheme.meta("Nothing yet. Every decision, and every failure, is listed here for 14 days."),
++            column.addText(OmniTheme.meta(knowledgeLoading ? "Loading…" :
++                                            "Nothing yet. Every decision, and every failure, is listed here for 14 days."),
 +                           spacing: 8)
 +        } else {
 +            column.addSection("Audit")
@@ -39329,7 +40739,9 @@ index 0000000000000000000000000000000000000000..517799655d1dfd1d289811719713fa1a
 +        if let session = entry["session_id"] as? String { facts.append("Session: " + session) }
 +        if let cwd = entry["cwd"] as? String { facts.append("Folder: " + OmniProjectsModel.abbreviated(cwd)) }
 +        if let kind = entry["kind"] as? String { facts.append("Waiting on: " + kind) }
++        if let tier = entry["tier"] as? String { facts.append("Decided by: " + OmniUnblockerModel.tierTitle(tier)) }
 +        if let model = entry["model"] as? String { facts.append("Model: " + model) }
++        if let screen = entry["screen"] as? String { facts.append("Screening: " + screen) }
 +        if let seconds = (entry["seconds"] as? NSNumber)?.doubleValue { facts.append(String(format: "Took: %.0f s", seconds)) }
 +        add("Details", facts.joined(separator: "\n"))
 +        return result
@@ -39501,7 +40913,7 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..2451ab552b1dfd7cc1ac03f03b54baba2cbe5058 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..c9657b3c859d67eec705df763f1b9871db163dc9 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
 @@ -390,6 +390,51 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
@@ -39528,7 +40940,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..2451ab552b1dfd7cc1ac03f03b54baba
 +- (void)omniShowSettings;
 +- (void)omniShowUnblocker;
 +- (void)omniShowUnblockerAuditEntry:(NSInteger)index;
-+- (void)omniShowProjects:(NSString *)root;
++- (void)omniShowProjects:(NSString *)root file:(NSString *)file;
 +- (void)omniShowSearchResults:(NSString *)query;
 +- (void)omniShowQuickNav:(NSString *)query;
 +// Saves the frame of the window if it is on screen (for quitting).
@@ -39557,7 +40969,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..2451ab552b1dfd7cc1ac03f03b54baba
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..722937f5044995ca1db37e4fdf9535b7766a539c 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e42b6c76a8 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -39809,8 +41221,8 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..722937f5044995ca1db37e4fdf9535b7
 +    [_omniSidebar showUnblockerAuditEntry:index];
 +}
 +
-+- (void)omniShowProjects:(NSString *)root {
-+    [_omniSidebar showProjects:root];
++- (void)omniShowProjects:(NSString *)root file:(NSString *)file {
++    [_omniSidebar showProjects:root file:file];
 +}
 +
 +- (void)omniShowSearchResults:(NSString *)query {

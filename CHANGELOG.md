@@ -7,6 +7,48 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-25
+
+### Added
+
+- Pin sessions (right-click a session, Pin): pinned sessions sit at the top
+  of Sessions mode, in the order pinned.
+- Double-click a session in the sidebar to rename it in place; the name is
+  saved the provider's own way, as Rename… on its page does.
+- The view each list uses shows on its section header (By Project, My
+  Folders, Live, Recent, All) and switches from there, in Sessions and in
+  Agents, as well as from the options menu.
+- Project, Knowledge and Files pages render Markdown as GitHub and Obsidian
+  read it: front matter folds into a Properties block, fenced code sits on
+  shaded blocks with its language, quotes and Obsidian callouts are styled,
+  tables are real tables, lists indent and number properly, task items show
+  checkboxes, and image badges and raw HTML show their text. Other files
+  show as code.
+- `omniterm://project/<root>?file=<path>` opens a project on one file.
+
+### Changed
+
+- By project or in folders, live sessions sit inside their project or
+  folder, first among their neighbours, instead of in a separate Live
+  section; the Live, Recent, All view keeps them apart. In Agents by project,
+  each agent's runs sit under it in its project.
+- In Agents with My Folders, runs are grouped by their agent's folder.
+- The Unblocker spends far fewer tokens: a keyword check decides first with
+  no model call, an unsure turn goes to a cheap model (Claude Haiku, then a
+  fast Codex model, each named explicitly, never the default), and only a
+  suspected block reaches the full decision. A failing link is skipped and
+  the next tried. Each audit entry records which step decided.
+- The Unblocker page draws at once and fills in as the rest arrives, and asks
+  only for the sessions it can answer.
+
+### Fixed
+
+- The Command-K navigator's search icon no longer overlaps its text.
+- A sidebar row no longer stays highlighted after the pointer has left it.
+- The Inbox toolbar no longer piles up on a narrow window: the filters
+  shrink, then the least used ones step aside.
+- A long file name no longer pushes a file's line count out of its header.
+
 ## [0.5.0] - 2026-11-25
 
 ### Added
@@ -881,7 +923,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/wandernb/omniterm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/wandernb/omniterm/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/wandernb/omniterm/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/wandernb/omniterm/compare/v0.3.0...v0.3.1

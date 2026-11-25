@@ -717,8 +717,11 @@ class HeldDialogTests(unittest.TestCase):
 
 
 class ListenerPassTests(unittest.TestCase):
-    def pass_with(self, blocks, verdict):
+    def pass_with(self, blocks, verdicts=None, decide="done"):
+        """Two passes over `blocks`. `verdicts` maps a cheap link ("claude/haiku")
+        to its reply, or to an exception it raises; no model is ever called."""
         calls, audits = [], []
+        verdicts = verdicts or {}
 
         def request(payload):
             op = payload["op"]
@@ -729,11 +732,20 @@ class ListenerPassTests(unittest.TestCase):
             return {}
 
         def run(command, **_):
-            calls.append("triage" if TRIAGE in command else "decide")
-            result = {"type": "result", "result": verdict if TRIAGE in command else "done"}
-            return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+            if UNBLOCKER.TRIAGE_PROMPT not in " ".join(command):
+                calls.append("decide")
+                return subprocess.CompletedProcess(command, 0, json.dumps({"type": "result", "result": decide}), "")
+            provider = command[0]
+            model = command[command.index("--model" if provider == "claude" else "-m") + 1]
+            link = f"{provider}/{model}"
+            calls.append(link)
+            reply = verdicts.get(link, subprocess.TimeoutExpired(command, 60))
+            if isinstance(reply, BaseException):
+                raise reply
+            if provider == "codex":
+                return subprocess.CompletedProcess(command, 0, reply, "")
+            return subprocess.CompletedProcess(command, 0, json.dumps({"type": "result", "result": reply}), "")
 
-        TRIAGE = UNBLOCKER.TRIAGE_PROMPT
         with tempfile.TemporaryDirectory() as home:
             environ = {"PATH": "/usr/bin", "SHELL": "/bin/false"}
             UNBLOCKER.run_pass(request, home=home, environ=environ, run=run)
@@ -744,16 +756,45 @@ class ListenerPassTests(unittest.TestCase):
         return {"block_id": str(uuid.uuid4()), "session_id": "claude:s", "kind": "idle", "prompt": prompt,
                 "goal": {"command": "/goal", "objective": "ship it"}, "denials": [], **extra}
 
-    def test_a_quiet_turn_is_screened_once_and_never_escalated(self):
-        calls, audits = self.pass_with([self.block("Built and tested.")], "NO, it is working")
-        self.assertEqual(calls, ["triage"])
-        self.assertTrue(audits[0]["detail"].startswith("Quick check"))
+    def test_a_plainly_finished_turn_costs_no_call_and_is_audited_once(self):
+        calls, audits = self.pass_with([self.block("Built and tested. Pushed to master.")])
+        self.assertEqual(calls, [])
+        self.assertEqual(len(audits), 1)
+        self.assertEqual((audits[0]["tier"], audits[0]["outcome"]), ("keywords", "no_action"))
 
-    def test_a_turn_asking_for_the_person_goes_straight_to_the_decision(self):
-        block = self.block("Blocked, needs you: run ! git push", asks_person=True)
-        calls, _ = self.pass_with([block], "NO")
+    def test_a_direct_prompt_skips_screening(self):
+        for prompt in ("Migration ready. Do you want me to run it on production?", "Push now (y/n)",
+                       "Blocked, needs you: run ! git push"):
+            calls, audits = self.pass_with([self.block(prompt, asks_person=BLOCKS.asks_person(prompt))])
+            self.assertEqual(calls[0], "decide", prompt)
+            self.assertEqual(audits[0]["tier"], "smart")
+
+    def test_a_held_dialog_is_never_screened(self):
+        calls, _ = self.pass_with([self.block("Working on it.", held=True)], {"claude/haiku": "NO"})
         self.assertEqual(calls[0], "decide")
-        self.assertNotIn("triage", calls)
+
+    def test_an_unsure_turn_is_screened_once_by_the_cheap_model(self):
+        calls, audits = self.pass_with([self.block("Deploy needs a manual step on the server.")],
+                                       {"claude/haiku": "NO, it is working"})
+        self.assertEqual(calls, ["claude/haiku"])
+        self.assertEqual((audits[0]["tier"], audits[0]["model"]), ("cheap", "claude/haiku"))
+
+    def test_a_failed_cheap_model_falls_back_to_the_next_then_to_words(self):
+        prompt = "Deploy needs a manual step on the server."
+        calls, audits = self.pass_with([self.block(prompt)], {"codex/gpt-6-luna": "YES, it lists a command"})
+        self.assertEqual(calls[:3], ["claude/haiku", "codex/gpt-6-luna", "decide"])
+        self.assertIn("cheap codex/gpt-6-luna: YES", audits[0]["screen"])
+        calls, audits = self.pass_with([self.block(prompt)], {"claude/haiku": OSError("no claude")})
+        self.assertEqual(calls[:3], ["claude/haiku", "codex/gpt-6-luna", "decide"])
+        self.assertTrue(audits[0]["screen"].startswith("cheap tiers failed"))
+        self.assertEqual(audits[0]["tier"], "smart")
+
+    def test_cheap_calls_name_an_explicit_model(self):
+        block = self.block("x")
+        for provider, model in UNBLOCKER.CHEAP_MODELS:
+            command = UNBLOCKER.triage_command(block, provider, model)
+            self.assertIn(model, command)
+            self.assertTrue({"--model", "-m"} & set(command))
 
 
 if __name__ == "__main__":
