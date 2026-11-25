@@ -38,6 +38,11 @@ export OMNITERM_NOTARY_PROFILE='omniterm-notary'
 ./scripts/package-release.sh 0.3.1
 ```
 
+The app bundles Forge, OmniTerm's project layer, at `Contents/Resources/Forge`.
+The build takes it from `$OMNI_FORGE_SRC`, or from the checkout behind `forge`
+on `PATH`, and a release build stops if it finds neither. Commit and push Forge
+first: `Contents/Resources/Forge/VERSION` records the Forge commit it shipped.
+
 `scripts/signing-entitlements.sh` prepares the entitlements. For a Developer ID
 it expands `$(TeamIdentifierPrefix)`, taking the team from the identity name or
 `OMNITERM_TEAM_ID`, and fails if any build variable remains. For an ad-hoc build

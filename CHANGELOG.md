@@ -19,10 +19,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   recent sessions, README), Worktrees & Branches, Sessions & Agents,
   Knowledge, Files (a folder browser) and Settings. ⌘1 to ⌘6 switch tabs.
   Env files, secrets and keys are listed but never opened.
-- Development builds bundle Forge inside the app (Contents/Resources/Forge),
-  so the Projects features work on a Mac without Forge installed; an installed
-  Forge is used first. Public release builds leave it out unless
-  `OMNI_BUNDLE_FORGE=1`, since Forge is a separate, private repository.
+- OmniTerm bundles Forge inside the app (Contents/Resources/Forge), so the
+  Projects features work on a Mac without Forge installed; an installed Forge
+  is used first. Forge stays its own repository.
 
 ### Fixed
 
@@ -39,7 +38,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - The Omni Unblocker answers the way you would: it reads your own global
   agent instructions and a session's earlier replies, not only its last
   "still blocked" line, and settles a reversible choice inside the goal with
-  the session's own recommendation instead of leaving it for you.
+  the session's own recommendation instead of leaving it for you. What goes
+  into a public repository or release always stays your call.
 
 ## [0.4.0] - 2026-11-25
 

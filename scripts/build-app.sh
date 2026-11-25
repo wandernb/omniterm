@@ -113,25 +113,32 @@ for module in omni_knowledge.py omni_messages.py omni_embeddings.py omni_semanti
     install -m 0644 "$project_dir/helpers/$module" "$app_dir/Contents/Resources/Helpers/$module"
 done
 install -m 0644 "$project_dir/helpers/omni_knowledge_schema.sql" "$app_dir/Contents/Resources/Helpers/omni_knowledge_schema.sql"
-# Forge, OmniTerm's project layer, ships inside development builds as a
-# dependency: helpers/omni_projects.py runs the installed forge first and this
-# copy when none is installed. It is its own (private) repository, so a
-# Deployment (public release) build leaves it out unless OMNI_BUNDLE_FORGE=1.
-# The source is $OMNI_FORGE_SRC, else the checkout behind `forge` on PATH.
+# Forge, OmniTerm's project layer, ships inside the app as a dependency
+# (Contents/Resources/Forge): helpers/omni_projects.py runs an installed forge
+# first and this copy otherwise. Forge stays its own repository; the source is
+# $OMNI_FORGE_SRC, else the checkout behind `forge` on PATH. A release
+# (Deployment) build fails without it; OMNI_BUNDLE_FORGE=0 leaves it out.
 forge_src="${OMNI_FORGE_SRC:-}"
 if [[ -z "$forge_src" ]] && command -v forge >/dev/null 2>&1; then
     forge_bin="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$(command -v forge)")"
     forge_src="$(dirname "$(dirname "$forge_bin")")"
 fi
-if [[ "$configuration" != "Deployment" || "${OMNI_BUNDLE_FORGE:-0}" == "1" ]] && [[ -n "$forge_src" && -f "$forge_src/bin/forge" && -d "$forge_src/forge_cli" ]]; then
-    rm -rf "$app_dir/Contents/Resources/Forge"
-    mkdir -p "$app_dir/Contents/Resources/Forge/bin"
-    install -m 0755 "$forge_src/bin/forge" "$app_dir/Contents/Resources/Forge/bin/forge"
-    for package in forge_cli adapters; do
-        rsync -a --exclude '__pycache__' --exclude '*.pyc' "$forge_src/$package" "$app_dir/Contents/Resources/Forge/"
-    done
-    git -C "$forge_src" rev-parse --short HEAD > "$app_dir/Contents/Resources/Forge/VERSION" 2>/dev/null || true
-    echo "Bundled forge from $forge_src"
+if [[ "${OMNI_BUNDLE_FORGE:-1}" != "0" ]]; then
+    if [[ -n "$forge_src" && -f "$forge_src/bin/forge" && -d "$forge_src/forge_cli" ]]; then
+        rm -rf "$app_dir/Contents/Resources/Forge"
+        mkdir -p "$app_dir/Contents/Resources/Forge/bin"
+        install -m 0755 "$forge_src/bin/forge" "$app_dir/Contents/Resources/Forge/bin/forge"
+        for package in forge_cli adapters; do
+            rsync -a --exclude '__pycache__' --exclude '*.pyc' "$forge_src/$package" "$app_dir/Contents/Resources/Forge/"
+        done
+        git -C "$forge_src" rev-parse --short HEAD > "$app_dir/Contents/Resources/Forge/VERSION" 2>/dev/null || true
+        echo "Bundled forge $(cat "$app_dir/Contents/Resources/Forge/VERSION" 2>/dev/null)"
+    elif [[ "$configuration" == "Deployment" ]]; then
+        echo "error: a release bundles forge; set OMNI_FORGE_SRC to a forge checkout, or OMNI_BUNDLE_FORGE=0" >&2
+        exit 1
+    else
+        echo "warning: forge not found; this build has no bundled forge" >&2
+    fi
 fi
 install -m 0644 "$project_dir/assets/OmniTerm.icns" "$app_dir/Contents/Resources/OmniTerm.icns"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile OmniTerm.icns' "$app_dir/Contents/Info.plist"
