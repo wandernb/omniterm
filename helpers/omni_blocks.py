@@ -82,6 +82,13 @@ def _session(provider, raw):
 
 def transcript_tail(path, home=None, max_bytes=262144):
     """The last assistant text in a Claude JSONL transcript under ~/.claude/projects."""
+    texts = assistant_texts(path, home, 1, max_bytes)
+    return texts[0] if texts else ""
+
+
+def assistant_texts(path, home=None, count=4, max_bytes=1048576):
+    """The last `count` distinct assistant texts, newest first. A session that keeps
+    answering "still blocked" has its real question in an earlier reply."""
     if not isinstance(path, str) or not path:
         return ""
     root = (Path(home) if home else Path.home()) / ".claude/projects"
@@ -96,6 +103,7 @@ def transcript_tail(path, home=None, max_bytes=262144):
             data = handle.read()
     except OSError:
         return ""
+    texts = []
     for line in reversed(data.decode("utf-8", "replace").splitlines()):
         try:
             entry = json.loads(line)
@@ -112,9 +120,12 @@ def transcript_tail(path, home=None, max_bytes=262144):
                              if isinstance(part, dict) and part.get("type") == "text")
         else:
             text = ""
-        if text.strip():
-            return clean_text(text, MAX_PROMPT)
-    return ""
+        text = clean_text(text, MAX_PROMPT) if text.strip() else ""
+        if text and text not in texts:
+            texts.append(text)
+            if len(texts) >= count:
+                break
+    return texts
 
 
 def transcript_request(path, home=None, max_bytes=1048576):
@@ -950,6 +961,24 @@ def owner_policy(home=None, maximum=6000):
             return path.read_text(errors="replace")[:maximum]
     except OSError:
         pass
+    return ""
+
+
+OWNER_RULES = (".claude/CLAUDE.md", ".codex/AGENTS.md")
+
+
+def owner_rules(home=None, maximum=12000):
+    """The person's own global instructions to every agent (how to decide, what
+    never goes public), so the unblocker answers the way they would. One file:
+    the Codex copy is often a link to the same text."""
+    base = Path(home) if home else Path.home()
+    for name in OWNER_RULES:
+        path = base / name
+        try:
+            if path.is_file():
+                return path.read_text(errors="replace")[:maximum]
+        except OSError:
+            continue
     return ""
 
 

@@ -36,6 +36,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - The Omni Unblocker no longer nudges a session that is waiting on its own
   running build, test, deploy or background task.
+- The Omni Unblocker answers the way you would: it reads your own global
+  agent instructions and a session's earlier replies, not only its last
+  "still blocked" line, and settles a reversible choice inside the goal with
+  the session's own recommendation instead of leaving it for you.
 
 ## [0.4.0] - 2026-11-25
 
