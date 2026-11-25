@@ -9,6 +9,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- The Omni Unblocker only keeps goal-driven sessions moving: a `/goal`, a
+  `/loop`, a goal command from your unblock policy, or a prompt that plainly
+  asks for work to be finished. It leaves finished
+  sessions, memos, proposals and new directions to you. On those sessions it
+  can now allow permission prompts and answer `AskUserQuestion` dialogs that
+  serve the goal, and it can authorize actions that auto mode denied. It never
+  allows production, personal-file, secret or permanent-deletion actions.
+- Messages from the unblocker and other sessions no longer show `&#x27;` and
+  `&amp;` in Claude sessions.
 - Sidebar modes. A switch at the top of the sidebar flips between Agents (the
   existing agents, runs and terminals) and Sessions, which lists every Claude
   Code and Codex session on the Mac, live or past, most recent first. Picking a

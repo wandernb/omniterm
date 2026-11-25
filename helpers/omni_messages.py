@@ -2,7 +2,6 @@
 
 import base64
 import hashlib
-import html
 import json
 import os
 import re
@@ -29,6 +28,7 @@ DISCOVERY_TIMEOUT = 12
 DISCOVERY_CACHE_SECONDS = 15
 MAX_PROXY_FRAME = 1024 * 1024
 MAX_LOADED_PAGES = 100
+WRAPPER_TAG = re.compile(r"<(?=/?\s*cross-session-message)", re.I)
 
 
 def read_proxy_bytes(process, deadline, buffer, count):
@@ -199,7 +199,10 @@ def provider_message_text(receipt):
     marker = message_marker(receipt)
     if provider == "claude":
         content = f"From {sender}:\n{marker}\n{body}"
-        return '<cross-session-message from-name="OmniTerm">\n' + html.escape(content) + "\n</cross-session-message>"
+        # Claude shows the body as typed, so only the wrapper tag is neutralised:
+        # escaping all of it put &#x27; and &amp; in front of the person.
+        content = WRAPPER_TAG.sub("&lt;", content)
+        return '<cross-session-message from-name="OmniTerm">\n' + content + "\n</cross-session-message>"
     return f"OmniTerm cross-session message from {sender}:\n{marker}\n{body}"
 
 

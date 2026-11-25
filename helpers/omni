@@ -3937,13 +3937,55 @@ def run_hook(provider, payload_text, environ=None, send=None):
             return None
         response = send({"op": "record_block", "event": event})
         if response and response.get("ok") and response.get("escalate") and response.get("block"):
-            notice = blocks.notification_for(response["block"])
-            notice.update({"workspace": event.get("cwd") or None, "include_diff": False})
-            for key, variable in (("run_id", "OMNITERM_RUN_ID"), ("agent", "OMNITERM_AGENT")):
-                if environ.get(variable):
-                    notice[key] = environ[variable]
-            send({key: value for key, value in notice.items() if value is not None})
+            escalate_block(blocks, response["block"], event, environ, send)
         return response
+    except Exception:  # noqa: BLE001 - a hook that raises would surface in the provider's TUI
+        return None
+
+
+def escalate_block(blocks, block, event, environ, send):
+    notice = blocks.notification_for(block)
+    notice.update({"workspace": event.get("cwd") or None, "include_diff": False})
+    for key, variable in (("run_id", "OMNITERM_RUN_ID"), ("agent", "OMNITERM_AGENT")):
+        if environ.get(variable):
+            notice[key] = environ[variable]
+    send({key: value for key, value in notice.items() if value is not None})
+
+
+def permission_hook(payload_text, environ=None, send=None, sleep=time.sleep, clock=time.monotonic):
+    """PermissionRequest: on a goal-driven session, hold the dialog for the unblocker.
+
+    Returns the hook's JSON reply when the unblocker allowed the action, else None,
+    and Claude Code shows the dialog to the person as usual."""
+    environ = os.environ if environ is None else environ
+    send = send or (lambda body: quick_request(body, timeout=30))
+    try:
+        blocks = blocks_module()
+        if environ.get("OMNITERM_AGENT") in blocks.MANAGED_AGENTS:
+            return None
+        payload = json.loads(payload_text or "null")
+        event = blocks.claude_event(payload)
+        if not blocks.holdable(event):
+            return None
+        response = send({"op": "record_block", "event": event}) or {}
+        block = response.get("block") if response.get("ok") else None
+        if not block:
+            return None
+        if response.get("escalate"):
+            escalate_block(blocks, block, event, environ, send)
+        if not block.get("held"):
+            return None
+        deadline = clock() + blocks.HOLD_SECONDS
+        while clock() < deadline:
+            sleep(4)
+            reply = send({"op": "get_block", "block_id": block["block_id"]}) or {}
+            current = reply.get("block") or {}
+            if current.get("state") == "decided":
+                return blocks.permission_output(current.get("decision"), payload.get("tool_input"))
+            if reply.get("ok") is False or (current and (current.get("state") != "open" or not current.get("held"))):
+                break  # gone, replaced by a newer dialog, skipped or expired
+        escalate_block(blocks, block, event, environ, send)
+        return None
     except Exception:  # noqa: BLE001 - a hook that raises would surface in the provider's TUI
         return None
 
@@ -3974,6 +4016,18 @@ def blocks_command(args):
                 chained = words[1:]
         else:
             payload = sys.stdin.read(1048576)
+        if args.provider == "claude" and '"PermissionRequest"' in payload:
+            try:
+                is_permission = json.loads(payload).get("hook_event_name") == "PermissionRequest"
+            except (ValueError, AttributeError):
+                return
+            if is_permission and blocks.holdable(blocks.claude_event(json.loads(payload))):
+                # A goal session waits for this one: it holds the dialog for the unblocker.
+                # Any other dialog is only recorded, from the detached child below.
+                output = permission_hook(payload)
+                if output:
+                    print(json.dumps(output))
+                return
         if args.provider == "claude" and '"SessionStart"' in payload:
             try:
                 if json.loads(payload).get("hook_event_name") == "SessionStart":

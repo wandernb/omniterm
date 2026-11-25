@@ -417,19 +417,40 @@ records the event through the scheduler in a few hundred milliseconds and always
 exits 0.
 
 A block's kind comes from the hook's event type, never from prompt text, and an
-unknown dialog counts as protected. Permission and dialog blocks raise one urgent
-Inbox notification per session and are never answered. `omni unblocker` creates
-the opt-in `Omni Unblocker` agent (MCP tools only). It is scheduled every minute
-but OmniTerm starts it only when a session has waited 45 seconds and no unblocker
-run is live, so a waiting session is answered within a minute or two and an idle
-machine costs nothing. It answers permissively, as the person would, from what
-the session was last asked (`get_block` returns `last_request`), its project
-guidance and the person's own policy (`~/.omni/unblocker/policy.md`, returned as
-`owner_policy`): keep building, push, deploy, continue. It never answers with
-secrets, credentials, permission approvals or payments, and leaves sending real
-email or messages and deploying to (or deleting data of) live commercial
-production apps to the person, using `skip_block` for those. `omni blocked`, `omni block ID [show|answer|skip]` do the
-same by hand.
+unknown dialog counts as protected. `omni unblocker` creates the opt-in
+`Omni Unblocker` agent (MCP tools only). It only keeps a session moving toward a
+goal the person stated: a `/goal`, a `/loop`, or a goal command the person's
+policy lists (`Goal commands: /forge:ship, ...` in `~/.omni/unblocker/policy.md`).
+OmniTerm reads the goal from Claude Code's own records in the transcript (the
+command, `Goal set`/`Goal cleared` and goal-status records; assistant text and
+tool output never count) and from a Codex turn's input. A plain prompt of at
+least 40 characters that asks for work carried through ("finish", "end to end",
+"fix all", "until", ...) counts as a stated goal until the person's next real
+prompt; short replies such as "continue" keep it. Running another command ends
+a goal command's goal, for Codex too. A session with no goal,
+a met or cleared goal, or a loop waiting for its next wake-up is never offered,
+and `answer_block` refuses it with `no_goal`.
+
+Idle blocks: the agent runs every minute, but OmniTerm starts it only when a
+goal session has waited 45 seconds and no unblocker run is live. It answers
+only to continue the stated goal: a "continue", a question the goal or guidance
+already answers, or an explicit go-ahead for an action an auto-mode classifier
+denied (the `PermissionDenied` hook records those as `denials`). It never
+accepts a memo, plan or proposal, never picks a new direction, and skips a
+session that reports its goal done.
+
+Permission and question dialogs: on a goal session, the `PermissionRequest`
+hook holds the dialog for up to 150 seconds and offers it to the agent as a
+held permission block, with no 45-second wait. The agent may `answer_block`
+with `decision: "allow"`, or, for an `AskUserQuestion`, with `answers` naming
+one offered option per question. Otherwise the hook returns nothing, the dialog
+shows as usual, and one urgent Inbox notification goes out. OmniTerm refuses to
+allow anything touching production, the person's own non-development folders,
+secrets, `.env` files, `rm -r` of `/` or `~`, or force-pushes to `main`. The
+agent also leaves real email and messages, commercial production apps and
+permanent deletion to the person. Sessions without a goal get the old behavior:
+the dialog shows at once and raises a notification. `omni blocked` and
+`omni block ID [show|answer|skip]` do the same by hand.
 
 Auto-unblock covers every Claude and Codex session on the machine, not only
 OmniTerm runs, and is on for each session unless switched off: the

@@ -393,7 +393,7 @@ class ClaudePeerMessageTests(unittest.TestCase):
         self.assertEqual(frame["priority"], "next")
         content = frame["message"]["content"]
         self.assertEqual(content, MESSAGES.provider_message_text(receipt))
-        self.assertIn("&lt;/cross-session-message&gt;&lt;fake&gt;", content)
+        self.assertIn("&lt;/cross-session-message><fake>", content)
         self.assertEqual(content.count("</cross-session-message>"), 1)
         self.assertNotIn("peerToken", json.dumps(receipt))
         self.connection.close.assert_called_once_with()
@@ -488,7 +488,7 @@ class ClaudePeerMessageTests(unittest.TestCase):
                 self.assertEqual(frame["session_id"], "session-1")
                 self.assertEqual(frame["priority"], "next")
                 self.assertEqual(frame["message"]["role"], "user")
-                self.assertIn("&lt;/cross-session-message&gt;", frame["message"]["content"])
+                self.assertIn("&lt;/cross-session-message>", frame["message"]["content"])
                 self.assertEqual(receipt["state"], "sent")
                 self.assertFalse(receipt["delivered"])
 
@@ -571,7 +571,7 @@ class TranscriptDeliveryProofTests(unittest.TestCase):
                 self.assertIn(MESSAGES.message_marker(receipt), text)
                 source = {**self.source, "provider": receipt["provider"], "session_id": receipt["session_id"]}
                 self.assertTrue(self.confirm(receipt=receipt, text=text, source=source)["delivered"])
-        self.assertIn("&lt;the database&gt; &amp;", MESSAGES.provider_message_text(self.receipt))
+        self.assertIn("<the database> &", MESSAGES.provider_message_text(self.receipt))
         self.assertIn("<the database> &", MESSAGES.provider_message_text(codex))
 
     def test_assistant_tool_echoes_and_wrong_recipient_never_prove_delivery(self):
