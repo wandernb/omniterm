@@ -29236,10 +29236,10 @@ index 0000000000000000000000000000000000000000..36ee4287771a3f6c780a3b6b7aaf0b56
 +@end
 diff --git a/sources/OmniTerm/OmniSessionChat.swift b/sources/OmniTerm/OmniSessionChat.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..1a252ea50397484414d59966800b5f8ddea1c551
+index 0000000000000000000000000000000000000000..cb8345ed2133052247beb942dee597102b824aa5
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSessionChat.swift
-@@ -0,0 +1,1328 @@
+@@ -0,0 +1,1334 @@
 +import AppKit
 +import Foundation
 +
@@ -30447,6 +30447,12 @@ index 0000000000000000000000000000000000000000..1a252ea50397484414d59966800b5f8d
 +                chipIcon.contentTintColor = OmniTheme.accent
 +                chipLabel.textColor = .labelColor
 +                accentBar.layer?.backgroundColor = OmniTheme.accent.withAlphaComponent(0.7).cgColor
++                // A skill's instructions are parsed Markdown: the Markdown card.
++                if case .skill = item.kind {
++                    bubble.layer?.backgroundColor = OmniTheme.cardFill.cgColor
++                    bubble.layer?.borderWidth = 1
++                    bubble.layer?.borderColor = OmniTheme.cardBorder.cgColor
++                }
 +            case .interrupted:
 +                bubble.layer?.backgroundColor = Self.card.cgColor
 +                bubble.layer?.cornerRadius = 8
