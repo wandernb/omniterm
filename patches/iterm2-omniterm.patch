@@ -6747,10 +6747,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..688bb242118ea9829f64a2b7e8fe1d02c20611a5
+index 0000000000000000000000000000000000000000..1568811f82c7feb4da6d8eca381669a314757528
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,1746 @@
+@@ -0,0 +1,1750 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7900,9 +7900,9 @@ index 0000000000000000000000000000000000000000..688bb242118ea9829f64a2b7e8fe1d02
 +        XCTAssertEqual(sidebar.shownRoute, .settings)
 +    }
 +
-+    func testTheSearchBarFiltersAgentsToo() throws {
++    func testOneSearchFindsAgentsInEveryMode() throws {
 +        showSidebarWithPages()
-+        XCTAssertEqual(searchField.placeholderString, "Search agents")
++        XCTAssertEqual(searchField.placeholderString, "Search")
 +        XCTAssertNil(searchField.searchMenuTemplate, "The provider menu is for sessions")
 +        search("zzz-no-such-agent")
 +        XCTAssertNil(row(titled: "Alpha"))
@@ -7911,8 +7911,12 @@ index 0000000000000000000000000000000000000000..688bb242118ea9829f64a2b7e8fe1d02
 +        XCTAssertNotNil(row(titled: "Alpha"))
 +        search("")
 +        sidebar.setMode(.sessions)
-+        XCTAssertEqual(searchField.placeholderString, "Search sessions")
++        XCTAssertEqual(searchField.placeholderString, "Search")
 +        XCTAssertNotNil(searchField.searchMenuTemplate)
++        XCTAssertNil(row(titled: "Alpha"), "Sessions mode lists no agents")
++        search("alp")
++        XCTAssertNotNil(row(titled: "Alpha"), "but its search finds them")
++        search("")
 +    }
 +
 +    func testAHairlineSeparatesTheTitleBarFromTheSidebarAndTheContent() throws {
@@ -21633,10 +21637,10 @@ index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc
 +}
 diff --git a/sources/OmniTerm/OmniPanes.swift b/sources/OmniTerm/OmniPanes.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d9920180ab06
+index 0000000000000000000000000000000000000000..7ea22e1f7820bb6d2f7b6e28139ac137c058bf73
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanes.swift
-@@ -0,0 +1,1101 @@
+@@ -0,0 +1,1184 @@
 +import AppKit
 +import Foundation
 +
@@ -21724,8 +21728,13 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +    // Return opens the agent or the run.
 +    let upcomingZone = OmniListZone()
 +    let latestZone = OmniListZone()
++    // Return opens the project or the session.
++    let projectsZone = OmniListZone()
++    let sessionsZone = OmniListZone()
 +    private lazy var upcomingColumn = makeListColumn(upcomingZone)
 +    private lazy var latestColumn = makeListColumn(latestZone)
++    private lazy var projectsColumn = makeListColumn(projectsZone)
++    private lazy var sessionsColumn = makeListColumn(sessionsZone)
 +    private var buttonsZone: OmniButtonZone?
 +
 +    override var contentViews: [NSView] {
@@ -21733,7 +21742,7 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +    }
 +
 +    override var focusZones: [OmniFocusZone] {
-+        return [upcomingZone, latestZone] + (buttonsZone.map { [$0] } ?? [])
++        return [projectsZone, sessionsZone, upcomingZone, latestZone] + (buttonsZone.map { [$0] } ?? [])
 +    }
 +
 +    override init() {
@@ -21754,9 +21763,16 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +        var agentsResponse: [AnyHashable: Any]?
 +        var runsResponse: [AnyHashable: Any]?
 +        var inboxResponse: [AnyHashable: Any]?
++        var sessionsResponse: [AnyHashable: Any]?
 +        let finish = { [weak self] in
-+            guard let self, let agentsResponse, let runsResponse, let inboxResponse else { return }
-+            self.render(agents: agentsResponse, runs: runsResponse, inbox: inboxResponse)
++            guard let self, let agentsResponse, let runsResponse, let inboxResponse, let sessionsResponse else { return }
++            self.render(agents: agentsResponse, runs: runsResponse, inbox: inboxResponse,
++                        sessions: sessionsResponse["sessions"] as? [[AnyHashable: Any]] ?? [])
++        }
++        // Recent sessions, and through them the recently active projects.
++        OmniSchedulerClient.request(["op": "list_sessions", "order": "recent", "limit": 40]) { response in
++            sessionsResponse = response
++            finish()
 +        }
 +        OmniSchedulerClient.request(["op": "list_agents"]) { response in
 +            agentsResponse = response
@@ -21773,7 +21789,7 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +    }
 +
 +    private func render(agents agentsResponse: [AnyHashable: Any], runs runsResponse: [AnyHashable: Any],
-+                        inbox inboxResponse: [AnyHashable: Any]) {
++                        inbox inboxResponse: [AnyHashable: Any], sessions: [[AnyHashable: Any]]) {
 +        guard Self.isOK(agentsResponse), Self.isOK(runsResponse) else {
 +            lastSignature = ""
 +            showMessage(Self.unreachableMessage(Self.isOK(agentsResponse) ? runsResponse : agentsResponse))
@@ -21784,7 +21800,8 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +        let unread = (inboxResponse["unread_count"] as? NSNumber)?.intValue ?? 0
 +        // Relative times move, so the minute is part of what is shown.
 +        let minute = Int(Date().timeIntervalSince1970 / 60)
-+        let signature = Self.signature(agentRows, runRows, unread, minute)
++        let sessionKeys = sessions.map { "\($0["session_id"] ?? "")|\($0["updated"] ?? "")|\($0["title"] ?? "")" }
++        let signature = Self.signature(agentRows, runRows, unread, minute, sessionKeys)
 +        guard signature != lastSignature else { return }
 +        lastSignature = signature
 +
@@ -21792,17 +21809,80 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +        // Background housekeeping (memory consolidation) has its own page.
 +        let background = Set(agents.filter(\.isBackground).map(\.name))
 +        let runs = runRows.compactMap(OmniRun.init).filter { !background.contains($0.agent) }
-+        guard !agents.isEmpty || !runs.isEmpty else {
++        guard !agents.isEmpty || !runs.isEmpty || !sessions.isEmpty else {
 +            showMessage("No agents yet.\n\nCreate one with “omni agent add <workspace>” in a terminal, or ask Claude or Codex to schedule one through OmniTerm’s MCP tools.")
 +            return
 +        }
 +
 +        preservingZoneFocus {
-+            rebuild(agents: agents, runs: runs, unread: unread)
++            rebuild(agents: agents, runs: runs, unread: unread, sessions: sessions)
 +        }
 +    }
 +
-+    private func rebuild(agents: [OmniAgent], runs: [OmniRun], unread: Int) {
++    // The projects of the newest sessions, newest first, each once.
++    static func recentProjects(_ sessions: [[AnyHashable: Any]]) -> [(root: String, name: String, updated: Double?)] {
++        var seen = Set<String>()
++        var result: [(root: String, name: String, updated: Double?)] = []
++        for session in sessions {
++            guard let project = session["project"] as? [String: Any],
++                  let root = project["root"] as? String ?? project["id"] as? String,
++                  seen.insert(root).inserted else { continue }
++            let name = project["name"] as? String ?? (root as NSString).lastPathComponent
++            result.append((root: root, name: name, updated: (session["updated"] as? NSNumber)?.doubleValue))
++        }
++        return result
++    }
++
++    private func addRecentProjectsAndSessions(_ sessions: [[AnyHashable: Any]], to column: OmniColumnView) {
++        projectsColumn.removeAll()
++        sessionsColumn.removeAll()
++        column.addSection("Recent projects")
++        let projects = Self.recentProjects(sessions).prefix(5)
++        if projects.isEmpty {
++            column.addText(OmniPaneText.label("No recent project activity.", color: OmniTheme.secondaryText))
++        }
++        var projectItems: [(key: String, view: OmniZoneItem)] = []
++        for project in projects {
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.shippingbox.rawValue), iconColor: nil,
++                                         title: project.name,
++                                         detail: OmniProjectsModel.abbreviated(project.root),
++                                         badge: OmniSessionText.age(project.updated), status: nil) { [weak self] in
++                self?.actions?.paneOpen(.project(project.root))
++            }
++            projectItems.append((project.root, row))
++            projectsColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
++        }
++        projectsZone.setItems(projectItems)
++        if !projects.isEmpty {
++            addList(projectsColumn, to: column)
++        }
++
++        column.addSection("Recent sessions")
++        if sessions.isEmpty {
++            column.addText(OmniPaneText.label("No sessions yet.", color: OmniTheme.secondaryText))
++        }
++        var sessionItems: [(key: String, view: OmniZoneItem)] = []
++        for session in sessions.prefix(6) {
++            guard let sessionID = session["session_id"] as? String else { continue }
++            let live = OmniSessionText.isLive(session)
++            let row = OmniFolderEntryRow(icon: .symbol(OmniSessionText.providerSymbol(session["provider"] as? String)),
++                                         iconColor: live ? OmniTheme.running : nil,
++                                         title: OmniSessionText.title(session["title"] as? String),
++                                         detail: OmniSessionText.detail(session),
++                                         badge: OmniSessionText.age((session["updated"] as? NSNumber)?.doubleValue),
++                                         status: live ? OmniTheme.running : nil) { [weak self] in
++                self?.actions?.paneOpen(.session(sessionID))
++            }
++            sessionItems.append((sessionID, row))
++            sessionsColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
++        }
++        sessionsZone.setItems(sessionItems)
++        if !sessionItems.isEmpty {
++            addList(sessionsColumn, to: column)
++        }
++    }
++
++    private func rebuild(agents: [OmniAgent], runs: [OmniRun], unread: Int, sessions: [[AnyHashable: Any]]) {
 +        let column = scroll.column
 +        let origin = scroll.contentView.bounds.origin
 +        column.removeAll()
@@ -21816,9 +21896,12 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +                                   ("\(unread)", "unread in Inbox")])
 +        column.add(stats, spacing: 8) { _ in 56 }
 +        let inboxButton = OmniPaneText.button("Open Inbox", target: self, action: #selector(openInbox(_:)))
-+        let buttons = OmniButtonRow([inboxButton])
++        let projectsButton = OmniPaneText.button("All Projects", target: self, action: #selector(openProjects(_:)))
++        let buttons = OmniButtonRow([inboxButton, projectsButton])
 +        buttonsZone = buttons.zone
 +        column.add(buttons, spacing: 8) { _ in 30 }
++
++        addRecentProjectsAndSessions(sessions, to: column)
 +
 +        column.addSection("Next scheduled runs")
 +        let upcoming = agents.filter { $0.enabled && $0.nextRun != nil && !$0.isBackground }
@@ -21873,6 +21956,10 @@ index 0000000000000000000000000000000000000000..a2eda83fd38dbad5455f5bcd3905d992
 +    // open the Inbox window.
 +    @objc private func openInbox(_ sender: Any?) {
 +        actions?.paneOpen(.inbox)
++    }
++
++    @objc private func openProjects(_ sender: Any?) {
++        actions?.paneOpen(.projects)
 +    }
 +}
 +
@@ -31779,10 +31866,10 @@ index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef04bd484d
+index 0000000000000000000000000000000000000000..908fd15df6546ad83ef8e9c885d19a5051717a47
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3813 @@
+@@ -0,0 +1,3945 @@
 +import AppKit
 +import Foundation
 +import os
@@ -31831,6 +31918,8 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        case divider
 +        // The Agents/Sessions switch, under the top group.
 +        case modeSwitch
++        // A memory the search found; opens on the Memory page.
++        case memoryResult
 +    }
 +
 +    let kind: Kind
@@ -31854,6 +31943,8 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    var countNeedsAttention = false
 +    // A transcript match row: the message its session opens at.
 +    var matchMessageID: String?
++    // A memory search result: the memory it opens.
++    var memoryID: String?
 +
 +    // Dashboard, Inbox and Memory: the top group.
 +    var isTopGroup: Bool {
@@ -31986,6 +32077,8 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    private let outlineView = OmniSidebarOutlineView()
 +    private let newTerminalButton = NSButton()
 +    private let newAgentButton = NSButton()
++    // The Projects header: View All opens the projects index, + adds a folder.
++    private let projectsHeaderAccessory = NSView()
 +    private let contentHost = OmniContentHost()
 +    // Panel sizes and collapsed states, restored from the scheduler's settings.
 +    let panelLayout = OmniPanelLayoutStore()
@@ -32035,6 +32128,12 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    private var sessionMatches: [[AnyHashable: Any]] = []
 +    private var sessionSearchGeneration = 0
 +    private let matchesSection = OmniSidebarItem(kind: .section, key: "session-matches", title: "In Transcripts")
++    // The search's own headers, and its line when nothing matches.
++    private let searchSessionsSection = OmniSidebarItem(kind: .section, key: "search-sessions", title: "Sessions")
++    private let memoriesSection = OmniSidebarItem(kind: .section, key: "search-memories", title: "Memory")
++    private let searchEmptyItem = OmniSidebarItem(kind: .section, key: "search-empty", title: "No matches")
++    private var memoryMatches: [[AnyHashable: Any]] = []
++    private var memorySearchGeneration = 0
 +    private let moreSessionsItem = OmniSidebarItem(kind: .loadMore, key: "more-sessions", title: "Show More…")
 +    private static let sessionsProviderKey = "OmniSessionsProvider" as CFString
 +    // Sessions are grouped by project unless the person turned it off.
@@ -32198,6 +32297,26 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        newAgentButton.toolTip = "New Agent"
 +        newAgentButton.target = self
 +        newAgentButton.action = #selector(showAgentsMenu(_:))
++        let viewAllProjects = NSButton(title: "View All", target: self, action: #selector(showAllProjects(_:)))
++        viewAllProjects.bezelStyle = .inline
++        viewAllProjects.isBordered = false
++        viewAllProjects.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
++        viewAllProjects.contentTintColor = .secondaryLabelColor
++        viewAllProjects.toolTip = "Every project, on one page"
++        let newProjectFolderButton = NSButton()
++        newProjectFolderButton.bezelStyle = .inline
++        newProjectFolderButton.isBordered = false
++        newProjectFolderButton.image = NSImage(systemSymbolName: SFSymbol.plus.rawValue, accessibilityDescription: "New Folder")
++        newProjectFolderButton.toolTip = "New Folder (⇧⌘N)"
++        newProjectFolderButton.target = self
++        newProjectFolderButton.action = #selector(newTopLevelProjectFolder(_:))
++        viewAllProjects.sizeToFit()
++        let viewAllWidth = ceil(viewAllProjects.frame.width)
++        viewAllProjects.frame = NSRect(x: 0, y: 0, width: viewAllWidth, height: 20)
++        newProjectFolderButton.frame = NSRect(x: viewAllWidth + 4, y: 0, width: 20, height: 20)
++        projectsHeaderAccessory.frame = NSRect(x: 0, y: 0, width: viewAllWidth + 24, height: 20)
++        projectsHeaderAccessory.addSubview(viewAllProjects)
++        projectsHeaderAccessory.addSubview(newProjectFolderButton)
 +
 +        contentHost.actions = self
 +        contentHost.exitToSidebar = { [weak self] in self?.focusSidebar() }
@@ -32709,7 +32828,7 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    }
 +
 +    private func requestProjects() {
-+        guard mode == .projects, !projectsRequestInFlight else { return }
++        guard mode == .projects || !sessionQuery.isEmpty, !projectsRequestInFlight else { return }
 +        if forgeProjects.isEmpty {
 +            forgeProjects = OmniProjectsCache.load()
 +        }
@@ -32863,15 +32982,9 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        return row
 +    }
 +
-+    private func rebuild() {
-+        if mode == .sessions {
-+            rebuildSessions()
-+            return
-+        }
-+        if mode == .projects {
-+            rebuildProjects()
-+            return
-+        }
++    // Agents mode's sections: agents in their folders, runs, terminals.
++    @discardableResult
++    private func buildAgentSections() -> (tabs: [PTYTab], dashboardTabIDs: Set<Int32>, background: Set<String>) {
 +        var runs: [OmniSidebarItem] = []
 +        var terminals: [OmniSidebarItem] = []
 +        var liveRunsByAgent: [String: [OmniRun]] = [:]
@@ -32997,18 +33110,30 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        runsSection.children = runs + finished
 +        terminalsSection.children = terminals
 +
++        return (tabs, dashboardTabIDs, background)
++    }
++
++    private func rebuild() {
++        // A search looks through everything, whatever the mode.
++        if !sessionQuery.isEmpty {
++            rebuildSearch()
++            return
++        }
++        if mode == .sessions {
++            rebuildSessions()
++            return
++        }
++        if mode == .projects {
++            rebuildProjects()
++            return
++        }
++        let built = buildAgentSections()
 +        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
-+        if !sessionQuery.isEmpty {
-+            let query = sessionQuery.lowercased()
-+            for section in [agentsSection, runsSection, terminalsSection] {
-+                section.children = Self.filtered(section.children, query: query)
-+            }
-+        }
 +        let items = sharedItems + [agentsSection, runsSection, terminalsSection]
 +        let structure = items.map(Self.structure).joined(separator: ";")
 +        applyUpdate(items: items, structure: structure)
-+        followCurrentTab(tabs: tabs, dashboardTabIDs: dashboardTabIDs, backgroundAgents: background)
++        followCurrentTab(tabs: built.tabs, dashboardTabIDs: built.dashboardTabIDs, backgroundAgents: built.background)
 +        layoutContent()
 +        syncSelection()
 +    }
@@ -33173,9 +33298,13 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        guard query != sessionQuery else { return }
 +        sessionQuery = query
 +        sessionMatches = []
++        memoryMatches = []
 +        rebuild()
-+        if mode == .sessions {
++        if !query.isEmpty {
++            requestProjects()
++            requestSessions()
 +            searchTranscripts()
++            searchMemories()
 +        }
 +    }
 +
@@ -33203,10 +33332,9 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    // provider and grouping menu.
 +    private func updateSearchFieldForMode() {
 +        let sessions = mode == .sessions
-+        sessionSearchField.placeholderString = sessions ? "Search sessions" : mode == .projects ? "Search projects" : "Search agents"
-+        sessionSearchField.toolTip = sessions ? "Filters sessions and searches their transcripts"
-+                                              : "Filters agents, runs and terminals"
-+        sessionSearchField.setAccessibilityLabel(sessions ? "Search sessions" : mode == .projects ? "Search projects" : "Search agents")
++        sessionSearchField.placeholderString = "Search"
++        sessionSearchField.toolTip = "Searches projects, sessions and their transcripts, agents, runs, terminals and memory"
++        sessionSearchField.setAccessibilityLabel("Search projects, sessions, agents and memory")
 +        sessionSearchField.searchMenuTemplate = sessions ? sessionsFilterMenu() : nil
 +    }
 +
@@ -33235,7 +33363,7 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +    private var sessionsGeneration = 0
 +
 +    private func requestSessions(force: Bool = false) {
-+        guard mode == .sessions, force || !sessionsRequestInFlight,
++        guard mode == .sessions || !sessionQuery.isEmpty, force || !sessionsRequestInFlight,
 +              force || Date().timeIntervalSince(lastSessionsRequest) >= Self.sessionsRefreshInterval else { return }
 +        sessionsRequestInFlight = true
 +        lastSessionsRequest = Date()
@@ -33344,6 +33472,18 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +
 +    // The shared rows, then the person's folders of forge projects.
 +    private func rebuildProjects() {
++        buildProjectSection()
++        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
++        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
++        let items = sharedItems + [forgeProjectsSection]
++        applyUpdate(items: items, structure: "projects;" + items.map(Self.structure).joined(separator: ";"))
++        followCurrentTab(tabs: terminal?.tabs() ?? [], dashboardTabIDs: [], backgroundAgents: OmniBackgroundAgents.names(agents))
++        layoutContent()
++        syncSelection()
++    }
++
++    // Projects mode's list: forge projects in the person's folders.
++    private func buildProjectSection() {
 +        let roots = forgeProjects.compactMap { $0["root"] as? String }
 +        projectTree = projectLayout.tree(roots: roots)
 +        let byRoot = Dictionary(forgeProjects.compactMap { project in (project["root"] as? String).map { ($0, project) } },
@@ -33369,16 +33509,77 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +            }
 +        }
 +        forgeProjectsSection.children = rows(projectTree.entries)
-+        if !sessionQuery.isEmpty {
-+            forgeProjectsSection.children = Self.filtered(forgeProjectsSection.children, query: sessionQuery.lowercased())
++    }
++
++    // The search: projects, sessions (by title and folder, then inside
++    // transcripts), agents, runs and terminals, and memories, each under
++    // its own header; empty headers are left out.
++    private func rebuildSearch() {
++        let query = sessionQuery.lowercased()
++        buildProjectSection()
++        forgeProjectsSection.children = Self.filtered(forgeProjectsSection.children, query: query)
++        let built = buildAgentSections()
++        for section in [agentsSection, runsSection, terminalsSection] {
++            section.children = Self.filtered(section.children, query: query)
++        }
++        func sessionRow(_ session: [AnyHashable: Any], key: String, detail: String? = nil) -> OmniSidebarItem? {
++            guard let id = session["session_id"] as? String else { return nil }
++            let row = item(.session, key: key, title: OmniSessionText.title(session["title"] as? String),
++                           detail: detail ?? OmniSessionText.detail(session), route: .session(id),
++                           color: OmniSessionText.isLive(session) ? OmniTheme.running : nil, pulses: false)
++            row.icon = .symbol(OmniSessionText.providerSymbol(session["provider"] as? String))
++            row.children = []
++            return row
++        }
++        var seen = Set<String>()
++        searchSessionsSection.children = sessions.compactMap { session in
++            guard let id = session["session_id"] as? String, !seen.contains(id) else { return nil }
++            let haystack = ((session["title"] as? String ?? "") + " " + (session["workspace"] as? String ?? "")).lowercased()
++            guard haystack.contains(query) else { return nil }
++            seen.insert(id)
++            return sessionRow(session, key: "search|\(id)")
++        }
++        var matched = Set<String>()
++        matchesSection.children = sessionMatches.compactMap { match in
++            guard let id = match["session_id"] as? String, matched.insert(id).inserted else { return nil }
++            let known = sessions.first { $0["session_id"] as? String == id } ?? match
++            let snippet = OmniSessionText.title(match["snippet"] as? String ?? match["text"] as? String)
++            let row = sessionRow(known, key: "match|\(id)", detail: snippet)
++            row?.matchMessageID = match["message_id"] as? String
++            return row
++        }
++        memoriesSection.children = memoryMatches.compactMap { result in
++            guard let memory = OmniMemoryItem(result) else { return nil }
++            let row = item(.memoryResult, key: memory.id, title: OmniSessionText.title(memory.title),
++                           detail: memory.memoryType, route: .memory)
++            row.memoryID = memory.id
++            row.children = []
++            return row
 +        }
 +        inboxItem.count = inboxUnread > 0 ? "\(inboxUnread)" : ""
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
-+        let items = sharedItems + [forgeProjectsSection]
-+        applyUpdate(items: items, structure: "projects;" + items.map(Self.structure).joined(separator: ";"))
-+        followCurrentTab(tabs: terminal?.tabs() ?? [], dashboardTabIDs: [], backgroundAgents: OmniBackgroundAgents.names(agents))
++        let sections = [forgeProjectsSection, searchSessionsSection, matchesSection, agentsSection, runsSection,
++                        terminalsSection, memoriesSection].filter { !$0.children.isEmpty }
++        var items = sharedItems + sections
++        if sections.isEmpty {
++            items.append(searchEmptyItem)
++        }
++        applyUpdate(items: items, structure: "search;" + items.map(Self.structure).joined(separator: ";"))
++        followCurrentTab(tabs: built.tabs, dashboardTabIDs: built.dashboardTabIDs, backgroundAgents: built.background)
 +        layoutContent()
 +        syncSelection()
++    }
++
++    private func searchMemories() {
++        memorySearchGeneration += 1
++        let generation = memorySearchGeneration
++        guard sessionQuery.count >= 2 else { return }
++        OmniSchedulerClient.request(["op": "search_memories", "query": sessionQuery, "mode": "lexical",
++                                     "limit": 20]) { [weak self] response in
++            guard let self, generation == self.memorySearchGeneration, response["ok"] as? Bool == true else { return }
++            self.memoryMatches = response["memories"] as? [[AnyHashable: Any]] ?? []
++            self.rebuild()
++        }
 +    }
 +
 +    private var collapsedProjectFolders: Set<String> {
@@ -33464,6 +33665,14 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +            collapsedProjectFolders = collapsed
 +        }
 +        saveProjectLayout(layout)
++    }
++
++    @objc private func newTopLevelProjectFolder(_ sender: Any?) {
++        createProjectFolder(in: "", fromKeyboard: false)
++    }
++
++    @objc private func showAllProjects(_ sender: Any?) {
++        showPane(.projects)
 +    }
 +
 +    @objc private func newProjectFolder(_ sender: NSMenuItem) {
@@ -34755,7 +34964,9 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +        }
 +        if item.kind == .section {
 +            let cell = OmniSidebarSectionCell()
-+            let accessory = item === terminalsSection ? newTerminalButton : (item === agentsSection ? newAgentButton : nil)
++            let accessory: NSView? = item === terminalsSection ? newTerminalButton
++                : item === agentsSection ? newAgentButton
++                : item === forgeProjectsSection ? projectsHeaderAccessory : nil
 +            cell.configure(title: item.title, accessory: accessory)
 +            cell.toolTip = item === agentsSection ? "Keyboard\n" + OmniSidebarShortcuts.tooltip : nil
 +            return cell
@@ -34770,6 +34981,9 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +                           iconColor: OmniAgentColor.color(item.iconColor), status: item.color, pulses: item.pulses)
 +        case .project:
 +            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.shippingbox.rawValue),
++                           iconColor: nil, status: nil, pulses: false)
++        case .memoryResult:
++            cell.configure(title: item.title, detail: item.detail, icon: .symbol(SFSymbol.brain.rawValue),
 +                           iconColor: nil, status: nil, pulses: false)
 +        case .group, .projectFolder:
 +            let open = outlineView.isItemExpanded(item)
@@ -34826,6 +35040,11 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +            // A transcript match opens its session at the matching message.
 +            if case .session = route, let message = item?.matchMessageID {
 +                (contentHost.pane as? OmniSessionPane)?.focus(onMessage: message)
++            }
++            // A memory result opens that memory in Browse.
++            if let memoryID = item?.memoryID, let pane = contentHost.pane as? OmniMemoryPane {
++                pane.memory.show(named: OmniMemoryTab.browse.title, mindMap: false)
++                pane.memory.selectMemory(memoryID)
 +            }
 +        } else if let tab = item?.tab {
 +            show(tab)
@@ -35141,9 +35360,9 @@ index 0000000000000000000000000000000000000000..45506e7143053da98140c12b651758ef
 +
 +    override func resizeSubviews(withOldSize oldSize: NSSize) {
 +        super.resizeSubviews(withOldSize: oldSize)
-+        let accessoryWidth: CGFloat = accessory == nil ? 0 : 22
++        let accessoryWidth: CGFloat = accessory.map { $0 is NSButton ? 22 : $0.frame.width + 2 } ?? 0
 +        label.frame = NSRect(x: 2, y: (bounds.height - 16) / 2, width: max(0, bounds.width - accessoryWidth - 6), height: 16)
-+        accessory?.frame = NSRect(x: bounds.width - accessoryWidth - 2, y: (bounds.height - 20) / 2, width: 20, height: 20)
++        accessory?.frame = NSRect(x: bounds.width - accessoryWidth - 2, y: (bounds.height - 20) / 2, width: accessoryWidth - 2, height: 20)
 +    }
 +}
 +

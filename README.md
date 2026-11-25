@@ -124,15 +124,19 @@ line break.
 The terminal window has a sidebar on the left with three modes, Projects,
 Sessions and Agents, switched at its top or with Shift-Command-1, 2 and 3.
 **Dashboard**, **Inbox**, **Memory**, **Unblocker** and **Settings** sit on a
-panel above the switch, the same in every mode.
+panel above the switch, the same in every mode. The Dashboard shows recent
+projects and sessions, then scheduled and latest agent runs. The search field
+at the top searches everything, whatever the mode: projects, sessions by title
+and folder and inside their transcripts, agents, runs, terminals and memories.
+In Projects mode, **View All** opens the list of every project and **+** adds a
+folder.
 
 - **Agents**: **Dashboard**, then your agents in their folders, their live
   runs, and every other terminal tab under Terminals. Choosing an agent, run or
   folder opens its page beside the sidebar.
 - **Sessions**: every Claude Code and Codex session on this Mac, whoever started
-  it, live ones first, then the most recent. The field under the switch
-  filters by title and folder and also searches transcripts; its menu filters
-  by provider, groups by folder or hides OmniTerm's agent runs. A session's page
+  it, live ones first, then the most recent. In this mode the search field's
+  menu filters by provider, groups by folder or hides OmniTerm's agent runs. A session's page
   reads as a chat, laid out like Claude's own apps: your prompts in bubbles on
   the right, the agent's replies in a serif face across the column, tool runs as
   one muted line ("Ran 3 commands, edited a file"), slash commands as tinted

@@ -30,6 +30,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   the same in every mode and sit on a lighter rounded panel. Projects left that
   list: it is the switch's first mode. In a narrow sidebar the switch shows
   only the selected mode's name, the others as icons.
+- One search for everything: the sidebar's search field finds projects,
+  sessions (by title and folder, and inside transcripts), agents, runs,
+  terminals and memories in any mode, each under its own heading.
+- The Dashboard shows recent projects and recent sessions above the agent runs,
+  with an All Projects button.
+- The Projects header has View All (the page listing every project) and a +
+  that adds a folder.
 
 ### Fixed
 
