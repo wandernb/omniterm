@@ -174,8 +174,8 @@ def transcript_size(path):
 
 def moved_on(path, size, max_bytes=4194304):
     """Whether the conversation went on after a stop recorded at `size` bytes:
-    a new user or assistant record (a prompt, a /goal hook continuing it, a
-    reply). Claude Code keeps appending bookkeeping after a turn ends (turn
+    a person's prompt, a queued message or a tool call. A /goal hook re-running
+    the turn, and replies that only restate the wait, are the same wait. Claude Code keeps appending bookkeeping after a turn ends (turn
     duration, titles, mode, session owner), which is not the session moving on.
     A file that shrank or was replaced counts as moved on."""
     current = transcript_size(path)
@@ -194,8 +194,17 @@ def moved_on(path, size, max_bytes=4194304):
             entry = json.loads(line)
         except ValueError:
             continue
-        if isinstance(entry, dict) and entry.get("type") in ("user", "assistant"):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") == "user" and entry.get("isMeta") is not True:
             return True
+        if entry.get("type") == "assistant":
+            # A /goal hook's feedback (a meta record) and a reply that only
+            # restates the wait keep the same block; a tool call is new work.
+            content = (entry.get("message") or {}).get("content") if isinstance(entry.get("message"), dict) else None
+            if not isinstance(content, list) or any(
+                    isinstance(part, dict) and part.get("type") == "tool_use" for part in content):
+                return True
     return False
 
 

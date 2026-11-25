@@ -218,8 +218,13 @@ class StoreTests(unittest.TestCase):
             self.clock.now = 2000
             self.assertFalse(self.answer(second)["replay"])
             third = self.store.record(claude("Stop", 2010, transcript_path=str(transcript)))["block"]
-            with transcript.open("a") as handle:  # a /goal hook continued the session
-                handle.write(json.dumps({"type": "user", "message": {"role": "user", "content": "Stop hook feedback"}}) + "\n")
+            with transcript.open("a") as handle:  # a /goal hook re-ran the turn: the same wait
+                handle.write(json.dumps({"type": "user", "isMeta": True,
+                                         "message": {"role": "user", "content": "Stop hook feedback"}}) + "\n")
+                handle.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Still blocked"}]}}) + "\n")
+            self.assertFalse(BLOCKS.moved_on(str(transcript), third["transcript_size"]))
+            with transcript.open("a") as handle:  # then it did new work
+                handle.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}}) + "\n")
             self.clock.now = 3000
             with self.assertRaises(BLOCKS.BlockError) as caught:
                 self.answer(third)

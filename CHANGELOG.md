@@ -11,7 +11,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - The Omni Unblocker now reaches sessions whose `/goal` or `/loop` hook keeps
   them going: those turns no longer restart the 45-second wait, so it can
-  answer them. A session it left for you stays left until something new is
+  answer them, and its answer is no longer thrown away as out of date when
+  the hook re-runs the turn. A session it left for you stays left until something new is
   refused. When the only next step is one it keeps for you, such as a
   permanent delete, it now points the session to a route that keeps the data
   instead of just stopping.
