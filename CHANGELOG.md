@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-25
+
+### Fixed
+
+- On a narrow window the Inbox's Mark as Read, Reveal Workspace, Resume Run
+  and Delete buttons wrap onto a second line instead of running off the edge.
+- A Memory page test no longer fails when it runs first, while the app is
+  still starting.
+
 ## [0.6.1] - 2026-11-25
 
 ### Fixed
@@ -930,7 +939,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/wandernb/omniterm/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/wandernb/omniterm/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/wandernb/omniterm/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/wandernb/omniterm/compare/v0.4.0...v0.5.0

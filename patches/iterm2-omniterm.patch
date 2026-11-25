@@ -1586,10 +1586,10 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..81a3b594a82b6640895584d6aa7cf37cf9c7f008
+index 0000000000000000000000000000000000000000..751b9e267e9346c4315537b399931a8727e3549f
 --- /dev/null
 +++ b/ModernTests/OmniMemoryTests.swift
-@@ -0,0 +1,1027 @@
+@@ -0,0 +1,1028 @@
 +//
 +//  OmniMemoryTests.swift
 +//  ModernTests
@@ -1704,8 +1704,9 @@ index 0000000000000000000000000000000000000000..81a3b594a82b6640895584d6aa7cf37c
 +        super.tearDown()
 +    }
 +
++    // Generous: the first test in the class also waits out the app's launch.
 +    private func wait(_ message: String, until condition: () -> Bool) {
-+        let deadline = Date().addingTimeInterval(5)
++        let deadline = Date().addingTimeInterval(30)
 +        while !condition() && Date() < deadline {
 +            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
 +        }
@@ -14524,10 +14525,10 @@ index 0000000000000000000000000000000000000000..0a90c7a7246a100da9deecea92a7ede4
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..38c83c2683a420e298937b4cbeae0e17add0c1ab
+index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11b063d89b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,804 @@
+@@ -0,0 +1,830 @@
 +import AppKit
 +import Foundation
 +
@@ -15202,18 +15203,44 @@ index 0000000000000000000000000000000000000000..38c83c2683a420e298937b4cbeae0e17
 +        it_fatalError("init(coder:) is not supported")
 +    }
 +
-+    override func resizeSubviews(withOldSize oldSize: NSSize) {
-+        super.resizeSubviews(withOldSize: oldSize)
++    static let lineHeight: CGFloat = 34
++
++    // Button frames for `width`: a button that does not fit starts a new
++    // line, so a narrow pane wraps instead of cutting buttons off.
++    private func arrange(width: CGFloat) -> (frames: [NSRect], end: NSPoint) {
 +        var x: CGFloat = -6
++        var line: CGFloat = 0
++        var frames: [NSRect] = []
 +        for button in buttons where !button.isHidden {
 +            if let control = button as? NSControl {
 +                control.sizeToFit()
 +            }
 +            let padding: CGFloat = (button as? NSButton)?.bezelStyle == .rounded ? 8 : 0
-+            button.frame = NSRect(x: x, y: (bounds.height - 28) / 2, width: button.frame.width + padding, height: 28)
-+            x = button.frame.maxX + 6
++            let buttonWidth = button.frame.width + padding
++            if x > 0, x + buttonWidth > width {
++                x = -6
++                line += 1
++            }
++            frames.append(NSRect(x: x, y: line * Self.lineHeight + 1, width: buttonWidth, height: 28))
++            x += buttonWidth + 6
 +        }
-+        status.frame = NSRect(x: x + 8, y: (bounds.height - 18) / 2 + 1, width: max(40, bounds.width - x - 8), height: 18)
++        return (frames, NSPoint(x: x, y: line * Self.lineHeight))
++    }
++
++    // The height the row needs at `width`: one line per row of buttons.
++    func height(forWidth width: CGFloat) -> CGFloat {
++        let end = arrange(width: width).end
++        return end.y + 30
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        let arranged = arrange(width: bounds.width)
++        for (button, frame) in zip(buttons.filter { !$0.isHidden }, arranged.frames) {
++            button.frame = frame
++        }
++        let x = arranged.end.x
++        status.frame = NSRect(x: x + 8, y: arranged.end.y + 7, width: max(40, bounds.width - x - 8), height: 18)
 +        zone.frame = bounds
 +    }
 +}
@@ -15856,10 +15883,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..08cd86f9eb49b931ae2d331c228ca140a5afde59
+index 0000000000000000000000000000000000000000..5db1b27a0149d10fbeacc7a959464ad24c2c2d0b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1198 @@
+@@ -0,0 +1,1199 @@
 +import AppKit
 +import Foundation
 +
@@ -16526,7 +16553,8 @@ index 0000000000000000000000000000000000000000..08cd86f9eb49b931ae2d331c228ca140
 +        titleLabel.frame = NSRect(x: inset, y: severityChip.frame.maxY + 8, width: width,
 +                                  height: min(62, max(28, ceil(titleHeight))))
 +        metaLabel.frame = NSRect(x: inset, y: titleLabel.frame.maxY + 4, width: width, height: 18)
-+        buttonRow.frame = NSRect(x: inset, y: metaLabel.frame.maxY + 12, width: width, height: 30)
++        buttonRow.frame = NSRect(x: inset, y: metaLabel.frame.maxY + 12, width: width,
++                                 height: buttonRow.height(forWidth: width))
 +
 +        let top = buttonRow.frame.maxY + OmniTheme.Metrics.sectionGap
 +        contentSplit.frame = NSRect(x: 0, y: top, width: size.width, height: max(0, size.height - top))
