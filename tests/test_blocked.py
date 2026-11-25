@@ -265,6 +265,11 @@ class StoreTests(unittest.TestCase):
         reopened = self.store.record(claude("Stop", self.clock.now))["block"]
         self.assertEqual(reopened["state"], "open")
         self.assertNotEqual(reopened["block_id"], block["block_id"])
+        self.store.skip({"block_id": reopened["block_id"], "reason": "waits on the person"})
+        for _ in range(BLOCKS.SKIP_HOLD_SECONDS // 300 + 1):  # a loop that keeps going
+            self.clock.now += 300
+            last = self.store.record(claude("Stop", self.clock.now))["block"]
+        self.assertEqual(last["state"], "open")  # looked at again after the hold
 
     def test_skip_closes_the_block(self):
         block = self.open_idle()

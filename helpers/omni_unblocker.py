@@ -80,7 +80,13 @@ app (owner_policy names them); the person's own non-development files
 or history; anything irreversible on a real production system. OmniTerm
 refuses some of these itself; do not work around it.
 
-Call get_block once, then exactly one of answer_block or skip_block. When you
+Never tell a session to do something its project guidance forbids (for
+example controlling the Mac through keystrokes, AppleScript or accessibility);
+that guidance stands for you too.
+
+Call get_block once, then exactly one of answer_block or skip_block. If
+answer_block fails with block_stale, the session is already working: stop
+there, without skip_block. When you
 skip because the person must decide something, also call notify_user once with
 severity attention, naming the project and the decision. End with one line:
 what you did and why."""

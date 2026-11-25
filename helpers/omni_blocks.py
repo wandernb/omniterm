@@ -511,6 +511,7 @@ def holdable(event):
 
 
 # A go-ahead for a refused call pre-approves exactly that call, once, for this long.
+SKIP_HOLD_SECONDS = 1800  # a goal loop left for the person is looked at again after this
 CONTINUE_SECONDS = 600  # a Stop this soon after the last one, with no prompt between, is the same wait
 GRANT_SECONDS = 1800
 GRANT_NOTE = ("OmniTerm has pre-approved, once, exactly the command{s} that auto mode refused: {names}. "
@@ -637,9 +638,9 @@ class BlockStore:
         # the block keeps its age and id instead of starting over each Stop.
         continuing = (name == "stop" and kind == IDLE and block.get("kind") == IDLE
                       and block.get("state") in ("open", "skipped") and ts - block.get("updated", 0) < CONTINUE_SECONDS)
-        if continuing and block.get("state") == "skipped" and not any(
+        if continuing and block.get("state") == "skipped" and ts - block.get("skipped_at", 0) < SKIP_HOLD_SECONDS and not any(
                 denial.get("at", 0) > block.get("skipped_at", 0) for denial in block.get("denials", [])):
-            # Left for the person and nothing new was refused: stay left.
+            # Left for the person recently and nothing new was refused: stay left.
             block = {**block, "updated": ts}
             self.write(key, block)
             return {"block": block, "escalate": False}
