@@ -273,6 +273,18 @@ class StoreTests(unittest.TestCase):
             last = self.store.record(claude("Stop", self.clock.now))["block"]
         self.assertEqual(last["state"], "open")  # looked at again after the hold
 
+    def test_a_silent_skipped_goal_session_is_looked_at_again_later(self):
+        block = self.open_idle()
+        self.store.skip({"block_id": block["block_id"], "reason": "waits on the person"})
+        self.clock.now += BLOCKS.SKIP_HOLD_SECONDS - 1
+        self.assertEqual(self.store.list({})["blocks"], [])
+        self.clock.now += 2
+        again = self.store.list({})["blocks"]
+        self.assertEqual([b["block_id"] for b in again], [block["block_id"]])
+        self.store.skip({"block_id": block["block_id"], "reason": "still waits"})
+        self.clock.now += BLOCKS.SKIP_HOLD_SECONDS + 1  # the second look waits twice as long
+        self.assertEqual(self.store.list({})["blocks"], [])
+
     def test_skip_closes_the_block(self):
         block = self.open_idle()
         self.store.skip({"block_id": block["block_id"], "reason": "finished report"})

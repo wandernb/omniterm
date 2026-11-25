@@ -694,9 +694,25 @@ class BlockStore:
             if now - value.get("updated", 0) > RETENTION_SECONDS and value.get("auto_unblock") is not False:
                 self.write(key, None)
                 continue
+            if value.get("block_id") and self._due_again(value, now):
+                # A goal session left for the person gets another look after a
+                # while, even when it never ends another turn (a /goal that
+                # Claude Code paused sits silent). Each look waits twice as long.
+                value = {**value, "state": "open", "created": now, "updated": now,
+                         "reopened": value.get("reopened", 0) + 1}
+                value.pop("skip_reason", None)
+                self.write(key, value)
             if value.get("block_id"):
                 blocks.append(value)
         return blocks
+
+    @staticmethod
+    def _due_again(block, now):
+        if block.get("state") != "skipped" or block.get("kind") not in ANSWERABLE_KINDS or \
+                block.get("auto_unblock") is False or not goal_active(block):
+            return False
+        hold = SKIP_HOLD_SECONDS * 2 ** min(block.get("reopened", 0), 4)
+        return now - (block.get("skipped_at") or block.get("updated", now)) >= hold
 
     def held(self, block):
         """A permission dialog still waiting for the unblocker's decision."""
