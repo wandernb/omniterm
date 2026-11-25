@@ -7,14 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
-
-- A Projects page in the sidebar lists every Forge project on the Mac, found
-  by `forge projects`; a project's page shows its repository, worktrees,
-  branches, recent sessions, knowledge folder, README and files. Sessions are
-  grouped by project by default, with worktrees and `@head` checkouts counted
-  as their project. Forge stays its own install; OmniTerm reads it through its
-  command line.
+## [0.4.0] - 2026-11-25
 
 ### Fixed
 
@@ -25,10 +18,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   something new is refused, and it never tells a session to do what that
   project's own rules forbid. When the only next step is one it keeps for you, such as a
   permanent delete, it now points the session to a route that keeps the data
-  instead of just stopping.
+  instead of just stopping. A goal session it left for you, including one
+  whose goal Claude Code paused, gets another look after 30 minutes, then
+  after an hour, and so on.
 
 ### Added
 
+- A Projects page in the sidebar lists every Forge project on the Mac, found
+  by `forge projects`; a project's page shows its repository, worktrees,
+  branches, recent sessions, knowledge folder, README and files. Sessions are
+  grouped by project by default, with worktrees and `@head` checkouts counted
+  as their project. Forge stays its own install; OmniTerm reads it through its
+  command line.
 - The Omni Unblocker reacts within seconds when a goal session's turn ends by
   asking for you ("Blocked", "needs you", "waiting for you", a `!` command).
   Other waiting turns get a fast check on a small model first, and the full
@@ -783,7 +784,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/wandernb/omniterm/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/wandernb/omniterm/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wandernb/omniterm/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wandernb/omniterm/compare/v0.1.0...v0.2.0
