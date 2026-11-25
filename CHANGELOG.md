@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- The Omni Unblocker no longer nudges a session that is waiting on its own
+  running build, test, deploy or background task.
+
 ## [0.4.0] - 2026-11-25
 
 ### Fixed
