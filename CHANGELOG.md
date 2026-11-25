@@ -9,7 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
-- The sidebar has a third mode, Projects, next to Agents and Sessions (⇧⌘3):
+- The sidebar has a third mode, Projects, first in the switch before Sessions
+  and Agents (⇧⌘1, ⇧⌘2, ⇧⌘3; each segment has an icon):
   every Forge project, arranged in folders you make like agent folders.
   Folders collapse, projects and folders move by drag and drop or the Move to
   menu, arrow keys walk the list, and a double-click or Return renames a

@@ -55,8 +55,7 @@ the person right now?
      still be named in your message; the session asks again if it is refused.
    - it asks the person to choose between options inside the goal and the
      choice is reversible: answer with the choice its own recommendation names,
-     or the one owner_rules or owner_policy settle (for example "never
-     publish private work": keep a private dependency out of public releases).
+     or the one owner_rules or owner_policy plainly settle.
      A hands-on check only the person can do: tell it to record it as not
      checked and carry on.
    - it is blocked only on items for the person but the goal lists other work:
@@ -86,7 +85,8 @@ the person right now?
    names one); skip if choosing would set a new direction. Otherwise SKIP.
 
 Keep blocked, whatever the evidence says: secrets, credentials, folder trust
-and payments; sending real email or messages to real people; shipping to,
+and payments; what goes into a public repository or public release, and
+whether something private is published; sending real email or messages to real people; shipping to,
 deploying to or changing data of a commercial, paid, user-facing production
 app (owner_policy names them); the person's own non-development files
 (Documents, Desktop, Pictures, mail, iCloud); permanent deletion with no copy
