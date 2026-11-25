@@ -40,6 +40,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- OmniTerm no longer slows to a crawl after a few project actions: a long
+  README was laid out in quadratic time on the main thread, using a full core
+  and gigabytes of memory, and was laid out again on every page reload.
+- The Projects list in the sidebar can no longer be hidden: nothing sits below
+  it.
 - The Projects list and sidebar show at once after a launch, from the last
   saved list, instead of waiting for the background worker.
 - Sessions in Documents, Desktop or Downloads no longer make OmniTerm ask for

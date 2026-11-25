@@ -16870,10 +16870,10 @@ index 0000000000000000000000000000000000000000..7653eca1ac2870dd416b88b835d4d210
 +}
 diff --git a/sources/OmniTerm/OmniMarkdownEditor.swift b/sources/OmniTerm/OmniMarkdownEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..003ff6c4f27cfc57c95fc6ca1e2514ce2425c2c5
+index 0000000000000000000000000000000000000000..e08a9b010ea6579b9fd90e073a2449e8cdc49dec
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMarkdownEditor.swift
-@@ -0,0 +1,898 @@
+@@ -0,0 +1,912 @@
 +import AppKit
 +import Foundation
 +
@@ -17427,8 +17427,18 @@ index 0000000000000000000000000000000000000000..003ff6c4f27cfc57c95fc6ca1e2514ce
 +        it_fatalError("init(pasteboardPropertyList:ofType:) is not supported")
 +    }
 +
++    // Layout asks for the string once per line or glyph run; bridging
++    // `backing.string` copies the whole text each time, which made long
++    // documents lay out in quadratic time. The copy is kept until an edit.
++    private var cachedString: String?
++
 +    override var string: String {
-+        return backing.string
++        if let cachedString {
++            return cachedString
++        }
++        let string = backing.string
++        cachedString = string
++        return string
 +    }
 +
 +    override func attributes(at location: Int, effectiveRange range: NSRangePointer?) -> [NSAttributedString.Key: Any] {
@@ -17437,6 +17447,7 @@ index 0000000000000000000000000000000000000000..003ff6c4f27cfc57c95fc6ca1e2514ce
 +
 +    override func replaceCharacters(in range: NSRange, with str: String) {
 +        beginEditing()
++        cachedString = nil
 +        backing.replaceCharacters(in: range, with: str)
 +        edited(.editedCharacters, range: range, changeInLength: (str as NSString).length - range.length)
 +        endEditing()
@@ -17659,6 +17670,9 @@ index 0000000000000000000000000000000000000000..003ff6c4f27cfc57c95fc6ca1e2514ce
 +    var text: String {
 +        get { textView.markdown }
 +        set {
++            // A page reload sets the same text again; restyling and laying
++            // out a long README for nothing blocks the main thread.
++            guard newValue != textView.markdown else { return }
 +            textView.markdown = newValue
 +            needsLayout = true
 +            didChangeHeight?()
@@ -31866,10 +31880,10 @@ index 0000000000000000000000000000000000000000..67cdc4a7e537a1b5781a5fd4fbfb55a0
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..908fd15df6546ad83ef8e9c885d19a5051717a47
+index 0000000000000000000000000000000000000000..0180626d19a6cc4d8cbcee7ad64f7a70df383374
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,3945 @@
+@@ -0,0 +1,3958 @@
 +import AppKit
 +import Foundation
 +import os
@@ -33477,6 +33491,10 @@ index 0000000000000000000000000000000000000000..908fd15df6546ad83ef8e9c885d19a50
 +        inboxItem.countNeedsAttention = inboxUnread > 0 && inboxAttention > 0
 +        let items = sharedItems + [forgeProjectsSection]
 +        applyUpdate(items: items, structure: "projects;" + items.map(Self.structure).joined(separator: ";"))
++        // Opened again if an earlier version left it hidden.
++        if !outlineView.isItemExpanded(forgeProjectsSection) {
++            outlineView.expandItem(forgeProjectsSection)
++        }
 +        followCurrentTab(tabs: terminal?.tabs() ?? [], dashboardTabIDs: [], backgroundAgents: OmniBackgroundAgents.names(agents))
 +        layoutContent()
 +        syncSelection()
@@ -34917,6 +34935,15 @@ index 0000000000000000000000000000000000000000..908fd15df6546ad83ef8e9c885d19a50
 +
 +    func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
 +        return (item as? OmniSidebarItem)?.kind == .section
++    }
++
++    // The Projects list is the last thing in the sidebar: it has no Hide.
++    func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
++        return (item as? OmniSidebarItem) !== forgeProjectsSection
++    }
++
++    func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
++        return (item as? OmniSidebarItem) !== forgeProjectsSection
 +    }
 +
 +    func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
