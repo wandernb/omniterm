@@ -274,6 +274,127 @@ index 0000000000000000000000000000000000000000..a562f525b6a19c191c9fccfbdc5dc5fe
 +        XCTAssertNil(picker.cursor, "Up from the first row returns to the search field")
 +    }
 +}
+diff --git a/ModernTests/OmniContextMenusTests.swift b/ModernTests/OmniContextMenusTests.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..b80d196b87e919332410587a6c36d1982099e904
+--- /dev/null
++++ b/ModernTests/OmniContextMenusTests.swift
+@@ -0,0 +1,115 @@
++//
++//  OmniContextMenusTests.swift
++//  ModernTests
++//
++//  Right-click menus offer the same commands wherever a thing appears, and
++//  everything clickable on a page gets the pointing hand.
++//
++
++import XCTest
++@testable import iTerm2SharedARC
++
++final class OmniContextMenusTests: XCTestCase {
++    private func titles(_ menu: NSMenu) -> [String] {
++        return menu.items.filter { !$0.isSeparatorItem }.map(\.title)
++    }
++
++    func testAgentMenuOffersTheAgentCommands() {
++        let menu = OmniContextMenus.agent("nightly", enabled: true, actions: nil, window: nil)
++        XCTAssertEqual(titles(menu), ["Open", "Run Now", "Edit…", "Rename…", "Pause Schedule", "Copy Name", "Delete Agent…"])
++        let paused = OmniContextMenus.agent("nightly", enabled: false, actions: nil, window: nil, rename: false)
++        XCTAssertTrue(titles(paused).contains("Resume Schedule"))
++        XCTAssertFalse(titles(paused).contains("Rename…"))
++    }
++
++    func testRunMenuFollowsWhetherTheRunIsLive() {
++        let live = titles(OmniContextMenus.run("r1", agent: "nightly", live: true, actions: nil, window: nil))
++        XCTAssertTrue(live.contains("Stop Run") && live.contains("Show Terminal"))
++        XCTAssertFalse(live.contains("Resume"))
++        let ended = titles(OmniContextMenus.run("r1", agent: nil, live: false, actions: nil, window: nil))
++        XCTAssertTrue(ended.contains("Resume"))
++        XCTAssertFalse(ended.contains("Stop Run"))
++    }
++
++    func testSessionMenuCannotResumeALiveSession() {
++        let menu = OmniContextMenus.session(["session_id": "claude:abc", "state": "running", "title": "T"],
++                                            actions: nil, window: nil)
++        XCTAssertTrue(titles(menu).contains("Rename…"))
++        XCTAssertEqual(menu.items.first { $0.title == "Resume in a New Tab" }?.isEnabled, false)
++    }
++
++    func testMenuItemsRunTheirAction() {
++        var ran = false
++        let menu = NSMenu()
++        let item = menu.addAction("Go") { ran = true }
++        menu.performActionForItem(at: menu.index(of: item))
++        XCTAssertTrue(ran)
++    }
++
++    func testRowsShowTheirMenuOnRightClick() throws {
++        let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.folder.rawValue), iconColor: nil, title: "A", detail: "",
++                                     badge: "", status: nil) {}
++        row.contextMenu = { OmniContextMenus.path("/tmp", open: nil) }
++        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
++                                                     timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
++                                                     clickCount: 1, pressure: 1))
++        XCTAssertEqual(row.menu(for: event).map(titles), ["Reveal in Finder", "Open with Default App", "Copy Path"])
++    }
++
++    func testTicketRowsMenuSetsStatusAndPriority() throws {
++        let saved = OmniTicketStore.directory
++        OmniTicketStore.directory = FileManager.default.temporaryDirectory.appendingPathComponent("omni-ctx-\(UUID().uuidString)")
++        defer {
++            try? FileManager.default.removeItem(at: OmniTicketStore.directory)
++            OmniTicketStore.directory = saved
++        }
++        var file = OmniTicketFile(root: "/projects/menu")
++        let now = Date()
++        file.tickets = [OmniTicket(id: "t1", number: 1, title: "One", content: "", status: .open, priority: .longTerm,
++                                   created: now, updated: now)]
++        OmniTicketStore.save(file)
++        let controller = OmniTicketsController(root: "/projects/menu")
++        _ = controller.build(into: OmniColumnView(), previous: [])
++        let column = OmniColumnView()
++        _ = controller.build(into: column, previous: [])
++        let row = try XCTUnwrap(Self.descendants(of: column).compactMap { $0 as? OmniTicketRow }.first)
++        let menu = try XCTUnwrap(row.contextMenu?())
++        XCTAssertEqual(titles(menu), ["Open", "Status", "Priority", "Copy Title", "Copy as Markdown", "Delete Ticket…"])
++        let done = try XCTUnwrap(menu.items.first { $0.title == "Status" }?.submenu?.items.first { $0.title == "Done" })
++        done.menu?.performActionForItem(at: done.menu!.index(of: done))
++        XCTAssertEqual(controller.file.tickets.first?.status, .done)
++    }
++
++    // The sweep: every button, pop-up and segmented control a page puts in
++    // its column gets the pointer, and rows set it themselves.
++    func testEveryControlInAColumnGetsThePointer() {
++        let column = OmniColumnView()
++        let row = OmniButtonRow([NSButton(title: "A", target: nil, action: nil), NSPopUpButton(frame: .zero, pullsDown: false)])
++        column.add(row) { _ in 30 }
++        let segmented = NSSegmentedControl(labels: ["X", "Y"], trackingMode: .selectOne, target: nil, action: nil)
++        let holder = NSView()
++        holder.addSubview(segmented)
++        column.add(holder) { _ in 30 }
++        let controls = Self.descendants(of: column).filter { $0 is NSButton || $0 is NSSegmentedControl }
++        XCTAssertEqual(controls.count, 3)
++        for control in controls {
++            XCTAssertTrue(control.trackingAreas.contains { $0.owner === OmniPointer.shared }, "\(control) has no pointer")
++        }
++    }
++
++    func testTicketsTabControlsAllGetThePointer() {
++        let saved = OmniTicketStore.directory
++        OmniTicketStore.directory = FileManager.default.temporaryDirectory.appendingPathComponent("omni-ctx-\(UUID().uuidString)")
++        defer { OmniTicketStore.directory = saved }
++        let controller = OmniTicketsController(root: "/projects/pointer")
++        let column = OmniColumnView()
++        _ = controller.build(into: column, previous: [])
++        let buttons = Self.descendants(of: column).compactMap { $0 as? NSButton }
++        XCTAssertFalse(buttons.isEmpty)
++        XCTAssertTrue(buttons.allSatisfy { button in button.trackingAreas.contains { $0.owner === OmniPointer.shared } })
++    }
++
++    private static func descendants(of view: NSView) -> [NSView] {
++        return view.subviews + view.subviews.flatMap { descendants(of: $0) }
++    }
++}
 diff --git a/ModernTests/OmniDockPresenceTests.swift b/ModernTests/OmniDockPresenceTests.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..097f7f6e19ac2420a3f032e630bb54db04b06ee3
@@ -36474,10 +36595,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..199acc8bca290683b2dfb339b28f80e861d1678b
+index 0000000000000000000000000000000000000000..de05052bf6ad197337f6920cec0f64d52b2272ce
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4989 @@
+@@ -0,0 +1,5005 @@
 +import AppKit
 +import Foundation
 +import os
@@ -36891,6 +37012,13 @@ index 0000000000000000000000000000000000000000..199acc8bca290683b2dfb339b28f80e8
 +
 +    override func viewDidAppear() {
 +        super.viewDidAppear()
++        OmniPointer.install(in: view)
++    }
++
++    // Sidebar buttons and cells come and go with its modes and reloads; every
++    // layout gives the new ones the pointing hand (installing twice is a no-op).
++    override func viewDidLayout() {
++        super.viewDidLayout()
 +        OmniPointer.install(in: view)
 +    }
 +
@@ -40474,6 +40602,15 @@ index 0000000000000000000000000000000000000000..199acc8bca290683b2dfb339b28f80e8
 +    }
 +
 +    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
++        let cell = sidebarCell(for: item)
++        // Buttons inside cells (the mode switch, disclosure) get the pointing hand.
++        if let cell {
++            OmniPointer.install(in: cell)
++        }
++        return cell
++    }
++
++    private func sidebarCell(for item: Any) -> NSView? {
 +        guard let item = item as? OmniSidebarItem else { return nil }
 +        if item.kind == .divider {
 +            return OmniSidebarDividerCell()
