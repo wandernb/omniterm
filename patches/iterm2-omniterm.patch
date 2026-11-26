@@ -10244,7 +10244,7 @@ index 523711ff7af3baa9fc76521b5cec79b940659faf..499ea2aa4234300100afff565ad7a4af
  // In big sur, sheets aren't key windows any more. This finds the current sheet for the key window and returns it.
  @property(nonatomic, readonly) NSWindow *it_keyWindow;
 diff --git a/sources/AppKit/iTermApplication.m b/sources/AppKit/iTermApplication.m
-index a56037c6cf057bea51441220684b06421d322893..15c872f0b9bd187a88d40574cff58e17d890e84e 100644
+index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4ffabfa08 100644
 --- a/sources/AppKit/iTermApplication.m
 +++ b/sources/AppKit/iTermApplication.m
 @@ -30,6 +30,17 @@
@@ -10461,7 +10461,29 @@ index a56037c6cf057bea51441220684b06421d322893..15c872f0b9bd187a88d40574cff58e17
  - (NSArray<NSWindow *> *)orderedWindowsPlusVisibleHotkeyPanels {
      NSArray<NSWindow *> *panels = [[iTermHotKeyController sharedInstance] visibleFloatingHotkeyWindows] ?: @[];
      return [panels arrayByAddingObjectsFromArray:[self orderedWindows]];
-@@ -1282,4 +1441,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -990,11 +1149,21 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+ 
+ - (void)activateIgnoringOtherApps:(BOOL)flag {
+     RLog(@"activateIgnoringOtherApps flag=%@", @(flag));
++    if (![OmniDockPresence mayTakeFocusWithAppActive:self.isActive]) {
++        RLog(@"OmniTerm refuses to activate itself");
++        DLog(@"%@", [NSThread callStackSymbols]);
++        return;
++    }
+     [super activateIgnoringOtherApps:flag];
+ }
+ 
+ - (void)activate {
+     RLog(@"activate");
++    if (![OmniDockPresence mayTakeFocusWithAppActive:self.isActive]) {
++        RLog(@"OmniTerm refuses to activate itself");
++        DLog(@"%@", [NSThread callStackSymbols]);
++        return;
++    }
+     [super activate];
+ }
+ 
+@@ -1282,4 +1451,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  }
  
  @end
@@ -10497,7 +10519,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca4311e0f61e 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d3404d1a3f62 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11553,7 +11575,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,107 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3292,112 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -11568,6 +11590,11 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
 +    // one session's page (?message=ID: from that message; ?system=1: with its system
 +    // prompt open). Nothing else is accepted.
 +    if ([scheme isEqualToString:@"omniterm"]) {
++        // An omniterm:// link is the person opening OmniTerm (widget, browser).
++        [OmniDockPresence beginExplicitShow];
++        dispatch_async(dispatch_get_main_queue(), ^{
++            [OmniDockPresence endExplicitShow];
++        });
 +        if ([url.host isEqualToString:@"inbox"]) {
 +            [[OmniInboxWindowController sharedInstance] showSelecting:nil];
 +        } else if ([url.host isEqualToString:@"settings"]) {
@@ -11661,7 +11688,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3521,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3526,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11684,7 +11711,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3667,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3672,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11693,7 +11720,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4131,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4136,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11709,7 +11736,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4897,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4902,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11730,7 +11757,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..1dcd1e9c962fedbdbc0cccc8c765ca43
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5143,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5148,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -11868,6 +11895,33 @@ index 0db7af41b690295766f7bab5cb4c22c28c29125d..7c31ee2ac7ee82435e880c7ffb77405d
          
          let content = UNMutableNotificationContent()
          content.title = title
+diff --git a/sources/Hotkey/iTermBaseHotKey.m b/sources/Hotkey/iTermBaseHotKey.m
+index 417cf6e45b92117299508ea9f3470ecad962c95a..7912ad265ce2913541d81f16a0e03b3b73f6c3c5 100644
+--- a/sources/Hotkey/iTermBaseHotKey.m
++++ b/sources/Hotkey/iTermBaseHotKey.m
+@@ -168,7 +168,9 @@
+         }
+     }];
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [self hotKeyPressedWithSiblings:siblings];
++        [OmniDockPresence performExplicitShow:^{
++            [self hotKeyPressedWithSiblings:siblings];
++        }];
+     });
+ }
+ 
+@@ -176,6 +178,11 @@
+ 
+ - (NSArray<iTermBaseHotKey *> *)carbonHotkeyPressed:(NSDictionary *)userInfo siblings:(NSArray<iTermHotKey *> *)siblings {
+     RLog(@"carbonHotkeyPressed running");
++    // A hotkey is the person asking for OmniTerm, so it may take focus.
++    [OmniDockPresence beginExplicitShow];
++    dispatch_async(dispatch_get_main_queue(), ^{
++        [OmniDockPresence endExplicitShow];
++    });
+     if (![[[iTermApplication sharedApplication] delegate] workspaceSessionActive]) {
+         RLog(@"workspace session inactive");
+         return nil;
 diff --git a/sources/MainMenu/Base.lproj/MainMenu.xib b/sources/MainMenu/Base.lproj/MainMenu.xib
 index 67c90dc0b730074d575d181324d27b2d078eeb2f..66c7409f910d0eefbcaeecc251b64704df930fb8 100644
 --- a/sources/MainMenu/Base.lproj/MainMenu.xib
@@ -11987,10 +12041,18 @@ index de664290dd7b5c384688bb2d84afbf05b2c390a2..c98d7a0200fcd74025f50aaeba873aa7
 +
  @end
 diff --git a/sources/Notifications/iTermNotificationController.m b/sources/Notifications/iTermNotificationController.m
-index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b80734179c094461 100644
+index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c55f54ce5c 100644
 --- a/sources/Notifications/iTermNotificationController.m
 +++ b/sources/Notifications/iTermNotificationController.m
-@@ -68,6 +68,11 @@
+@@ -27,6 +27,7 @@
+ 
+ #import "iTermNotificationController.h"
+ 
++#import "iTerm2SharedARC-Swift.h"
+ #import "DebugLogging.h"
+ #import "iTermAdvancedSettingsModel.h"
+ #import "iTermController.h"
+@@ -68,6 +69,11 @@
      return self;
  }
  
@@ -12002,7 +12064,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
  - (void)ensureNotificationPermissionsWithCompletion:(void (^)(BOOL granted))completion {
      [self.pendingPermissionCompletions addObject:[completion copy]];
      
-@@ -158,6 +163,10 @@
+@@ -158,6 +164,10 @@
          DLog(@"notifyRich passed nil description.");
          return NO;
      }
@@ -12013,7 +12075,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
  
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
-@@ -237,6 +246,10 @@
+@@ -237,6 +247,10 @@
               sticky:(BOOL)sticky {
      RLog(@"Notify title=%@ description=%@ window=%@ tab=%@ view=%@ sticky=%@",
           title, description, @(windowIndex), @(tabIndex), @(viewIndex), @(sticky));
@@ -12024,7 +12086,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
      
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
-@@ -278,6 +291,10 @@
+@@ -278,6 +292,10 @@
  }
  
  - (void)postNotificationWithTitle:(NSString *)title detail:(NSString *)detail URL:(NSURL *)url {
@@ -12035,7 +12097,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
              DLog(@"Notification permission not granted");
-@@ -315,11 +332,32 @@
+@@ -315,11 +333,32 @@
      [self postNotificationWithTitle:title detail:detail callbackNotificationName:name callbackNotificationUserInfo:userInfo actionButtonTitle:nil];
  }
  
@@ -12068,7 +12130,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
              DLog(@"Notification permission not granted");
-@@ -332,7 +370,7 @@
+@@ -332,7 +371,7 @@
          content.userInfo = @{ @"CallbackNotificationName": name ?: @"",
                                @"CallbackUserInfo": userInfo ?: @{} };
          
@@ -12077,6 +12139,18 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..80dcdd0db998a67d8fff3596b8073417
              content.sound = [UNNotificationSound defaultSound];
          }
          
+@@ -366,6 +405,11 @@
+ 
+ - (void)notificationWasClicked:(id)clickContext {
+     RLog(@"notificationWasClicked:%@", clickContext);
++    // A click on a banner is the person asking for OmniTerm.
++    [OmniDockPresence beginExplicitShow];
++    dispatch_async(dispatch_get_main_queue(), ^{
++        [OmniDockPresence endExplicitShow];
++    });
+ 
+     NSString *callbackName = clickContext[@"CallbackNotificationName"];
+     NSDictionary *callbackUserInfo = clickContext[@"CallbackUserInfo"];
 diff --git a/sources/OmniTerm/OmniAgentEditor.swift b/sources/OmniTerm/OmniAgentEditor.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..d80e711fe6c2815f0d9a9c419e210b0d498b1a84
@@ -15406,10 +15480,10 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +}
 diff --git a/sources/OmniTerm/OmniDockPresence.swift b/sources/OmniTerm/OmniDockPresence.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d135fcd08f95267dcae95ead3f7f70b9213a84b7
+index 0000000000000000000000000000000000000000..b081cba25a8cfa5434d88e4acc6e993b0bc5c211
 --- /dev/null
 +++ b/sources/OmniTerm/OmniDockPresence.swift
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,191 @@
 +//
 +//  OmniDockPresence.swift
 +//  iTerm2SharedARC
@@ -15486,6 +15560,38 @@ index 0000000000000000000000000000000000000000..d135fcd08f95267dcae95ead3f7f70b9
 +
 +    @objc static func endExplicitShow() {
 +        explicitShowDepth = max(0, explicitShowDepth - 1)
++        lastExplicitShowEnd = ProcessInfo.processInfo.systemUptime
++    }
++
++    // An explicit open activates the app right after its show block ends,
++    // and a pinned open activates again once the Space switch finishes.
++    private static let explicitActivationGrace: TimeInterval = 2.5
++    private static var lastExplicitShowEnd: TimeInterval = -.infinity
++
++    // OmniTerm never takes focus by itself: while another app is in front,
++    // runs, sessions, restoration and startup may neither activate OmniTerm
++    // nor raise its windows. Only an explicit open (shortcut, status menu,
++    // Dock tile, link) may, plus a click, which macOS handles itself.
++    private static func isHandlingUserInput() -> Bool {
++        guard let event = NSApp.currentEvent,
++              ProcessInfo.processInfo.systemUptime - event.timestamp < 1 else {
++            return false
++        }
++        switch event.type {
++        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
++             .otherMouseDown, .otherMouseUp, .keyDown:
++            return true
++        default:
++            return false
++        }
++    }
++
++    @objc(mayTakeFocusWithAppActive:)
++    static func mayTakeFocus(appActive: Bool) -> Bool {
++        if appActive || explicitShowDepth > 0 || isHandlingUserInput() {
++            return true
++        }
++        return ProcessInfo.processInfo.systemUptime - lastExplicitShowEnd < explicitActivationGrace
 +    }
 +
 +    private let anyWindowVisible: () -> Bool
@@ -15928,10 +16034,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..5db1b27a0149d10fbeacc7a959464ad24c2c2d0b
+index 0000000000000000000000000000000000000000..acc1c7525ca158a7547a5b5183098b44286c043d
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1199 @@
+@@ -0,0 +1,1201 @@
 +import AppKit
 +import Foundation
 +
@@ -16153,10 +16259,12 @@ index 0000000000000000000000000000000000000000..5db1b27a0149d10fbeacc7a959464ad2
 +
 +    @objc(showSelecting:) func show(selecting identifier: String?) {
 +        inbox.select(identifier)
-+        guard let window else { return }
++        guard let window, OmniDockPresence.mayTakeFocus(appActive: NSApp.isActive) else { return }
 +        if !window.isVisible {
 +            window.center()
 +        }
++        // Not an explicit show by itself: an agent may ask for the Inbox, and
++        // that must not take focus. A click or the shortcut already counts.
 +        NSApp.unhide(nil)
 +        window.makeKeyAndOrderFront(nil)
 +        NSApp.activate(ignoringOtherApps: true)
@@ -42075,16 +42183,21 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      DLog(@"repositionWidgets - redraw view");
      // Note: this used to call setNeedsDisplay on each session in the current tab.
 diff --git a/sources/TerminalView/iTermWindowImpl.m b/sources/TerminalView/iTermWindowImpl.m
-index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec25c07af6 100644
+index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b1e2f39ef 100644
 --- a/sources/TerminalView/iTermWindowImpl.m
 +++ b/sources/TerminalView/iTermWindowImpl.m
-@@ -370,8 +370,20 @@ ITERM_WEAKLY_REFERENCEABLE
+@@ -370,8 +370,25 @@ ITERM_WEAKLY_REFERENCEABLE
      _layoutDone = YES;
  }
  
 +// OmniTerm stays in the menu bar until it is asked for: a hidden window comes
 +// on screen only through an explicit open (see OmniDockPresence).
 +- (BOOL)omniMayOrderIn:(SEL)selector {
++    if (![OmniDockPresence mayTakeFocusWithAppActive:NSApp.isActive]) {
++        RLog(@"OmniTerm keeps window %p where it is while another app is in front (%@)", self, NSStringFromSelector(selector));
++        DLog(@"%@", [NSThread callStackSymbols]);
++        return NO;
++    }
 +    if ([OmniDockPresence mayOrderInWindowPresent:[OmniDockPresence windowIsPresent:self]]) {
 +        return YES;
 +    }
@@ -42099,7 +42212,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec
      if (!_layoutDone) {
          RLog(@"try to call windowWillShowInitial");
          [self setLayoutDone];
-@@ -384,6 +396,9 @@ ITERM_WEAKLY_REFERENCEABLE
+@@ -384,6 +401,9 @@ ITERM_WEAKLY_REFERENCEABLE
      DLog(@"%@ - calling makeKeyAndOrderFont, which triggers a window resize", NSStringFromClass([self class]));
      DLog(@"The current window frame is %fx%f", [self frame].size.width, [self frame].size.height);
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
@@ -42109,7 +42222,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
      self.it_becomingKey = YES;
      [super makeKeyAndOrderFront:sender];
-@@ -400,12 +415,18 @@ ITERM_WEAKLY_REFERENCEABLE
+@@ -400,12 +420,18 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWin {
@@ -42128,7 +42241,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
      DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
-@@ -413,6 +434,9 @@ ITERM_WEAKLY_REFERENCEABLE
+@@ -413,6 +439,9 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderFront:(nullable id)sender {
@@ -42138,7 +42251,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..b322cb32902d110de2a8d13929a95aec
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
      DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
-@@ -420,6 +444,9 @@ ITERM_WEAKLY_REFERENCEABLE
+@@ -420,6 +449,9 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderBack:(nullable id)sender {
