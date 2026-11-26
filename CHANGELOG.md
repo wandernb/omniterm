@@ -10,6 +10,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Fixed
 
 - OmniTerm no longer comes to the front by itself. Runs, sessions, restarts and startup can no longer activate it, raise its window or switch Spaces while you are in another app; only the shortcut, the menu bar, the Dock icon, a notification click or an omniterm:// link bring it forward.
+- Agents no longer pull OmniTerm forward when they wake its scheduler, and new notifications no longer bring the Inbox window to your Space.
 
 ## [0.7.0] - 2026-11-25
 

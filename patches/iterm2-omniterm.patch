@@ -10519,7 +10519,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d3404d1a3f62 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3eb1124df 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -10608,7 +10608,22 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
      if (action == @selector(newSessionInTabAtIndex:) ||
          action == @selector(newSession:) ||
          action == @selector(newSessionWithSameProfile:)) {
-@@ -982,10 +1012,24 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -979,13 +1009,45 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+     return quittingBecauseLastWindowClosed_;
+ }
+ 
++// A reopen from the Dock tile or Finder is the person asking for OmniTerm;
++// one from `open` run by a helper or script is not.
++- (BOOL)omniReopenCameFromThePerson {
++    NSAppleEventDescriptor *event = [[NSAppleEventManager sharedAppleEventManager] currentAppleEvent];
++    NSAppleEventDescriptor *senderPID = [event attributeDescriptorForKeyword:keySenderPIDAttr];
++    if (!senderPID) {
++        return NO;
++    }
++    NSRunningApplication *sender = [NSRunningApplication runningApplicationWithProcessIdentifier:senderPID.int32Value];
++    return [@[ @"com.apple.dock", @"com.apple.finder" ] containsObject:sender.bundleIdentifier ?: @""];
++}
++
  // User clicked on the dock icon.
  - (BOOL)applicationShouldHandleReopen:(NSApplication *)theApplication
                      hasVisibleWindows:(BOOL)flag {
@@ -10616,6 +10631,12 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
 -    const BOOL result = ![[iTermHotKeyController sharedInstance] dockIconClicked];
 -    DLog(@"Return %@", @(result));
 -    return result;
++    if (![self omniReopenCameFromThePerson]) {
++        // `open` from a helper or script (an agent waking the scheduler)
++        // sends the same reopen event as the Dock. It must not take focus.
++        os_log(os_log_create("com.omniterm.app", "focus"), "ignoring reopen not sent by the Dock or Finder");
++        return NO;
++    }
 +    if (_omniDockPresence.policy == NSApplicationActivationPolicyRegular) {
 +        // The Dock icon only shows with a window, so this is a click on it.
 +        DLog(@"Reopen while in the Dock: bringing OmniTerm forward");
@@ -10637,7 +10658,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  }
  
  - (void)applicationDidChangeScreenParameters:(NSNotification *)aNotification
-@@ -1042,6 +1086,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -1042,6 +1104,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
          return NSTerminateCancel;
      }
  
@@ -10654,7 +10675,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
      // Capture the option-key state for the “Quit and Close All Windows”
      // detection below. We sample it before any modal prompt so a slow user
      // releasing the key doesn’t change the answer.
-@@ -1178,6 +1232,15 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -1178,6 +1250,15 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  
  - (void)applicationWillTerminate:(NSNotification *)aNotification {
      RLog(@"applicationWillTerminate called");
@@ -10670,7 +10691,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
      [iTermController releaseSharedInstance];
      [[iTermModifierRemapper sharedInstance] setRemapModifiers:NO];
      DLog(@"applicationWillTerminate returning");
-@@ -1358,6 +1421,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+@@ -1358,6 +1439,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
      DLog(@"Application will resign active.");
  }
  
@@ -10687,7 +10708,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  - (void)applicationWillHide:(NSNotification *)aNotification {
      for (NSWindow *aWindow in [[NSApplication sharedApplication] windows]) {
          [self hideToolTipsInView:[aWindow contentView]];
-@@ -1399,6 +1472,10 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1399,6 +1490,10 @@ void TurnOnDebugLoggingAutomatically(void) {
      } else {
          suUpdater.delegate = (id<SUUpdaterDelegate>)[iTermTestHostIsolation updaterDelegate];
      }
@@ -10698,7 +10719,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
      [[iTermApplication sharedApplication] updateAppearance];
      [[iTermUserDefaults userDefaults] it_addObserverForKey:kPreferenceKeyTabStyle
                                                       block:^(id _Nonnull newValue) {
-@@ -1604,6 +1681,95 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1604,6 +1699,95 @@ void TurnOnDebugLoggingAutomatically(void) {
  - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
      [iTermMacOS13RequirementNotice maybeShow];
      DLog(@"didFinishLaunching");
@@ -10794,7 +10815,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  
      // When running an isolated instance via -suite, overlay the suite name on
      // the dock icon so it's obvious which instance this dock icon belongs to.
-@@ -1901,6 +2067,267 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1901,6 +2085,267 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
  #endif
  
@@ -11062,7 +11083,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2366,494 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -1939,45 +2384,494 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -11575,7 +11596,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3292,112 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3310,112 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -11688,7 +11709,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3526,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3544,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -11711,7 +11732,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3672,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3690,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -11720,7 +11741,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4136,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4154,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -11736,7 +11757,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4902,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4920,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -11757,7 +11778,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..8ee96e6b7da7ff6ab538d5659566d340
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5148,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5166,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -16041,10 +16062,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..acc1c7525ca158a7547a5b5183098b44286c043d
+index 0000000000000000000000000000000000000000..b4bb2fefd5627ec8c9088ceb6bc289fc0c7f11f7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1201 @@
+@@ -0,0 +1,1227 @@
 +import AppKit
 +import Foundation
 +
@@ -16159,6 +16180,32 @@ index 0000000000000000000000000000000000000000..acc1c7525ca158a7547a5b5183098b44
 +private final class OmniInboxWindow: NSWindow {
 +    // The Inbox's own shortcuts; true when one was handled.
 +    var shortcutHandler: ((NSEvent) -> Bool)?
++
++    // OmniTerm never comes forward by itself: while another app is in front,
++    // only an explicit open may bring the Inbox on screen or raise it.
++    private var mayRaise: Bool {
++        OmniDockPresence.mayTakeFocus(appActive: NSApp.isActive)
++    }
++
++    override func makeKeyAndOrderFront(_ sender: Any?) {
++        guard mayRaise else { return }
++        super.makeKeyAndOrderFront(sender)
++    }
++
++    override func orderFront(_ sender: Any?) {
++        guard mayRaise else { return }
++        super.orderFront(sender)
++    }
++
++    override func orderFrontRegardless() {
++        guard mayRaise else { return }
++        super.orderFrontRegardless()
++    }
++
++    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
++        guard place == .out || mayRaise else { return }
++        super.order(place, relativeTo: otherWin)
++    }
 +
 +    // Escape closes the Inbox. The terminal's double-Escape hide only applies
 +    // to the terminal window.

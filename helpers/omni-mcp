@@ -30,6 +30,16 @@ def launch_command():
     return ["open", "-g", "-b", "com.omniterm.app"]
 
 
+def app_is_running():
+    # `open` on a running app sends it a reopen, which can bring its window
+    # forward; a scheduler that is only slow to answer needs no launch.
+    if APP_BUNDLE.suffix != ".app":
+        return False
+    result = subprocess.run(["/usr/bin/pgrep", "-f", str(APP_BUNDLE / "Contents/MacOS/")],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0
+
+
 def scheduler_request(payload, launch=True):
     last_error = None
     attempts = 8 if launch else 1
@@ -77,7 +87,7 @@ def scheduler_request(payload, launch=True):
             if sent and not (read_only or stable_mutation):
                 raise RuntimeError("The scheduler response was lost; this mutation was not replayed. "
                                    "Inspect its current state before trying again.") from exc
-            if attempt == 0 and launch and not sent:
+            if attempt == 0 and launch and not sent and not app_is_running():
                 subprocess.run(launch_command(),
                                env={"HOME": str(Path.home()), "PATH": "/usr/bin:/bin"},
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
