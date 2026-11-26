@@ -724,6 +724,15 @@ class ReadthroughSemanticTests(unittest.TestCase):
         self.assertEqual(result["attempted_chunks"], 1)
         self.assertEqual(self.embedding.calls, ["Database lesson\nRetry the lost link"])
 
+    def test_search_after_memory_pressure_drops_the_matrices_returns_the_same_results(self):
+        before = self.index.search("database connection", limit=5)
+        self.index.store._semantics = self.index
+        self.assertIn("matrices", self.store.relieve_pressure(2)["released"])
+        self.assertEqual(len(self.index._matrices["transcript"]), 0, "the matrix is gone until it reloads")
+        after = self.index.search("database connection", limit=5)  # loads again from the index
+        self.assertEqual([m["id"] for m in after["matches"]], [m["id"] for m in before["matches"]])
+        self.assertEqual(after["indexed_records"], before["indexed_records"])
+
     def test_full_persisted_corpus_search_does_not_require_temporary_whole_corpus_indexes(self):
         # Removing automatic indexes exposes repeated corpus scans while still
         # allowing the native schema's permanent indexes and exact retrieval.

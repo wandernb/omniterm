@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- Opening and closing tabs no longer leaves memory behind. Every closed terminal left a notification registration, and every run or Inbox page left its text system and three hidden views. All are now released, so twenty open/close cycles end where they started.
+- An indexing batch that cannot be saved now pauses new indexing until it saves, instead of producing more writes behind it.
+
 ## [0.8.1] - 2026-11-26
 
 ### Fixed

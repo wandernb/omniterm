@@ -3311,10 +3311,10 @@ index 0000000000000000000000000000000000000000..6618ff51c34677f10d650f08a15ccc92
 +}
 diff --git a/ModernTests/OmniSchedulerTests.m b/ModernTests/OmniSchedulerTests.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec3d6781ea
+index 0000000000000000000000000000000000000000..562f31d7994c24ecc75efbeee59dcf8304b80ce4
 --- /dev/null
 +++ b/ModernTests/OmniSchedulerTests.m
-@@ -0,0 +1,3351 @@
+@@ -0,0 +1,3446 @@
 +//
 +//  OmniSchedulerTests.m
 +//  ModernTests
@@ -3350,6 +3350,7 @@ index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec
 +- (NSDictionary *)performKnowledgeWorkerRequest:(NSDictionary *)request;
 +- (NSDictionary *)knowledgeMaintenance;
 +- (double)knowledgeClock;
++- (BOOL)knowledgeRequestsWaiting;
 +- (NSDictionary *)responseForKnowledgeRequest:(id)request;
 +- (NSDictionary *)sendKnowledgeWorkerRequest:(NSDictionary *)request;
 +- (BOOL)ensureKnowledgeWorker;
@@ -3395,6 +3396,8 @@ index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec
 +@property(nonatomic) double secondsPerCall;
 +@property(nonatomic) NSInteger pressureLevel;
 +@property(nonatomic, copy) NSDictionary *embedFixture;
++// Stands in for a read queued behind the indexing tick.
++@property(nonatomic) BOOL readWaiting;
 +@end
 +
 +@implementation OmniKnowledgeTestScheduler
@@ -3419,6 +3422,9 @@ index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec
 +}
 +- (NSDictionary *)knowledgeEmbedRequest {
 +    return self.embedFixture ?: OmniEmbedRequest(0, NO, NO, 0);
++}
++- (BOOL)knowledgeRequestsWaiting {
++    return self.readWaiting || [super knowledgeRequestsWaiting];
 +}
 +- (NSArray *)rowsForSQL:(NSString *)sql bindings:(NSArray *)bindings {
 +    if (self.liveRunFixtures) {
@@ -4031,6 +4037,95 @@ index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec
 +                           @"update_memory_sessions", @"update_live_sessions", @"relieve:2", @"deliver" ];
 +    XCTAssertEqualObjects(operations, expected);
 +    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"tier"], @"pressure");
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++
++// A batch that cannot be saved is never acknowledged: the worker keeps it and
++// the next tick saves it. Nothing new is produced meanwhile.
++- (void)testKnowledgeTickFailedCommitKeepsWritesPendingAndRetries {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    __block BOOL broken = YES;
++    NSMutableArray *operations = [NSMutableArray array];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        [operations addObject:request[@"op"]];
++        if ([request[@"op"] isEqual:@"ack_writes"]) return @{ @"ok": @YES };
++        if (!broken && [operations containsObject:@"saved"]) return @{ @"ok": @YES };
++        // An unknown namespace makes the whole batch fail to save.
++        NSString *key = broken ? @"settings:unexpected" : @"memory:retried";
++        if (!broken) [operations addObject:@"saved"];
++        return @{ @"ok": @YES, @"_writes": @[ @{ @"key": key, @"value": @{ @"body": @"R" } } ], @"_revision": @1, @"_more_writes": @NO };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertFalse([operations containsObject:@"ack_writes"], @"a failed save is never acknowledged");
++    XCTAssertNil([self savedKnowledgeRecord:@"memory:retried"]);
++    broken = NO;
++    [operations removeAllObjects];
++    [scheduler tickKnowledge];
++    XCTAssertTrue([operations containsObject:@"ack_writes"]);
++    XCTAssertNotNil([self savedKnowledgeRecord:@"memory:retried"]);
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++// A read that arrives during a tick stops it after the call in progress: no
++// further batches are drained and no embedding or memory tick starts.
++- (void)testKnowledgeTickYieldsToAWaitingRead {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    NSMutableArray *operations = [NSMutableArray array];
++    __block OmniKnowledgeTestScheduler *weakScheduler = scheduler;
++    __block NSInteger revision = 0;
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        [operations addObject:request[@"op"]];
++        if ([request[@"op"] isEqual:@"ack_writes"]) return @{ @"ok": @YES };
++        if ([request[@"op"] isEqual:@"scan"]) weakScheduler.readWaiting = YES;
++        if (![request[@"op"] isEqual:@"scan"]) return @{ @"ok": @YES, @"backlog_files": @10 };
++        revision++;
++        return @{ @"ok": @YES, @"backlog_files": @10,
++                  @"_writes": @[ @{ @"key": [NSString stringWithFormat:@"message:%ld", (long)revision], @"value": @{ @"text": @"t" } } ],
++                  @"_revision": @(revision), @"_more_writes": @YES };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"last_yield"], @"request_waiting");
++    XCTAssertFalse([operations containsObject:@"drain_writes"], @"the read is not kept waiting behind more batches");
++    XCTAssertFalse([operations containsObject:@"embed"]);
++    XCTAssertFalse([operations containsObject:@"memory_tick"]);
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"writes_waiting"], @YES);
++    // Once the read is answered, the next tick saves what was left.
++    scheduler.readWaiting = NO;
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        return @{ @"ok": @YES };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"writes_waiting"], @NO);
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++// A worker that exits after a save but before its acknowledgement: the save
++// stands, the tick ends without failing, and the restarted worker (which
++// starts with nothing pending) lets the next tick produce again.
++- (void)testKnowledgeTickSurvivesAWorkerRestartBetweenSaveAndAcknowledgement {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        if ([request[@"op"] isEqual:@"ack_writes"]) return @{ @"ok": @NO, @"code": @"knowledge_transport", @"error": @"Worker exited" };
++        return @{ @"ok": @YES, @"_writes": @[ @{ @"key": @"memory:kept", @"value": @{ @"body": @"K" } } ],
++                  @"_revision": @1, @"_more_writes": @YES };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects([self savedKnowledgeRecord:@"memory:kept"], (@{ @"body": @"K" }));
++    NSMutableArray *operations = [NSMutableArray array];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        [operations addObject:request[@"op"]];
++        return @{ @"ok": @YES };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertTrue([operations containsObject:@"scan"], @"the restarted worker is indexed again");
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"writes_waiting"], @NO);
 +    scheduler.workerRequest = nil;
 +    [scheduler stop];
 +}
@@ -17002,7 +17097,7 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..42d5ff43e0078e54feac6d7cb1fdfc5dd7fd025b
+index 0000000000000000000000000000000000000000..ab21fe8d4672b1a514aa5550d5173ffdfff99be3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
 @@ -0,0 +1,1272 @@
@@ -17357,11 +17452,11 @@ index 0000000000000000000000000000000000000000..42d5ff43e0078e54feac6d7cb1fdfc5d
 +    private let bodyPane = OmniResizingView()
 +    private let bodyHeader = OmniTheme.sectionHeader("Message")
 +    private let bodyScroll = NSScrollView()
-+    private let bodyTextView = NSTextView()
++    private let bodyTextView = NSTextView(usingTextLayoutManager: false)
 +    private let changesPane = OmniResizingView()
 +    private let changesLabel = OmniTheme.sectionHeader("Changes")
 +    private let diffScroll = NSScrollView()
-+    private let diffTextView = NSTextView()
++    private let diffTextView = NSTextView(usingTextLayoutManager: false)
 +
 +    private var detailZone: OmniButtonZone {
 +        return buttonRow.zone
@@ -24451,10 +24546,10 @@ index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc
 +}
 diff --git a/sources/OmniTerm/OmniPanes.swift b/sources/OmniTerm/OmniPanes.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..554d9e02d474dbec94336134f672b942de20ad90
+index 0000000000000000000000000000000000000000..7e3fcf9f82e2462045bcb040d8e5e9e541cb5fa1
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanes.swift
-@@ -0,0 +1,1237 @@
+@@ -0,0 +1,1239 @@
 +import AppKit
 +import Foundation
 +
@@ -25272,7 +25367,9 @@ index 0000000000000000000000000000000000000000..554d9e02d474dbec94336134f672b942
 +    private let changesPane = OmniResizingView()
 +    private let changesLabel = NSTextField(labelWithString: "")
 +    private let diffScroll = NSScrollView()
-+    private let diffTextView = NSTextView()
++    // TextKit 1 from the start: a TextKit 2 view switched over later leaves its
++    // TextKit 2 objects behind for every report page opened.
++    private let diffTextView = NSTextView(usingTextLayoutManager: false)
 +    private var lastSignature = ""
 +    private var diffSignature = ""
 +    private var run: OmniRun?
@@ -27867,10 +27964,10 @@ index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..83bb3c5f5d00d14702f2cc01b23bef96b95e7640
+index 0000000000000000000000000000000000000000..d19cecdd8e81d3c0e84c76c48a9f129bab24cf12
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4527 @@
+@@ -0,0 +1,4533 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -28929,6 +29026,8 @@ index 0000000000000000000000000000000000000000..83bb3c5f5d00d14702f2cc01b23bef96
 +        NSUInteger saved = 0;
 +        const OmniKnowledgeCommit commit = [self commitKnowledgeResponse:response allowance:allowance savedBytes:&saved];
 +        if (commit == OmniKnowledgeCommitFailed) {
++            // The worker keeps what could not be saved; produce nothing more until it is.
++            if (drain == OmniKnowledgeDrainYielding) _knowledgeBackpressure = YES;
 +            return OmniKnowledgeError(@"knowledge_persistence", @"Knowledge changes could not be saved; retry without changing the request ID");
 +        }
 +        if (commit == OmniKnowledgeCommitDeferred) {
@@ -29148,7 +29247,11 @@ index 0000000000000000000000000000000000000000..83bb3c5f5d00d14702f2cc01b23bef96
 +        const BOOL admitted = phase == OmniKnowledgePhaseEmbed ? _tickBudget.embed : _tickBudget.maintenance;
 +        if (!admitted) continue;
 +        if (_knowledgeBackpressure || [self knowledgeRequestsWaiting] || (worked && ![self knowledgeTickMayContinue])) {
-+            if (_knowledgeBackpressure) _tickYield = @"writes_waiting";
++            if ([self knowledgeRequestsWaiting]) {
++                _tickYield = @"request_waiting";
++            } else if (_knowledgeBackpressure) {
++                _tickYield = @"writes_waiting";
++            }
 +            _knowledgePhase = phase;
 +            return;
 +        }
@@ -41746,10 +41849,10 @@ index 0000000000000000000000000000000000000000..ec1c77404a51af82619c6e908245135c
 +}
 diff --git a/sources/OmniTerm/OmniTerminalSnapshotView.swift b/sources/OmniTerm/OmniTerminalSnapshotView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..080d28cd96db8a18b7c64ff05da1efd6140ae943
+index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301db6a8747
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTerminalSnapshotView.swift
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,325 @@
 +import AppKit
 +import Foundation
 +
@@ -41764,7 +41867,9 @@ index 0000000000000000000000000000000000000000..080d28cd96db8a18b7c64ff05da1efd6
 +
 +    private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 +
-+    private let textView = NSTextView()
++    // TextKit 1 from the start: height() reads layoutManager, and switching a
++    // TextKit 2 view over leaves its TextKit 2 objects and subviews behind.
++    private let textView = NSTextView(usingTextLayoutManager: false)
 +    private var shownScreen: String?
 +
 +    override init(frame frameRect: NSRect) {
@@ -45400,6 +45505,43 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
      DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
+diff --git a/sources/VT100/TokenExecutor.swift b/sources/VT100/TokenExecutor.swift
+index 0b4e0e0fe7d782be91b02c57a5afadce05aa79b5..c95571a8d1aa21d6bc5ed627128e5a0096f15f8a 100644
+--- a/sources/VT100/TokenExecutor.swift
++++ b/sources/VT100/TokenExecutor.swift
+@@ -489,6 +489,9 @@ private class TokenExecutorImpl {
+     private let throughputEstimator = iTermThroughputEstimator(historyOfDuration: 5.0 / 30.0,
+                                                                secondsPerBucket: 1.0 / 30.0)
+     private var commit = true
++    // Removed in deinit: the notification is rare, so a registration that waits
++    // for it to notice its owner is gone outlives every closed session.
++    private var unpauseObserver: NSObjectProtocol?
+     private static let mutationTimingStats: TimingStats = {
+         TimingStats(name: "Mutation thread")
+     }()
+@@ -556,9 +559,9 @@ private class TokenExecutorImpl {
+             })
+             permitHolder?.setVisible(!isBackgroundSession)
+         }
+-        NotificationCenter.default.addObserver(forName: Self.didUnpauseGloballyNotification,
+-                                               observer: self,
+-                                               object: nil) { [weak self] _ in
++        unpauseObserver = NotificationCenter.default.addObserver(forName: Self.didUnpauseGloballyNotification,
++                                                                 object: nil,
++                                                                 queue: nil) { [weak self] _ in
+             guard let self else {
+                 return
+             }
+@@ -571,6 +574,9 @@ private class TokenExecutorImpl {
+     }
+ 
+     deinit {
++        if let unpauseObserver {
++            NotificationCenter.default.removeObserver(unpauseObserver)
++        }
+         Self.activeSessionsWithTokens.mutableAccess { set in
+             set.remove(ObjectIdentifier(self))
+         }
 diff --git a/sources/iTermController/iTermController.m b/sources/iTermController/iTermController.m
 index fcee462da8768f15d6e759a234a355cd273d6c99..7016f968d48abf4fa30dd859fb18384c437f5427 100644
 --- a/sources/iTermController/iTermController.m
