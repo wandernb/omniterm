@@ -9314,10 +9314,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..61b7ae205b7565b1914950656464d296
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843fed7caff 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad52e18675 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,31 @@
+@@ -7,6 +7,32 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -9334,6 +9334,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
 +		5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */; };
 +		5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */; };
 +		5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */; };
++		5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
 +		0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */; };
@@ -9349,7 +9350,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5163,32 @@
+@@ -5138,6 +5164,33 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -9367,6 +9368,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
 +		5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniUnblockerPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniProjectsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSearch.swift; sourceTree = "<group>"; };
++		5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTickets.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTerminalSnapshotView.swift; sourceTree = "<group>"; };
@@ -9382,7 +9384,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10658,32 @@
+@@ -10607,6 +10660,33 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -9400,6 +9402,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
 +				5D0A7B1C2E3F0000000000B2 /* OmniUnblockerPane.swift */,
 +				5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */,
 +				5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */,
++				5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
 +				0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */,
@@ -9415,7 +9418,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18645,7 @@
+@@ -18568,7 +18648,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -9424,7 +9427,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18655,7 @@
+@@ -18578,7 +18658,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -9433,7 +9436,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18842,30 @@
+@@ -18765,6 +18845,31 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -9449,6 +9452,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
 +				5D0A7B1C2E3F0000000000B1 /* OmniUnblockerPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */,
++				5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
 +				0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */,
@@ -9464,7 +9468,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20849,7 @@
+@@ -20748,6 +20853,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -9472,7 +9476,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21661,7 @@
+@@ -21559,7 +21665,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9481,7 +9485,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21694,7 @@
+@@ -21592,7 +21698,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9490,7 +9494,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21831,8 @@
+@@ -21729,8 +21835,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9501,7 +9505,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22919,8 @@
+@@ -22817,8 +22923,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9512,7 +9516,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24785,7 @@
+@@ -24683,7 +24789,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -9521,7 +9525,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24872,7 @@
+@@ -24770,7 +24876,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9530,7 +9534,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24959,7 @@
+@@ -24857,7 +24963,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9539,7 +9543,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25046,7 @@
+@@ -24944,7 +25050,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9548,7 +9552,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25342,8 @@
+@@ -25240,8 +25346,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9559,7 +9563,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25437,8 @@
+@@ -25335,8 +25441,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9570,7 +9574,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25642,7 @@
+@@ -25540,7 +25646,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9579,7 +9583,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..49156878b60fde0c6b396d7119a3e843
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25675,7 @@
+@@ -25573,7 +25679,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -24557,10 +24561,10 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b3009b195
+index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2c0acbf86
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1547 @@
+@@ -0,0 +1,1576 @@
 +import AppKit
 +import Foundation
 +
@@ -24573,6 +24577,7 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +    case sessions
 +    case knowledge
 +    case files
++    case tickets
 +    case settings
 +
 +    var title: String {
@@ -24582,6 +24587,7 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +        case .sessions: return "Sessions & Agents"
 +        case .knowledge: return "Knowledge"
 +        case .files: return "Files"
++        case .tickets: return "Tickets"
 +        case .settings: return "Settings"
 +        }
 +    }
@@ -24594,6 +24600,7 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +        case .sessions: return "Sessions"
 +        case .knowledge: return "Knowledge"
 +        case .files: return "Files"
++        case .tickets: return "Tickets"
 +        case .settings: return "Settings"
 +        }
 +    }
@@ -24605,6 +24612,7 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +        case .sessions: return .bubbleLeftAndBubbleRight
 +        case .knowledge: return .bookClosed
 +        case .files: return .folder
++        case .tickets: return .checklist
 +        case .settings: return .gearshape
 +        }
 +    }
@@ -24781,6 +24789,7 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +    private(set) var zones: [(title: String, zone: OmniListZone)] = []
 +    private let fileView = OmniMarkdownView(text: "")
 +    private let readmeView = OmniMarkdownView(text: "")
++    private var tickets: OmniTicketsController?
 +
 +    override var contentViews: [NSView] {
 +        return [scroll]
@@ -24916,6 +24925,14 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +            if folder == nil {
 +                loadFolder(folderPath)
 +            }
++        case .tickets:
++            if tickets == nil {
++                let controller = OmniTicketsController(root: projectID)
++                controller.requestRebuild = { [weak self] in self?.rebuild() }
++                controller.visibleHeight = { [weak self] in self?.scroll.contentSize.height ?? 600 }
++                controller.window = { [weak self] in self?.window }
++                tickets = controller
++            }
 +        case .code, .knowledge, .settings:
 +            break
 +        }
@@ -24955,6 +24972,13 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +    }
 +
 +    private func rebuild() {
++        // A rebuild takes the ticket editor out of the window for a moment.
++        let editing = window?.firstResponder as? OmniMarkdownTextView
++        defer {
++            if let editing, editing.window != nil, window?.firstResponder !== editing {
++                window?.makeFirstResponder(editing)
++            }
++        }
 +        preservingZoneFocus {
 +            scroll.rebuildKeepingScroll {
 +                let column = scroll.column
@@ -25074,6 +25098,11 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +        case .sessions: buildSessions(previous)
 +        case .knowledge: buildKnowledge(project, previous)
 +        case .files: buildFiles(previous)
++        case .tickets:
++            if let tickets {
++                zones = tickets.build(into: column, previous: previous)
++                buttonsZone = tickets.buttonsZone
++            }
 +        case .settings: buildSettings(project)
 +        }
 +    }
@@ -25508,8 +25537,12 @@ index 0000000000000000000000000000000000000000..31239d9496f90d365f5384f4e249a26b
 +        scroll.reflectScrolledClipView(scroll.contentView)
 +    }
 +
-+    // Command-1 to 6 pick a tab while the page has the keyboard.
++    // Command-1 to 7 pick a tab while the page has the keyboard.
 +    override func handlePaneShortcut(_ event: NSEvent) -> Bool {
++        if project != nil, tab == .tickets, let tickets,
++           tickets.handleShortcut(event, focused: focusZones.first { window?.firstResponder === $0.zoneFirstResponder }) {
++            return true
++        }
 +        guard project != nil, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
 +              let digit = event.charactersIgnoringModifiers.flatMap(Int.init), digit >= 1,
 +              let chosen = OmniProjectTab(rawValue: digit - 1) else { return false }
@@ -40787,6 +40820,1226 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +    override func layout() {
 +        super.layout()
 +        didResize?(bounds.size)
++    }
++}
+diff --git a/sources/OmniTerm/OmniTickets.swift b/sources/OmniTerm/OmniTickets.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4baa9f5dff
+--- /dev/null
++++ b/sources/OmniTerm/OmniTickets.swift
+@@ -0,0 +1,1214 @@
++import AppKit
++import CryptoKit
++import Foundation
++
++// MARK: - Model
++
++// A project's tickets: a small backlog and board kept by OmniTerm, one file
++// per project root, never inside the project's own folders.
++enum OmniTicketStatus: String, CaseIterable, Codable {
++    case open
++    case inProgress = "in_progress"
++    case done
++    case discarded
++
++    var label: String {
++        switch self {
++        case .open: return "Open"
++        case .inProgress: return "In Progress"
++        case .done: return "Done"
++        case .discarded: return "Discarded"
++        }
++    }
++
++    var symbol: SFSymbol {
++        switch self {
++        case .open: return .circle
++        case .inProgress: return .circleLefthalfFilled
++        case .done: return .checkmarkCircleFill
++        case .discarded: return .xmarkCircle
++        }
++    }
++
++    var color: NSColor {
++        switch self {
++        case .open: return OmniTheme.secondaryText
++        case .inProgress: return OmniTheme.waiting
++        case .done: return OmniTheme.completed
++        case .discarded: return OmniTheme.ended
++        }
++    }
++}
++
++enum OmniTicketPriority: String, CaseIterable, Codable {
++    case urgent
++    case shortTerm = "short_term"
++    case middleTerm = "middle_term"
++    case longTerm = "long_term"
++
++    var label: String {
++        switch self {
++        case .urgent: return "Urgent"
++        case .shortTerm: return "Short-term"
++        case .middleTerm: return "Middle-term"
++        case .longTerm: return "Long-term"
++        }
++    }
++
++    var symbol: SFSymbol {
++        return self == .urgent ? .exclamationmarkCircleFill : .flagFill
++    }
++
++    var color: NSColor {
++        switch self {
++        case .urgent: return OmniTheme.failed
++        case .shortTerm: return OmniTheme.waiting
++        case .middleTerm: return OmniTheme.running
++        case .longTerm: return OmniTheme.ended
++        }
++    }
++}
++
++struct OmniTicket: Codable, Equatable {
++    var id: String
++    var number: Int
++    var title: String
++    var content: String
++    var status: OmniTicketStatus
++    var priority: OmniTicketPriority
++    var created: Date
++    var updated: Date
++}
++
++enum OmniTicketGrouping: String, Codable {
++    case status
++    case priority
++}
++
++enum OmniTicketLayout: String, Codable {
++    case list
++    case board
++}
++
++// The properties a ticket row can show besides its title.
++enum OmniTicketField: String, CaseIterable, Codable {
++    case number
++    case status
++    case priority
++    case updated
++
++    var label: String {
++        switch self {
++        case .number: return "ID"
++        case .status: return "Status"
++        case .priority: return "Priority"
++        case .updated: return "Updated"
++        }
++    }
++}
++
++// How the tickets tab shows them: list or board, grouped by status or
++// priority, with the statuses and priorities shown (the backlog filter and
++// the board's columns) and the row properties.
++struct OmniTicketView: Codable, Equatable {
++    var layout = OmniTicketLayout.list
++    var grouping = OmniTicketGrouping.status
++    var statuses: [OmniTicketStatus] = [.open, .inProgress, .done]
++    var priorities: [OmniTicketPriority] = OmniTicketPriority.allCases
++    var fields: [OmniTicketField] = [.number, .priority, .updated]
++}
++
++struct OmniTicketFile: Codable, Equatable {
++    var root: String
++    var nextNumber = 1
++    var tickets: [OmniTicket] = []
++    var view = OmniTicketView()
++
++    init(root: String) {
++        self.root = root
++    }
++
++    // Older or hand-edited files may lack keys; keep what is there.
++    init(from decoder: Decoder) throws {
++        let values = try decoder.container(keyedBy: CodingKeys.self)
++        root = try values.decodeIfPresent(String.self, forKey: .root) ?? ""
++        tickets = try values.decodeIfPresent([OmniTicket].self, forKey: .tickets) ?? []
++        nextNumber = try values.decodeIfPresent(Int.self, forKey: .nextNumber) ?? ((tickets.map(\.number).max() ?? 0) + 1)
++        view = (try? values.decodeIfPresent(OmniTicketView.self, forKey: .view)) ?? OmniTicketView()
++    }
++}
++
++// Grouping, filtering and ordering. Pure so tests can check it without a window.
++enum OmniTicketsModel {
++    struct Group: Equatable {
++        let key: String
++        let title: String
++        let tickets: [OmniTicket]
++    }
++
++    static func visible(_ tickets: [OmniTicket], view: OmniTicketView) -> [OmniTicket] {
++        return tickets.filter { view.statuses.contains($0.status) && view.priorities.contains($0.priority) }
++    }
++
++    // One group per shown status or priority, in their natural order, empty
++    // ones included so the board keeps its columns.
++    static func groups(_ tickets: [OmniTicket], view: OmniTicketView) -> [Group] {
++        let shown = visible(tickets, view: view)
++        func ordered(_ list: [OmniTicket]) -> [OmniTicket] {
++            return list.sorted { a, b in
++                let pa = OmniTicketPriority.allCases.firstIndex(of: a.priority)!
++                let pb = OmniTicketPriority.allCases.firstIndex(of: b.priority)!
++                let sa = OmniTicketStatus.allCases.firstIndex(of: a.status)!
++                let sb = OmniTicketStatus.allCases.firstIndex(of: b.status)!
++                let first = view.grouping == .status ? (pa, sa) : (sa, pa)
++                let second = view.grouping == .status ? (pb, sb) : (sb, pb)
++                if first != second {
++                    return first < second
++                }
++                return a.number > b.number
++            }
++        }
++        switch view.grouping {
++        case .status:
++            return OmniTicketStatus.allCases.filter { view.statuses.contains($0) }.map { status in
++                Group(key: status.rawValue, title: status.label, tickets: ordered(shown.filter { $0.status == status }))
++            }
++        case .priority:
++            return OmniTicketPriority.allCases.filter { view.priorities.contains($0) }.map { priority in
++                Group(key: priority.rawValue, title: priority.label, tickets: ordered(shown.filter { $0.priority == priority }))
++            }
++        }
++    }
++
++    // The group a ticket moves to `delta` columns away, or nil at an edge.
++    static func neighbour(of ticket: OmniTicket, delta: Int, view: OmniTicketView) -> String? {
++        let keys = groups([], view: view).map(\.key)
++        let current = view.grouping == .status ? ticket.status.rawValue : ticket.priority.rawValue
++        guard let index = keys.firstIndex(of: current), keys.indices.contains(index + delta) else { return nil }
++        return keys[index + delta]
++    }
++
++    static func moved(_ ticket: OmniTicket, to key: String, grouping: OmniTicketGrouping) -> OmniTicket {
++        var ticket = ticket
++        switch grouping {
++        case .status: ticket.status = OmniTicketStatus(rawValue: key) ?? ticket.status
++        case .priority: ticket.priority = OmniTicketPriority(rawValue: key) ?? ticket.priority
++        }
++        return ticket
++    }
++
++    static func updatedText(_ date: Date, now: Date = Date()) -> String {
++        let formatter = RelativeDateTimeFormatter()
++        formatter.unitsStyle = .abbreviated
++        return now.timeIntervalSince(date) < 60 ? "now" : formatter.localizedString(for: date, relativeTo: now)
++    }
++}
++
++enum OmniTicketStore {
++    static var directory: URL = {
++        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
++            URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support")
++        return base.appendingPathComponent("OmniTerm/tickets", isDirectory: true)
++    }()
++
++    static func url(for root: String) -> URL {
++        let digest = SHA256.hash(data: Data(root.utf8)).map { String(format: "%02x", $0) }.joined()
++        return directory.appendingPathComponent(String(digest.prefix(24)) + ".json")
++    }
++
++    static func load(root: String) -> OmniTicketFile {
++        guard let data = try? Data(contentsOf: url(for: root)) else { return OmniTicketFile(root: root) }
++        let decoder = JSONDecoder()
++        decoder.dateDecodingStrategy = .iso8601
++        do {
++            var file = try decoder.decode(OmniTicketFile.self, from: data)
++            file.root = root
++            return file
++        } catch {
++            DLog("Unreadable tickets file for \(root): \(error)")
++            return OmniTicketFile(root: root)
++        }
++    }
++
++    @discardableResult
++    static func save(_ file: OmniTicketFile) -> Bool {
++        let encoder = JSONEncoder()
++        encoder.dateEncodingStrategy = .iso8601
++        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
++        do {
++            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
++            try encoder.encode(file).write(to: url(for: file.root), options: .atomic)
++            return true
++        } catch {
++            DLog("Could not save tickets for \(file.root): \(error)")
++            return false
++        }
++    }
++}
++
++// MARK: - Controller
++
++// The Tickets tab of a project page. It builds into the page's column and
++// handles the tab's keys; the page owns the scroll view and focus zones.
++final class OmniTicketsController: NSObject, NSTextFieldDelegate, NSTextViewDelegate, NSMenuDelegate {
++    private(set) var file: OmniTicketFile
++    private var openID: String?
++    private var selectedID: String?
++    private var rows: [String: OmniTicketRow] = [:]
++    private var groupZones: [(key: String, zone: OmniListZone)] = []
++    private var saveTimer: Timer?
++    private let titleField = NSTextField(string: "")
++    private let editor = OmniMarkdownEditor(fontSize: 14)
++    private let statusPopup = NSPopUpButton(frame: .zero, pullsDown: false)
++    private let priorityPopup = NSPopUpButton(frame: .zero, pullsDown: false)
++    private let detailMeta = OmniTheme.meta()
++    private var focusAfterBuild: (() -> Void)?
++
++    // Rebuilds the page; the controller never rebuilds while text is typed.
++    var requestRebuild: () -> Void = {}
++    // The height the page shows, for sizing the editor.
++    var visibleHeight: () -> CGFloat = { 600 }
++    var window: () -> NSWindow? = { nil }
++    private(set) var buttonsZone: OmniButtonZone?
++
++    init(root: String) {
++        file = OmniTicketStore.load(root: root)
++        super.init()
++        titleField.font = OmniTheme.Font.title
++        titleField.isBordered = false
++        titleField.drawsBackground = false
++        titleField.focusRingType = .none
++        titleField.placeholderString = "Ticket title"
++        titleField.delegate = self
++        titleField.cell?.wraps = true
++        titleField.cell?.isScrollable = false
++        editor.textView.delegate = self
++        for status in OmniTicketStatus.allCases {
++            statusPopup.addItem(withTitle: status.label)
++            statusPopup.lastItem?.image = Self.image(status.symbol, color: status.color)
++        }
++        for priority in OmniTicketPriority.allCases {
++            priorityPopup.addItem(withTitle: priority.label)
++            priorityPopup.lastItem?.image = Self.image(priority.symbol, color: priority.color)
++        }
++        statusPopup.target = self
++        statusPopup.action = #selector(detailStatusChanged(_:))
++        priorityPopup.target = self
++        priorityPopup.action = #selector(detailPriorityChanged(_:))
++    }
++
++    deinit {
++        saveTimer?.invalidate()
++        OmniTicketStore.save(file)
++    }
++
++    var isEditingTicket: Bool {
++        return openID != nil
++    }
++
++    private var view: OmniTicketView {
++        get { file.view }
++        set {
++            file.view = newValue
++            save()
++        }
++    }
++
++    private func ticket(_ id: String?) -> OmniTicket? {
++        return file.tickets.first { $0.id == id }
++    }
++
++    private func update(_ id: String, _ change: (inout OmniTicket) -> Void) {
++        guard let index = file.tickets.firstIndex(where: { $0.id == id }) else { return }
++        var ticket = file.tickets[index]
++        change(&ticket)
++        guard ticket != file.tickets[index] else { return }
++        ticket.updated = Date()
++        file.tickets[index] = ticket
++    }
++
++    private func save() {
++        saveTimer?.invalidate()
++        saveTimer = nil
++        OmniTicketStore.save(file)
++    }
++
++    // Typing saves shortly after it pauses.
++    private func saveSoon() {
++        saveTimer?.invalidate()
++        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
++            self?.save()
++        }
++    }
++
++    // MARK: Building
++
++    // Builds the tab into `column`; returns the list zones in Tab order.
++    func build(into column: OmniColumnView, previous: [(title: String, zone: OmniListZone)]) -> [(title: String, zone: OmniListZone)] {
++        rows = [:]
++        groupZones = []
++        if let openID, let ticket = ticket(openID) {
++            buildDetail(ticket, into: column)
++            runFocusAfterBuild()
++            return []
++        }
++        openID = nil
++        buildToolbar(into: column)
++        let groups = OmniTicketsModel.groups(file.tickets, view: view)
++        var zones: [(title: String, zone: OmniListZone)] = []
++        if file.tickets.isEmpty {
++            column.addText(OmniPaneText.label("No tickets yet. Press C, or New Ticket, to write the first one.",
++                                              size: 13, color: OmniTheme.secondaryText), spacing: 8)
++        } else if groups.isEmpty {
++            column.addText(OmniPaneText.label("Every status or priority is filtered out. Choose some under Filter.",
++                                              size: 13, color: OmniTheme.secondaryText), spacing: 8)
++        } else if view.layout == .board {
++            let board = OmniTicketBoardView()
++            for group in groups {
++                let zone = previous.first { $0.title == "tickets-" + group.key }?.zone ?? OmniListZone()
++                let items = group.tickets.map { ticket -> (key: String, view: OmniZoneItem) in
++                    let row = makeRow(ticket, card: true, zone: zone)
++                    return (key: ticket.id, view: row)
++                }
++                board.addColumn(title: group.title, symbol: symbol(forGroup: group.key), color: color(forGroup: group.key),
++                                zone: zone, items: items)
++                zones.append((title: "tickets-" + group.key, zone: zone))
++                groupZones.append((key: group.key, zone: zone))
++            }
++            column.add(board, spacing: 8) { [weak board] width in board?.layoutBoard(width: width) ?? 0 }
++        } else {
++            for group in groups where !group.tickets.isEmpty || view.grouping == .status {
++                let zone = previous.first { $0.title == "tickets-" + group.key }?.zone ?? OmniListZone()
++                let heading = OmniTicketGroupHeading(title: group.title, count: group.tickets.count,
++                                                     symbol: symbol(forGroup: group.key), color: color(forGroup: group.key))
++                column.add(heading, spacing: 4) { _ in OmniTicketGroupHeading.height }
++                guard !group.tickets.isEmpty else { continue }
++                let list = OmniColumnView()
++                list.inset = 0
++                list.topPadding = 0
++                list.bottomPadding = 0
++                list.overlay = zone
++                var items: [(key: String, view: OmniZoneItem)] = []
++                for ticket in group.tickets {
++                    let row = makeRow(ticket, card: false, zone: zone)
++                    list.add(row, spacing: 1) { _ in OmniTicketRow.listHeight }
++                    items.append((key: ticket.id, view: row))
++                }
++                zone.setItems(items)
++                column.add(list, spacing: 12) { [weak list] width in list?.layoutColumn(width: width) ?? 0 }
++                zones.append((title: "tickets-" + group.key, zone: zone))
++                groupZones.append((key: group.key, zone: zone))
++            }
++        }
++        for (_, zone) in groupZones {
++            zone.selectionDidChange = { [weak self] key in self?.selectedID = key }
++            zone.activateItem = { [weak self] key in self?.open(key) }
++        }
++        if let selectedID, let owner = groupZones.first(where: { $0.zone.keys.contains(selectedID) }) {
++            owner.zone.select(selectedID)
++        }
++        runFocusAfterBuild()
++        return zones
++    }
++
++    private func runFocusAfterBuild() {
++        guard let focus = focusAfterBuild else { return }
++        focusAfterBuild = nil
++        DispatchQueue.main.async(execute: focus)
++    }
++
++    private func makeRow(_ ticket: OmniTicket, card: Bool, zone: OmniListZone) -> OmniTicketRow {
++        let row = OmniTicketRow(ticket: ticket, fields: view.fields, card: card) { [weak self, weak zone] in
++            guard let self else { return }
++            self.selectedID = ticket.id
++            zone?.select(ticket.id)
++            self.open(ticket.id)
++        }
++        rows[ticket.id] = row
++        return row
++    }
++
++    private func symbol(forGroup key: String) -> SFSymbol {
++        return OmniTicketStatus(rawValue: key)?.symbol ?? OmniTicketPriority(rawValue: key)?.symbol ?? .circle
++    }
++
++    private func color(forGroup key: String) -> NSColor {
++        return OmniTicketStatus(rawValue: key)?.color ?? OmniTicketPriority(rawValue: key)?.color ?? OmniTheme.secondaryText
++    }
++
++    private func buildToolbar(into column: OmniColumnView) {
++        let new = OmniPaneText.button("New Ticket", target: self, action: #selector(newTicket(_:)))
++        let layout = OmniPaneText.button(view.layout == .list ? "View: List" : "View: Board",
++                                         target: self, action: #selector(toggleLayout(_:)))
++        let group = OmniPaneText.button(view.grouping == .status ? "Group: Status" : "Group: Priority",
++                                        target: self, action: #selector(toggleGrouping(_:)))
++        let filter = OmniPaneText.button(filterTitle, target: self, action: #selector(showFilterMenu(_:)))
++        let display = OmniPaneText.button("Display", target: self, action: #selector(showDisplayMenu(_:)))
++        let buttons = OmniButtonRow([new, layout, group, filter, display])
++        buttonsZone = buttons.zone
++        column.add(buttons, spacing: 4) { [weak buttons] width in buttons?.height(forWidth: width) ?? 30 }
++        column.addText(OmniTheme.meta("C new · Return open · S status · P priority · ⌘B list or board · G group · F filter · D display · ⇧←→ move card · ⌘⌫ delete"),
++                       spacing: 14)
++    }
++
++    private var filterTitle: String {
++        let all = OmniTicketStatus.allCases.count
++        let statuses = view.statuses.count
++        let priorities = view.priorities.count
++        if statuses == all, priorities == OmniTicketPriority.allCases.count {
++            return "Filter: All"
++        }
++        if priorities == OmniTicketPriority.allCases.count, statuses == 1, let only = view.statuses.first {
++            return "Filter: " + only.label
++        }
++        return "Filter: \(statuses) of \(all) statuses" + (priorities < OmniTicketPriority.allCases.count ? ", \(priorities) priorities" : "")
++    }
++
++    private func buildDetail(_ ticket: OmniTicket, into column: OmniColumnView) {
++        let back = OmniPaneText.button("‹ All Tickets", target: self, action: #selector(closeTicket(_:)))
++        let delete = OmniPaneText.button("Delete", target: self, action: #selector(deleteOpenTicket(_:)))
++        let buttons = OmniButtonRow([back, statusPopup, priorityPopup, delete])
++        buttonsZone = buttons.zone
++        column.add(buttons, spacing: 12) { [weak buttons] width in buttons?.height(forWidth: width) ?? 30 }
++        if titleField.stringValue != ticket.title, titleField.currentEditor() == nil {
++            titleField.stringValue = ticket.title
++        }
++        if editor.text != ticket.content, editor.window?.firstResponder !== editor.textView {
++            editor.text = ticket.content
++        }
++        statusPopup.selectItem(at: OmniTicketStatus.allCases.firstIndex(of: ticket.status) ?? 0)
++        priorityPopup.selectItem(at: OmniTicketPriority.allCases.firstIndex(of: ticket.priority) ?? 0)
++        column.add(titleField, spacing: 4) { [weak titleField] width in
++            guard let titleField else { return 32 }
++            return max(32, ceil(titleField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: 1000)).height ?? 32))
++        }
++        detailMeta.stringValue = "#\(ticket.number) · created " + OmniTicketsModel.updatedText(ticket.created) +
++            " · updated " + OmniTicketsModel.updatedText(ticket.updated) + " · Escape returns to the tickets"
++        column.addText(detailMeta, spacing: 10)
++        column.add(editor, spacing: 8) { [weak self] _ in max(260, (self?.visibleHeight() ?? 600) - 210) }
++    }
++
++    // MARK: Actions
++
++    func open(_ id: String) {
++        guard ticket(id) != nil else { return }
++        openID = id
++        selectedID = id
++        titleField.stringValue = ticket(id)?.title ?? ""
++        editor.text = ticket(id)?.content ?? ""
++        focusAfterBuild = { [weak self] in
++            guard let self else { return }
++            self.window()?.makeFirstResponder(self.editor.textView)
++            self.editor.textView.setSelectedRange(NSRange(location: (self.editor.text as NSString).length, length: 0))
++        }
++        requestRebuild()
++    }
++
++    @objc func closeTicket(_ sender: Any?) {
++        commitDetail()
++        openID = nil
++        focusSelection()
++        requestRebuild()
++    }
++
++    // After a rebuild, give the keyboard to the selected ticket's list.
++    private func focusSelection() {
++        focusAfterBuild = { [weak self] in
++            guard let self else { return }
++            let owner = self.groupZones.first { self.selectedID != nil && $0.zone.keys.contains(self.selectedID!) } ?? self.groupZones.first
++            guard let owner else { return }
++            if let selectedID = self.selectedID, owner.zone.keys.contains(selectedID) {
++                owner.zone.select(selectedID)
++            }
++            if owner.zone.zoneCanEnter {
++                self.window()?.makeFirstResponder(owner.zone.zoneFirstResponder)
++                self.rows[self.selectedID ?? ""]?.scrollToVisible(self.rows[self.selectedID ?? ""]?.bounds ?? .zero)
++            }
++        }
++    }
++
++    private func commitDetail() {
++        guard let openID else { return }
++        let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        let content = editor.text
++        update(openID) {
++            $0.title = title
++            $0.content = content
++        }
++        save()
++    }
++
++    @objc func newTicket(_ sender: Any?) {
++        var status = OmniTicketStatus.open
++        var priority = OmniTicketPriority.middleTerm
++        // On a board grouped by status, or in a group, start in the selected one's group.
++        if let selected = ticket(selectedID) {
++            if view.grouping == .status, selected.status != .done, selected.status != .discarded {
++                status = selected.status
++            } else if view.grouping == .priority {
++                priority = selected.priority
++            }
++        }
++        if !view.statuses.contains(status) {
++            view.statuses.append(status)
++        }
++        if !view.priorities.contains(priority) {
++            view.priorities.append(priority)
++        }
++        let now = Date()
++        let ticket = OmniTicket(id: UUID().uuidString, number: file.nextNumber, title: "", content: "",
++                                status: status, priority: priority, created: now, updated: now)
++        file.nextNumber += 1
++        file.tickets.append(ticket)
++        save()
++        openID = ticket.id
++        selectedID = ticket.id
++        titleField.stringValue = ""
++        editor.text = ""
++        focusAfterBuild = { [weak self] in
++            guard let self else { return }
++            self.window()?.makeFirstResponder(self.titleField)
++        }
++        requestRebuild()
++    }
++
++    @objc func toggleLayout(_ sender: Any?) {
++        view.layout = view.layout == .list ? .board : .list
++        focusSelection()
++        requestRebuild()
++    }
++
++    @objc func toggleGrouping(_ sender: Any?) {
++        view.grouping = view.grouping == .status ? .priority : .status
++        focusSelection()
++        requestRebuild()
++    }
++
++    @objc private func showFilterMenu(_ sender: Any?) {
++        let menu = NSMenu()
++        menu.addItem(Self.heading("Status"))
++        for status in OmniTicketStatus.allCases {
++            let item = NSMenuItem(title: status.label, action: #selector(toggleStatusFilter(_:)), keyEquivalent: "")
++            item.target = self
++            item.representedObject = status.rawValue
++            item.image = Self.image(status.symbol, color: status.color)
++            item.state = view.statuses.contains(status) ? .on : .off
++            menu.addItem(item)
++        }
++        let backlog = NSMenuItem(title: "Backlog Only (Open and In Progress)", action: #selector(backlogOnly(_:)), keyEquivalent: "")
++        backlog.target = self
++        menu.addItem(backlog)
++        let all = NSMenuItem(title: "Every Status", action: #selector(everyStatus(_:)), keyEquivalent: "")
++        all.target = self
++        menu.addItem(all)
++        menu.addItem(.separator())
++        menu.addItem(Self.heading("Priority"))
++        for priority in OmniTicketPriority.allCases {
++            let item = NSMenuItem(title: priority.label, action: #selector(togglePriorityFilter(_:)), keyEquivalent: "")
++            item.target = self
++            item.representedObject = priority.rawValue
++            item.image = Self.image(priority.symbol, color: priority.color)
++            item.state = view.priorities.contains(priority) ? .on : .off
++            menu.addItem(item)
++        }
++        pop(menu, from: sender)
++    }
++
++    // The board's columns are the shown statuses or priorities, so Display
++    // and Filter edit the same choice; Display adds the row properties.
++    @objc private func showDisplayMenu(_ sender: Any?) {
++        let menu = NSMenu()
++        menu.addItem(Self.heading("Group By"))
++        for grouping in [OmniTicketGrouping.status, .priority] {
++            let item = NSMenuItem(title: grouping == .status ? "Status" : "Priority", action: #selector(chooseGrouping(_:)), keyEquivalent: "")
++            item.target = self
++            item.representedObject = grouping.rawValue
++            item.state = view.grouping == grouping ? .on : .off
++            menu.addItem(item)
++        }
++        menu.addItem(.separator())
++        menu.addItem(Self.heading(view.layout == .board ? "Columns" : "Groups"))
++        if view.grouping == .status {
++            for status in OmniTicketStatus.allCases {
++                let item = NSMenuItem(title: status.label, action: #selector(toggleStatusFilter(_:)), keyEquivalent: "")
++                item.target = self
++                item.representedObject = status.rawValue
++                item.state = view.statuses.contains(status) ? .on : .off
++                menu.addItem(item)
++            }
++        } else {
++            for priority in OmniTicketPriority.allCases {
++                let item = NSMenuItem(title: priority.label, action: #selector(togglePriorityFilter(_:)), keyEquivalent: "")
++                item.target = self
++                item.representedObject = priority.rawValue
++                item.state = view.priorities.contains(priority) ? .on : .off
++                menu.addItem(item)
++            }
++        }
++        menu.addItem(.separator())
++        menu.addItem(Self.heading("Properties"))
++        for field in OmniTicketField.allCases {
++            let item = NSMenuItem(title: field.label, action: #selector(toggleField(_:)), keyEquivalent: "")
++            item.target = self
++            item.representedObject = field.rawValue
++            item.state = view.fields.contains(field) ? .on : .off
++            menu.addItem(item)
++        }
++        pop(menu, from: sender)
++    }
++
++    @objc private func chooseGrouping(_ sender: NSMenuItem) {
++        guard let raw = sender.representedObject as? String, let grouping = OmniTicketGrouping(rawValue: raw) else { return }
++        view.grouping = grouping
++        requestRebuild()
++    }
++
++    @objc private func toggleStatusFilter(_ sender: NSMenuItem) {
++        guard let raw = sender.representedObject as? String, let status = OmniTicketStatus(rawValue: raw) else { return }
++        var statuses = view.statuses
++        if let index = statuses.firstIndex(of: status) {
++            statuses.remove(at: index)
++        } else {
++            statuses.append(status)
++        }
++        view.statuses = OmniTicketStatus.allCases.filter { statuses.contains($0) }
++        requestRebuild()
++    }
++
++    @objc private func togglePriorityFilter(_ sender: NSMenuItem) {
++        guard let raw = sender.representedObject as? String, let priority = OmniTicketPriority(rawValue: raw) else { return }
++        var priorities = view.priorities
++        if let index = priorities.firstIndex(of: priority) {
++            priorities.remove(at: index)
++        } else {
++            priorities.append(priority)
++        }
++        view.priorities = OmniTicketPriority.allCases.filter { priorities.contains($0) }
++        requestRebuild()
++    }
++
++    @objc private func backlogOnly(_ sender: Any?) {
++        view.statuses = [.open, .inProgress]
++        requestRebuild()
++    }
++
++    @objc private func everyStatus(_ sender: Any?) {
++        view.statuses = OmniTicketStatus.allCases
++        requestRebuild()
++    }
++
++    @objc private func toggleField(_ sender: NSMenuItem) {
++        guard let raw = sender.representedObject as? String, let field = OmniTicketField(rawValue: raw) else { return }
++        var fields = view.fields
++        if let index = fields.firstIndex(of: field) {
++            fields.remove(at: index)
++        } else {
++            fields.append(field)
++        }
++        view.fields = OmniTicketField.allCases.filter { fields.contains($0) }
++        requestRebuild()
++    }
++
++    // The status or priority menu for one ticket, with 1 to 4 picking an entry.
++    private func showValueMenu(status: Bool, for id: String, from anchor: NSView?) {
++        guard let ticket = ticket(id) else { return }
++        let menu = NSMenu()
++        if status {
++            for (index, value) in OmniTicketStatus.allCases.enumerated() {
++                let item = NSMenuItem(title: value.label, action: #selector(setStatus(_:)), keyEquivalent: "\(index + 1)")
++                item.keyEquivalentModifierMask = []
++                item.target = self
++                item.representedObject = [id, value.rawValue]
++                item.image = Self.image(value.symbol, color: value.color)
++                item.state = ticket.status == value ? .on : .off
++                menu.addItem(item)
++            }
++        } else {
++            for (index, value) in OmniTicketPriority.allCases.enumerated() {
++                let item = NSMenuItem(title: value.label, action: #selector(setPriority(_:)), keyEquivalent: "\(index + 1)")
++                item.keyEquivalentModifierMask = []
++                item.target = self
++                item.representedObject = [id, value.rawValue]
++                item.image = Self.image(value.symbol, color: value.color)
++                item.state = ticket.priority == value ? .on : .off
++                menu.addItem(item)
++            }
++        }
++        pop(menu, from: anchor)
++    }
++
++    @objc private func setStatus(_ sender: NSMenuItem) {
++        guard let pair = sender.representedObject as? [String], pair.count == 2,
++              let status = OmniTicketStatus(rawValue: pair[1]) else { return }
++        update(pair[0]) { $0.status = status }
++        save()
++        focusSelection()
++        requestRebuild()
++    }
++
++    @objc private func setPriority(_ sender: NSMenuItem) {
++        guard let pair = sender.representedObject as? [String], pair.count == 2,
++              let priority = OmniTicketPriority(rawValue: pair[1]) else { return }
++        update(pair[0]) { $0.priority = priority }
++        save()
++        focusSelection()
++        requestRebuild()
++    }
++
++    @objc private func detailStatusChanged(_ sender: NSPopUpButton) {
++        guard let openID, OmniTicketStatus.allCases.indices.contains(sender.indexOfSelectedItem) else { return }
++        update(openID) { $0.status = OmniTicketStatus.allCases[sender.indexOfSelectedItem] }
++        save()
++    }
++
++    @objc private func detailPriorityChanged(_ sender: NSPopUpButton) {
++        guard let openID, OmniTicketPriority.allCases.indices.contains(sender.indexOfSelectedItem) else { return }
++        update(openID) { $0.priority = OmniTicketPriority.allCases[sender.indexOfSelectedItem] }
++        save()
++    }
++
++    @objc private func deleteOpenTicket(_ sender: Any?) {
++        guard let openID else { return }
++        if delete(openID) {
++            self.openID = nil
++            focusSelection()
++            requestRebuild()
++        }
++    }
++
++    private func delete(_ id: String) -> Bool {
++        guard let ticket = ticket(id) else { return false }
++        let name = ticket.title.isEmpty ? "ticket #\(ticket.number)" : "“\(ticket.title)”"
++        let selection = iTermWarning.show(withTitle: "Delete \(name)? This cannot be undone. Set it to Discarded to keep it.",
++                                          actions: ["Delete", "Cancel"], actionMapping: nil, accessory: nil,
++                                          identifier: nil, silenceable: .kiTermWarningTypePersistent,
++                                          heading: "Delete Ticket", cancelLabel: "Cancel", window: window())
++        guard selection == .kiTermWarningSelection0 else { return false }
++        file.tickets.removeAll { $0.id == id }
++        save()
++        if selectedID == id {
++            selectedID = nil
++        }
++        return true
++    }
++
++    // Moves the selected card to the next column left or right.
++    private func moveSelected(_ delta: Int) {
++        guard let ticket = ticket(selectedID),
++              let key = OmniTicketsModel.neighbour(of: ticket, delta: delta, view: view) else { return }
++        let moved = OmniTicketsModel.moved(ticket, to: key, grouping: view.grouping)
++        update(ticket.id) {
++            $0.status = moved.status
++            $0.priority = moved.priority
++        }
++        save()
++        focusSelection()
++        requestRebuild()
++    }
++
++    private func pop(_ menu: NSMenu, from anchor: Any?) {
++        if let button = anchor as? NSView {
++            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
++        } else if let row = rows[selectedID ?? ""] {
++            menu.popUp(positioning: nil, at: NSPoint(x: 36, y: row.bounds.height), in: row)
++        } else if let window = window(), let content = window.contentView {
++            menu.popUp(positioning: nil, at: content.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: content)
++        }
++    }
++
++    // MARK: Keys
++
++    // The tab's keys while one of the page's zones has the keyboard.
++    func handleShortcut(_ event: NSEvent, focused: OmniFocusZone?) -> Bool {
++        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
++        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
++        if openID != nil {
++            if event.keyCode == 53, flags.isEmpty {
++                closeTicket(nil)
++                return true
++            }
++            if flags.isEmpty, key == "s" || key == "p" {
++                (key == "s" ? statusPopup : priorityPopup).performClick(nil)
++                return true
++            }
++            return false
++        }
++        if flags == .command, key == "b" {
++            toggleLayout(nil)
++            return true
++        }
++        if flags == .command, event.keyCode == 51, let selectedID, isListFocused(focused) {
++            if delete(selectedID) {
++                focusSelection()
++                requestRebuild()
++            }
++            return true
++        }
++        let column = groupZones.firstIndex { $0.zone === focused }
++        if view.layout == .board, let column, event.keyCode == 123 || event.keyCode == 124 {
++            let delta = event.keyCode == 123 ? -1 : 1
++            if flags == .shift {
++                moveSelected(delta)
++                return true
++            }
++            if flags.isEmpty {
++                return focusColumn(from: column, delta: delta)
++            }
++        }
++        guard flags.isEmpty || flags == .shift else { return false }
++        switch key {
++        case "c":
++            newTicket(nil)
++        case "g":
++            toggleGrouping(nil)
++        case "f":
++            showFilterMenu(nil)
++        case "d":
++            showDisplayMenu(nil)
++        case "s", "p":
++            guard let selectedID, isListFocused(focused) else { return false }
++            showValueMenu(status: key == "s", for: selectedID, from: nil)
++        default:
++            return false
++        }
++        return true
++    }
++
++    private func isListFocused(_ focused: OmniFocusZone?) -> Bool {
++        return groupZones.contains { $0.zone === focused }
++    }
++
++    // Left and Right move between board columns, keeping the row's place.
++    private func focusColumn(from index: Int, delta: Int) -> Bool {
++        let target = index + delta
++        guard groupZones.indices.contains(target) else {
++            // Left of the first column goes back to the sidebar as usual.
++            return delta > 0
++        }
++        let source = groupZones[index].zone
++        let row = source.selectedKey.flatMap { source.keys.firstIndex(of: $0) } ?? 0
++        let zone = groupZones[target].zone
++        guard !zone.keys.isEmpty else {
++            // Skip an empty column if there is one beyond it.
++            return focusColumn(from: target, delta: delta) || true
++        }
++        let key = zone.keys[min(row, zone.keys.count - 1)]
++        zone.select(key)
++        selectedID = key
++        window()?.makeFirstResponder(zone.zoneFirstResponder)
++        rows[key]?.scrollToVisible(rows[key]?.bounds ?? .zero)
++        return true
++    }
++
++    // MARK: Text
++
++    func controlTextDidChange(_ obj: Notification) {
++        guard let openID else { return }
++        let title = titleField.stringValue
++        update(openID) { $0.title = title }
++        saveSoon()
++    }
++
++    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
++        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
++            closeTicket(nil)
++            return true
++        }
++        if commandSelector == #selector(NSResponder.insertNewline(_:)) || commandSelector == #selector(NSResponder.insertTab(_:)) {
++            window()?.makeFirstResponder(editor.textView)
++            return true
++        }
++        return false
++    }
++
++    func textDidChange(_ notification: Notification) {
++        guard let openID else { return }
++        let content = editor.text
++        update(openID) { $0.content = content }
++        saveSoon()
++    }
++
++    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
++        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
++            closeTicket(nil)
++            return true
++        }
++        return false
++    }
++
++    // MARK: Helpers
++
++    static func image(_ symbol: SFSymbol, color: NSColor) -> NSImage? {
++        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
++            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
++        return NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
++    }
++
++    private static func heading(_ title: String) -> NSMenuItem {
++        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
++        item.isEnabled = false
++        return item
++    }
++}
++
++// MARK: - Views
++
++// A group's title in the list, with its icon and count.
++final class OmniTicketGroupHeading: NSView {
++    static let height: CGFloat = 26
++    private let icon = NSImageView()
++    private let label = NSTextField(labelWithString: "")
++    private let count = NSTextField(labelWithString: "")
++
++    override var isFlipped: Bool { true }
++
++    init(title: String, count: Int, symbol: SFSymbol, color: NSColor) {
++        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: Self.height))
++        icon.image = OmniTicketsController.image(symbol, color: color)
++        addSubview(icon)
++        label.stringValue = title
++        label.font = OmniTheme.Font.stripTitle
++        addSubview(label)
++        self.count.stringValue = "\(count)"
++        self.count.font = OmniTheme.Font.meta
++        self.count.textColor = OmniTheme.secondaryText
++        addSubview(self.count)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        icon.frame = NSRect(x: 8, y: 4, width: 16, height: 16)
++        label.sizeToFit()
++        label.frame.origin = NSPoint(x: 30, y: 3)
++        count.sizeToFit()
++        count.frame.origin = NSPoint(x: label.frame.maxX + 6, y: 4)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniTheme.titlebarSeparator.setFill()
++        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
++    }
++}
++
++// One ticket: a row in the list, or a card on the board.
++final class OmniTicketRow: NSView, OmniZoneItem {
++    static let listHeight: CGFloat = 34
++    static let cardHeight: CGFloat = 62
++    private let ticket: OmniTicket
++    private let fields: [OmniTicketField]
++    private let card: Bool
++    private let action: () -> Void
++    private let statusIcon = NSImageView()
++    private let number = NSTextField(labelWithString: "")
++    private let title = NSTextField(labelWithString: "")
++    private let meta = NSTextField(labelWithString: "")
++    private let priorityIcon = NSImageView()
++    private var hovering = false {
++        didSet { needsDisplay = true }
++    }
++    var isSelected = false {
++        didSet { needsDisplay = true }
++    }
++    var zoneHasFocus = false {
++        didSet { needsDisplay = true }
++    }
++
++    override var isFlipped: Bool { true }
++
++    init(ticket: OmniTicket, fields: [OmniTicketField], card: Bool, action: @escaping () -> Void) {
++        self.ticket = ticket
++        self.fields = fields
++        self.card = card
++        self.action = action
++        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: card ? Self.cardHeight : Self.listHeight))
++        statusIcon.image = OmniTicketsController.image(ticket.status.symbol, color: ticket.status.color)
++        statusIcon.isHidden = card && !fields.contains(.status)
++        addSubview(statusIcon)
++        priorityIcon.image = OmniTicketsController.image(ticket.priority.symbol, color: ticket.priority.color)
++        priorityIcon.isHidden = !fields.contains(.priority)
++        priorityIcon.toolTip = ticket.priority.label
++        addSubview(priorityIcon)
++        number.stringValue = "#\(ticket.number)"
++        number.font = NSFont.monospacedDigitSystemFont(ofSize: OmniTheme.Font.rowDetail.pointSize, weight: .regular)
++        number.textColor = OmniTheme.secondaryText
++        number.isHidden = !fields.contains(.number)
++        addSubview(number)
++        title.stringValue = ticket.title.isEmpty ? "Untitled" : ticket.title
++        title.font = card ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
++        title.textColor = ticket.title.isEmpty || ticket.status == .discarded ? OmniTheme.secondaryText : .labelColor
++        title.lineBreakMode = .byTruncatingTail
++        if card {
++            title.maximumNumberOfLines = 2
++            title.cell?.wraps = true
++            title.cell?.truncatesLastVisibleLine = true
++        }
++        addSubview(title)
++        var parts: [String] = []
++        if fields.contains(.status) && !card {
++            parts.append(ticket.status.label)
++        }
++        if fields.contains(.priority) {
++            parts.append(ticket.priority.label)
++        }
++        if fields.contains(.updated) {
++            parts.append(OmniTicketsModel.updatedText(ticket.updated))
++        }
++        meta.stringValue = parts.joined(separator: " · ")
++        meta.font = OmniTheme.Font.rowDetail
++        meta.textColor = OmniTheme.secondaryText
++        meta.alignment = card ? .left : .right
++        meta.lineBreakMode = .byTruncatingTail
++        addSubview(meta)
++        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
++                                       owner: self, userInfo: nil))
++        setAccessibilityRole(.button)
++        setAccessibilityLabel("#\(ticket.number) \(ticket.title), \(ticket.status.label), \(ticket.priority.label)")
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        if card {
++            let left: CGFloat = 10
++            title.frame = NSRect(x: left, y: 8, width: max(0, bounds.width - left - 28), height: 34)
++            priorityIcon.frame = NSRect(x: bounds.width - 24, y: 9, width: 16, height: 16)
++            var x = left
++            if !statusIcon.isHidden {
++                statusIcon.frame = NSRect(x: x, y: bounds.height - 21, width: 14, height: 14)
++                x += 18
++            }
++            if !number.isHidden {
++                number.sizeToFit()
++                number.frame.origin = NSPoint(x: x, y: bounds.height - 21)
++                x = number.frame.maxX + 6
++            }
++            meta.frame = NSRect(x: x, y: bounds.height - 21, width: max(0, bounds.width - x - 8), height: 15)
++            return
++        }
++        var x: CGFloat = 8
++        if !priorityIcon.isHidden {
++            priorityIcon.frame = NSRect(x: x, y: 9, width: 16, height: 16)
++            x += 22
++        }
++        if !number.isHidden {
++            number.frame = NSRect(x: x, y: 10, width: 44, height: 15)
++            x += 46
++        }
++        statusIcon.frame = NSRect(x: x, y: 9, width: 16, height: 16)
++        x += 22
++        let metaWidth = min(220, ceil(meta.attributedStringValue.size().width) + 6)
++        meta.frame = NSRect(x: bounds.width - metaWidth - 10, y: 10, width: metaWidth, height: 15)
++        title.frame = NSRect(x: x, y: 8, width: max(0, meta.frame.minX - x - 8), height: 18)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        if card {
++            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
++            OmniTheme.cardFill.setFill()
++            path.fill()
++            OmniTheme.cardBorder.setStroke()
++            path.lineWidth = 1
++            path.stroke()
++        }
++        OmniZoneItemStyle.drawBackground(in: bounds, selected: isSelected, focused: zoneHasFocus, hovering: hovering)
++    }
++
++    override func mouseEntered(with event: NSEvent) {
++        hovering = true
++    }
++
++    override func mouseExited(with event: NSEvent) {
++        hovering = false
++    }
++
++    override func mouseDown(with event: NSEvent) {
++    }
++
++    override func mouseUp(with event: NSEvent) {
++        if bounds.contains(convert(event.locationInWindow, from: nil)) {
++            activate()
++        }
++    }
++
++    func activate() {
++        action()
++    }
++
++    override func accessibilityPerformPress() -> Bool {
++        activate()
++        return true
++    }
++}
++
++// The board: one column per status or priority, side by side.
++final class OmniTicketBoardView: NSView {
++    private struct Column {
++        let heading: OmniTicketGroupHeading
++        let list: OmniColumnView
++        let zone: OmniListZone
++    }
++
++    private var columns: [Column] = []
++    static let gap: CGFloat = 12
++    static let minimumWidth: CGFloat = 170
++
++    override var isFlipped: Bool { true }
++
++    func addColumn(title: String, symbol: SFSymbol, color: NSColor, zone: OmniListZone,
++                   items: [(key: String, view: OmniZoneItem)]) {
++        let heading = OmniTicketGroupHeading(title: title, count: items.count, symbol: symbol, color: color)
++        addSubview(heading)
++        let list = OmniColumnView()
++        list.inset = 6
++        list.topPadding = 6
++        list.bottomPadding = 6
++        list.wantsLayer = true
++        list.layer?.cornerRadius = 8
++        list.layer?.backgroundColor = OmniTheme.wellBackground.cgColor
++        list.overlay = zone
++        for item in items {
++            list.add(item.view, spacing: 6) { _ in OmniTicketRow.cardHeight }
++        }
++        zone.setItems(items)
++        addSubview(list)
++        columns.append(Column(heading: heading, list: list, zone: zone))
++    }
++
++    override func viewDidChangeEffectiveAppearance() {
++        super.viewDidChangeEffectiveAppearance()
++        effectiveAppearance.performAsCurrentDrawingAppearance {
++            for column in columns {
++                column.list.layer?.backgroundColor = OmniTheme.wellBackground.cgColor
++            }
++        }
++    }
++
++    // Lays the columns out across `width` and returns the board's height.
++    func layoutBoard(width: CGFloat) -> CGFloat {
++        guard !columns.isEmpty else { return 0 }
++        let count = CGFloat(columns.count)
++        let columnWidth = max(Self.minimumWidth, floor((width - Self.gap * (count - 1)) / count))
++        var height: CGFloat = 0
++        for column in columns {
++            height = max(height, column.list.layoutColumn(width: columnWidth))
++        }
++        height = max(height, 80)
++        for (index, column) in columns.enumerated() {
++            let x = CGFloat(index) * (columnWidth + Self.gap)
++            column.heading.frame = NSRect(x: x, y: 0, width: columnWidth, height: OmniTicketGroupHeading.height)
++            column.list.layoutColumn(width: columnWidth)
++            column.list.frame = NSRect(x: x, y: OmniTicketGroupHeading.height + 6, width: columnWidth, height: height)
++            column.zone.frame = column.list.bounds
++        }
++        let total = OmniTicketGroupHeading.height + 6 + height
++        setFrameSize(NSSize(width: width, height: total))
++        return total
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift

@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Projects have a Tickets tab: a backlog and board of tickets with a title, live Markdown content, a status (open, in progress, done, discarded) and a priority (urgent, short-term, middle-term, long-term). Show them as a list or a board, grouped by status or priority, filter by status or priority, pick the board’s columns and the row properties under Display, and work from the keyboard with Linear-style keys (C new, S status, P priority, ⌘B list or board, G group, F filter, ⇧←→ move a card).
+
 ### Fixed
 
 - OmniTerm no longer comes to the front by itself. Runs, sessions, restarts and startup can no longer activate it, raise its window or switch Spaces while you are in another app; only the shortcut, the menu bar, the Dock icon, a notification click or an omniterm:// link bring it forward.
