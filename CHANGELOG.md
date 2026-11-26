@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-26
+
+### Fixed
+
+- The knowledge worker uses about 1.1 GB less memory on a large history. An index that stores its vectors compactly (int8) now keeps them that way in memory, and search converts them a block at a time. Results are unchanged, snapshots load faster, and a semantic search takes about 30 ms longer.
+
 ## [0.8.0] - 2026-11-26
 
 ### Added
@@ -977,7 +983,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/wandernb/omniterm/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/wandernb/omniterm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/wandernb/omniterm/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/wandernb/omniterm/compare/v0.6.1...v0.6.2
