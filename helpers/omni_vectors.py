@@ -21,6 +21,8 @@ COMPACT_FRACTION = 0.25
 # Rows converted per step when a snapshot is read or written, so only this many
 # rows' temporary copies (int8 bytes, scaled floats) exist besides the matrix.
 CODEC_ROWS = 4096
+# Rows widened to floats per step when scoring a quantized matrix (4 MB at 512-d).
+QUANTIZED_SCORE_ROWS = 2048
 
 _blas = None
 
@@ -74,10 +76,17 @@ def pairwise(vectors, dimensions, accelerate=True):
 class VectorMatrix:
     """Rows of one corpus and model. Records carry the metadata filters need."""
 
-    def __init__(self, dimensions, accelerate=True):
+    def __init__(self, dimensions, accelerate=True, quantized=False):
         self.dimensions = dimensions
         self.accelerate = accelerate
+        # Quantized: each row is held as int8 values with a float scale (a quarter of
+        # float32's memory) and converted a bounded chunk at a time while scoring.
+        # Only for vectors already stored as int8, which it holds exactly; needs
+        # Accelerate, so without it a matrix stays float32.
+        self.quantized = bool(quantized) and accelerate and blas() is not None and vdsp() is not None
         self.data = array.array("f")
+        self.qdata = bytearray()
+        self.scales = array.array("f")
         self.row_record = array.array("l")  # record slot, or -1 for a deleted row
         self.row_chunk = array.array("l")
         self.row_key = []
@@ -106,6 +115,34 @@ class VectorMatrix:
             self.record_meta[slot] = (content_hash, meta)
         return slot
 
+    def row(self, row):
+        """One row's (normalised) values as floats."""
+        start, dimensions = row * self.dimensions, self.dimensions
+        if not self.quantized:
+            return self.data[start:start + dimensions]
+        values = array.array("b")
+        values.frombytes(bytes(self.qdata[start:start + dimensions]))
+        scale = self.scales[row]
+        return array.array("f", (value * scale for value in values))
+
+    def _store(self, row, vector):
+        """Write a normalised vector at `row`, or append it when row == number of rows."""
+        dimensions = self.dimensions
+        if not self.quantized:
+            if row * dimensions == len(self.data):
+                self.data.extend(vector)
+            else:
+                self.data[row * dimensions:(row + 1) * dimensions] = array.array("f", vector)
+            return
+        encoded = encode_int8(vector)
+        scale = array.array("f"); scale.frombytes(encoded[:4])
+        if row == len(self.scales):
+            self.scales.append(scale[0])
+            self.qdata += encoded[4:]
+        else:
+            self.scales[row] = scale[0]
+            self.qdata[row * dimensions:(row + 1) * dimensions] = encoded[4:]
+
     def upsert(self, key, record_id, chunk_index, content_hash, vector, meta=None):
         if len(vector) != self.dimensions:
             return False
@@ -120,12 +157,11 @@ class VectorMatrix:
             self.row_key.append(key)
             self.row_record.append(slot)
             self.row_chunk.append(chunk_index)
-            self.data.extend(vector)
+            self._store(row, vector)
         else:
             self.row_record[row] = slot
             self.row_chunk[row] = chunk_index
-            start = row * self.dimensions
-            self.data[start:start + self.dimensions] = array.array("f", vector)
+            self._store(row, vector)
         return True
 
     def delete(self, key):
@@ -134,8 +170,7 @@ class VectorMatrix:
             return False
         self.row_record[row] = -1
         self.row_key[row] = None
-        start = row * self.dimensions
-        self.data[start:start + self.dimensions] = array.array("f", bytes(4 * self.dimensions))
+        self._store(row, [0.0] * self.dimensions)
         self.deleted += 1
         if self.deleted > COMPACT_FRACTION * max(1, len(self.row_key)):
             self.compact()
@@ -198,6 +233,7 @@ class VectorMatrix:
 
     def compact(self):
         data, records, chunks, keys = array.array("f"), array.array("l"), array.array("l"), []
+        qdata, scales = bytearray(), array.array("f")
         dimensions = self.dimensions
         for row, key in enumerate(self.row_key):
             if key is None:
@@ -209,8 +245,13 @@ class VectorMatrix:
             keys.append(key)
             records.append(self.row_record[row])
             chunks.append(self.row_chunk[row])
-            data.extend(self.data[row * dimensions:(row + 1) * dimensions])
+            if self.quantized:
+                qdata += self.qdata[row * dimensions:(row + 1) * dimensions]
+                scales.append(self.scales[row])
+            else:
+                data.extend(self.data[row * dimensions:(row + 1) * dimensions])
         self.data, self.row_record, self.row_chunk, self.row_key, self.deleted = data, records, chunks, keys, 0
+        self.qdata, self.scales = qdata, scales
         self._centre = None
 
     def scores(self, query):
@@ -221,6 +262,8 @@ class VectorMatrix:
             return result
         query = array.array("f", query)
         function = blas() if self.accelerate else None
+        if self.quantized:
+            return self._quantized_scores(query, result)
         if function is not None:
             address = lambda buffer: buffer.buffer_info()[0]  # noqa: E731  (arrays are not resized during the call)
             function(ROW_MAJOR, NO_TRANSPOSE, rows, self.dimensions, 1.0, address(self.data), self.dimensions,
@@ -230,6 +273,29 @@ class VectorMatrix:
         for row in range(rows):
             start = row * dimensions
             result[row] = math.fsum(a * b for a, b in zip(data[start:start + dimensions], query))
+        return result
+
+    def _quantized_scores(self, query, result):
+        """scores() over int8 rows: each chunk is widened to floats (vDSP_vflt8),
+        multiplied by the query (cblas_sgemv), then by its rows' scales (vDSP_vmul)."""
+        rows, dimensions = len(self.row_key), self.dimensions
+        routines, gemv = vdsp(), blas()
+        chunk = max(1, min(rows, QUANTIZED_SCORE_ROWS))
+        buffer = zeros(chunk * dimensions)
+        raw = zeros(chunk)
+        source = (ctypes.c_char * len(self.qdata)).from_buffer(self.qdata)
+        try:
+            base = ctypes.addressof(source)
+            target, raw_address = buffer.buffer_info()[0], raw.buffer_info()[0]
+            scales, out, query_address = self.scales.buffer_info()[0], result.buffer_info()[0], query.buffer_info()[0]
+            for first in range(0, rows, chunk):
+                count = min(chunk, rows - first)
+                routines["vDSP_vflt8"](base + first * dimensions, 1, target, 1, count * dimensions)
+                gemv(ROW_MAJOR, NO_TRANSPOSE, count, dimensions, 1.0, target, dimensions, query_address, 1, 0.0,
+                     raw_address, 1)
+                routines["vDSP_vmul"](raw_address, 1, scales + 4 * first, 1, out + 4 * first, 1, count)
+        finally:
+            del source
         return result
 
     def _centring(self):
@@ -245,8 +311,7 @@ class VectorMatrix:
         for row in range(rows):
             if self.row_record[row] < 0:
                 continue
-            start = row * dimensions
-            for index, value in enumerate(data[start:start + dimensions]):
+            for index, value in enumerate(self.row(row)):
                 mean[index] += value
         mean = [value / max(1, live) for value in mean]
         dots = self.scores(mean) if rows else array.array("f")
@@ -318,16 +383,51 @@ class VectorMatrix:
                     "records": [[record, meta[0], meta[1]] for record, meta in zip(self.records, self.record_meta)]}
         return metadata, self.data
 
+    def write_rows(self, handle, int8):
+        """The rows as a snapshot file: int8 (scales, then bytes) or float32."""
+        if self.quantized and int8:
+            self.scales.tofile(handle)
+            handle.write(self.qdata)
+        elif self.quantized:
+            for row in range(len(self.row_key)):
+                self.row(row).tofile(handle)
+        elif int8:
+            write_int8_rows(handle, self.data, self.dimensions)
+        else:
+            self.data.tofile(handle)
+
     @classmethod
-    def from_snapshot(cls, metadata, data, accelerate=True):
+    def from_int8_snapshot(cls, metadata, handle, accelerate=True):
+        """A quantized matrix straight from an int8 snapshot file, without widening it."""
+        dimensions, rows = metadata.get("dimensions"), len(metadata.get("rows") or [])
+        matrix = cls(dimensions if isinstance(dimensions, int) and dimensions > 0 else 1, accelerate, quantized=True)
+        if not matrix.quantized:
+            return cls.from_snapshot(metadata, read_int8_rows(handle, rows, dimensions), accelerate)
+        scales = array.array("f")
+        scales.frombytes(handle.read(4 * rows))
+        qdata = bytearray(rows * dimensions)
+        if len(scales) != rows or handle.readinto(qdata) != len(qdata) or handle.read(1):
+            raise ValueError("int8 matrix size does not match its scales")
+        return cls.from_snapshot(metadata, (scales, qdata), accelerate, quantized=True)
+
+    @classmethod
+    def from_snapshot(cls, metadata, data, accelerate=True, quantized=False):
         """A matrix rebuilt from to_snapshot's output; None when the parts disagree."""
         dimensions = metadata.get("dimensions")
         rows, records = metadata.get("rows"), metadata.get("records")
-        if (not isinstance(dimensions, int) or dimensions < 1 or not isinstance(rows, list) or
-                not isinstance(records, list) or len(data) != len(rows) * dimensions):
-            return None
-        matrix = cls(dimensions, accelerate)
-        matrix.data = data
+        if quantized:
+            scales, qdata = data
+            if (not isinstance(dimensions, int) or dimensions < 1 or not isinstance(rows, list) or
+                    not isinstance(records, list) or len(qdata) != len(rows) * dimensions or len(scales) != len(rows)):
+                return None
+            matrix = cls(dimensions, accelerate, quantized=True)
+            matrix.scales, matrix.qdata = scales, qdata
+        else:
+            if (not isinstance(dimensions, int) or dimensions < 1 or not isinstance(rows, list) or
+                    not isinstance(records, list) or len(data) != len(rows) * dimensions):
+                return None
+            matrix = cls(dimensions, accelerate)
+            matrix.data = data
         for record, content_hash, meta in records:
             matrix.record_slot[record] = len(matrix.records)
             matrix.records.append(record)
@@ -366,7 +466,9 @@ def vdsp():
                     ("vDSP_vsmul", [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p,
                                     ctypes.c_long, ctypes.c_ulong]),
                     ("vDSP_vfixr8", [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p, ctypes.c_long, ctypes.c_ulong]),
-                    ("vDSP_vflt8", [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p, ctypes.c_long, ctypes.c_ulong])):
+                    ("vDSP_vflt8", [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p, ctypes.c_long, ctypes.c_ulong]),
+                    ("vDSP_vmul", [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p,
+                                   ctypes.c_long, ctypes.c_ulong])):
                 function = getattr(library, name)
                 function.restype = None
                 function.argtypes = argtypes

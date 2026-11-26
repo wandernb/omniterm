@@ -376,9 +376,11 @@ class CompactedReadthroughTests(unittest.TestCase):
         self.assertEqual(sorted(original.key_row), sorted(restored.key_row))
         for key, row in original.key_row.items():
             other = restored.key_row[key]
-            a = original.data[row * DIMENSIONS:(row + 1) * DIMENSIONS]
-            b = restored.data[other * DIMENSIONS:(other + 1) * DIMENSIONS]
+            a, b = original.row(row), restored.row(other)
+            self.assertEqual(len(a), DIMENSIONS)
             self.assertLess(max(abs(x - y) for x, y in zip(a, b)), 0.01)
+        # An int8 index keeps its transcript vectors int8 in memory too.
+        self.assertTrue(restored.quantized)
 
 
 if __name__ == "__main__":

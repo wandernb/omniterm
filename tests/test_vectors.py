@@ -101,6 +101,39 @@ class VectorMatrixTests(unittest.TestCase):
             self.assertSameRanking(matrix.top(query, 5, sparse), expected)
         self.assertEqual(matrix.top(self.queries[0], 3, lambda record, meta: False), [])
 
+    def test_int8_resident_matrix_ranks_like_the_float_matrix_and_saves_exactly(self):
+        import io
+        # Vectors as an int8 index stores them: a quantized matrix holds them exactly.
+        stored = [(key, record, chunk, VECTORS.decode_blob(VECTORS.encode_int8(vector), self.dimensions), meta)
+                  for key, record, chunk, vector, meta in self.rows]
+        exact = VECTORS.VectorMatrix(self.dimensions)
+        compact = VECTORS.VectorMatrix(self.dimensions, quantized=True)
+        self.assertTrue(compact.quantized)
+        for key, record, chunk, vector, meta in stored:
+            exact.upsert(key, record, chunk, "h", vector, meta)
+            compact.upsert(key, record, chunk, "h", vector, meta)
+        self.assertEqual(len(compact.qdata), len(exact.data))  # a quarter of the bytes
+        rare = lambda record, meta: meta["workspace"] == "/w3"  # noqa: E731
+        for query in self.queries:
+            for accept in (None, rare):
+                expected, actual = exact.top(query, 8, accept), compact.top(query, 8, accept)
+                self.assertEqual([item[1] for item in actual], [item[1] for item in expected])
+                for (score, *_), (reference, *_) in zip(actual, expected):
+                    self.assertAlmostEqual(score, reference, places=5)
+        for key, *_ in stored[:40]:
+            compact.delete(key)
+            exact.delete(key)
+        compact.compact()
+        self.assertSameRanking(compact.top(self.queries[0], 8), exact.top(self.queries[0], 8))
+        metadata, _ = compact.to_snapshot()
+        handle = io.BytesIO()
+        compact.write_rows(handle, int8=True)
+        handle.seek(0)
+        restored = VECTORS.VectorMatrix.from_int8_snapshot(metadata, handle)
+        self.assertTrue(restored.quantized)
+        self.assertEqual((bytes(restored.qdata), restored.scales.tobytes()), (bytes(compact.qdata), compact.scales.tobytes()))
+        self.assertEqual(list(restored.row(3)), list(compact.row(3)))
+
     def test_replaced_and_deleted_rows_are_honoured_and_compaction_keeps_rankings(self):
         matrix = self.matrix(True)
         query = self.queries[0]

@@ -246,9 +246,19 @@ class SemanticIndex:
 
     # In-memory vector matrices ---------------------------------------------------------------
 
-    @staticmethod
-    def _new_matrix(corpus, dimensions):
-        matrix = VECTORS.VectorMatrix(dimensions)
+    def _quantized_corpus(self, corpus):
+        """Transcript vectors stay int8 in memory when the index stores them as int8:
+        they are held exactly at a quarter of float32's size. Memories stay float32
+        (few, and mean-centred)."""
+        if corpus != "transcript" or not getattr(self.store, "readthrough", False):
+            return False
+        try:
+            return self.vector_storage().get("encoding") == "int8"
+        except (sqlite3.Error, ValueError, TypeError, AttributeError):
+            return False
+
+    def _new_matrix(self, corpus, dimensions):
+        matrix = VECTORS.VectorMatrix(dimensions, quantized=self._quantized_corpus(corpus))
         matrix.center_alpha = CENTER_ALPHA.get(corpus, 0.0)
         return matrix
 
@@ -440,7 +450,12 @@ class SemanticIndex:
         try:
             # Read and decoded in bounded steps: the whole file is never held
             # beside the matrix it becomes.
-            if metadata["version"] == SNAPSHOT_INT8_VERSION:
+            quantized = metadata["version"] == SNAPSHOT_INT8_VERSION and self._quantized_corpus(corpus)
+            data = None
+            if quantized:
+                with open(paths[2], "rb") as handle:
+                    matrix = VECTORS.VectorMatrix.from_int8_snapshot(metadata, handle)
+            elif metadata["version"] == SNAPSHOT_INT8_VERSION:
                 with open(paths[2], "rb") as handle:
                     data = VECTORS.read_int8_rows(handle, len(metadata.get("rows") or []), dimensions)
             else:
@@ -450,7 +465,8 @@ class SemanticIndex:
             return False
         yield
         try:
-            matrix = VECTORS.VectorMatrix.from_snapshot(metadata, data)
+            if data is not None:
+                matrix = VECTORS.VectorMatrix.from_snapshot(metadata, data)
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             return False
         if matrix is None:
@@ -478,15 +494,12 @@ class SemanticIndex:
         int8 = self.vector_storage().get("encoding") == "int8"
         for corpus, matrix in self._matrices.items():
             paths = self._snapshot_paths(corpus)
-            metadata, data = matrix.to_snapshot()
+            metadata, _ = matrix.to_snapshot()
             metadata.update(version=SNAPSHOT_INT8_VERSION if int8 else SNAPSHOT_VERSION, model=self.embedding.model_id,
                             identity=identity, persisted_after=self._matrix_loader[corpus]["persisted_after"])
             # Quantized and encoded as they are written, so a save never holds a
             # second copy of the matrix or the whole metadata text.
-            if int8:
-                rows = (paths[2], lambda handle: VECTORS.write_int8_rows(handle, data, matrix.dimensions))
-            else:
-                rows = (paths[1], lambda handle: data.tofile(handle))
+            rows = (paths[2] if int8 else paths[1], lambda handle: matrix.write_rows(handle, int8))
             for path, write in (rows, (paths[0], lambda handle: VECTORS.write_json(handle, metadata))):
                 temporary = path.with_name(path.name + ".tmp")
                 with open(temporary, "wb") as handle:
@@ -1276,7 +1289,7 @@ class SemanticIndex:
 
         def vector(entry):
             row = matrix.key_row.get(entry["key"]) if entry.get("key") else None
-            return matrix.data[row * dimensions:(row + 1) * dimensions] if row is not None else None
+            return matrix.row(row) if row is not None else None
 
         pool = ranked[:FUSION_DEPTH]
         top = pool[0]["item"]["score"] if pool else 0
@@ -1315,8 +1328,7 @@ class SemanticIndex:
         row = matrix.key_row.get(vector_prefix(corpus, record_id) + "0")
         if row is None:
             return None
-        dimensions = matrix.dimensions
-        return list(matrix.data[row * dimensions:(row + 1) * dimensions])
+        return list(matrix.row(row))
 
     def search_like(self, arguments, corpus):
         """More like this: records nearest to `arguments["like"]`'s stored vector, itself excluded.
