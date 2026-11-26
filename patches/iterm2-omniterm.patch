@@ -1752,7 +1752,7 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..751b9e267e9346c4315537b399931a8727e3549f
+index 0000000000000000000000000000000000000000..5ab0a27ae801e2744221f0e974d6d9ad1cc6a29a
 --- /dev/null
 +++ b/ModernTests/OmniMemoryTests.swift
 @@ -0,0 +1,1028 @@
@@ -2722,7 +2722,7 @@ index 0000000000000000000000000000000000000000..751b9e267e9346c4315537b399931a87
 +        XCTAssertEqual(like?["like"] as? String, "memory:m1")
 +        XCTAssertNil(like?["query"])
 +        let menu = try XCTUnwrap(pane.memory.searchTable.menu)
-+        XCTAssertEqual(menu.items.map(\.title), ["More like this"])
++        XCTAssertEqual(menu.items.map(\.title), ["Open", "More like this"])
 +    }
 +
 +    func testCoverageLineShowsEachCorpusAndSkippedChunks() {
@@ -7203,7 +7203,7 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..192b71f6ebbe79bc0d6a11b74ef76c81beaeda4c
+index 0000000000000000000000000000000000000000..0bcb60c6db67e092c454ad0acd51ab8a70141288
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
 @@ -0,0 +1,2131 @@
@@ -8469,7 +8469,7 @@ index 0000000000000000000000000000000000000000..192b71f6ebbe79bc0d6a11b74ef76c81
 +        XCTAssertEqual(icon.contentTintColor, OmniAgentColor.color("orange"), "The project's colour")
 +        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))
 +        let buttons = tabs.subviews.compactMap { $0 as? NSButton }
-+        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Files", "Settings"])
++        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Files", "Tickets", "Settings"])
 +        XCTAssertNotNil(Self.find(OmniExplorerBox.self, in: pane), "The README sits in a file box")
 +
 +        buttons[4].performClick(nil)
