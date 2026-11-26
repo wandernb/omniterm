@@ -364,10 +364,25 @@ class InstallTest(AccountsTestCase):
         self.assertEqual(ran.stdout.strip(), "real-claude -v")
 
 
+def native_scheduler_source():
+    """OmniScheduler.m from the fork checkout, or from the tracked patch (CI has no
+    patched checkout; the file is new in the fork, so the patch holds all of it)."""
+    checkout = ROOT / "Vendor/iTerm2/sources/OmniTerm/OmniScheduler.m"
+    if checkout.exists():
+        return checkout.read_text()
+    lines, inside = [], False
+    for line in (ROOT / "patches/iterm2-omniterm.patch").read_text().splitlines():
+        if line.startswith("diff --git "):
+            inside = line.endswith(" b/sources/OmniTerm/OmniScheduler.m")
+        elif inside and line.startswith("+") and not line.startswith("+++"):
+            lines.append(line[1:])
+    return "\n".join(lines)
+
+
 class WiringTest(unittest.TestCase):
     def test_every_account_op_is_public_in_the_worker_and_allowed_natively(self):
         source = (ROOT / "helpers/omni_knowledge.py").read_text()
-        native = (ROOT / "Vendor/iTerm2/sources/OmniTerm/OmniScheduler.m").read_text()
+        native = native_scheduler_source()
         for op in ACCOUNTS.OPS:
             self.assertIn(f'"{op}"', source)
             self.assertEqual(native.count(f'@"{op}"'), 2, op)  # allowlist and no-drain read set
