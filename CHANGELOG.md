@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-26
+
 ### Added
 
 - Right-click works across OmniTerm. Agents offer Open, Run Now, Edit, Rename, Pause or Resume Schedule, Show Terminal, Stop and Delete. Runs offer their report, terminal, Stop or Resume. Sessions offer Open, Rename, Resume or Show Terminal, Search Memory and Copy ID. Tickets offer Open, Status, Priority, Copy and Delete. Files, projects, worktrees and branches offer Reveal in Finder, Open with Default App and Copy Path. Inbox items offer Mark Read or Unread, Resume, Reveal and Delete. Memories offer Pin, Reinforce, Show in Graph and Restore, the memory graph offers Open, Expand, Center, Fit and Overview, and folders (Knowledge ones included), search results and Unblocker decisions have menus too. Everything clickable now shows the pointing-hand cursor.
@@ -975,7 +977,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/wandernb/omniterm/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/wandernb/omniterm/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/wandernb/omniterm/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/wandernb/omniterm/compare/v0.6.0...v0.6.1
