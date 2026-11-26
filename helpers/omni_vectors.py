@@ -17,6 +17,9 @@ import math
 ACCELERATE = "/System/Library/Frameworks/Accelerate.framework/Accelerate"
 ROW_MAJOR, NO_TRANSPOSE = 101, 111
 COMPACT_FRACTION = 0.25
+# Rows converted per step when a snapshot is read or written, so only this many
+# rows' temporary copies (int8 bytes, scaled floats) exist besides the matrix.
+CODEC_ROWS = 4096
 
 _blas = None
 
@@ -275,16 +278,17 @@ class VectorMatrix:
         scores = self.scores(query)
         if self.center_alpha and centred:
             scores = self.centred_scores(query, scores)
-        live = [row for row in range(len(self.row_key)) if self.row_record[row] >= 0] if slots is None else \
-            [row for row in range(len(self.row_key)) if self.row_record[row] in slots]
+        row_record = self.row_record
+        eligible = (lambda row: row_record[row] >= 0) if slots is None else (lambda row: row_record[row] in slots)
         verdicts, results = {}, []
-        width = max(64, limit * 16)
-        start = 0
-        while start < len(live) and len(results) < limit:
-            candidates = heapq.nlargest(width, live, key=scores.__getitem__) if start == 0 else \
-                sorted(live, key=scores.__getitem__, reverse=True)
+        # The best `width` eligible rows, widened until enough records pass the
+        # filter. nlargest(n) equals the first n of a full sort, so the ranking
+        # is a brute-force scan's while only `width` rows are held at a time.
+        width, start = max(64, limit * 16), 0
+        while len(results) < limit:
+            candidates = heapq.nlargest(width, filter(eligible, range(len(self.row_key))), key=scores.__getitem__)
             for row in candidates[start:]:
-                slot = self.row_record[row]
+                slot = row_record[row]
                 verdict = verdicts.get(slot)
                 if verdict is None:
                     record_id = self.records[slot]
@@ -296,10 +300,9 @@ class VectorMatrix:
                         verdicts[slot] = "taken"
                         if len(results) == limit:
                             break
-            if len(results) == limit or len(candidates) >= len(live):
-                break
-            start = len(candidates)
-            width = len(live)
+            if len(candidates) < width:
+                break  # every eligible row was looked at
+            start, width = len(candidates), width * 8
         return results
 
     def to_snapshot(self):
@@ -433,27 +436,86 @@ def quantize_rows(data, dimensions):
     return scales, quantized.raw
 
 
+def zeros(count):
+    """A float32 array of `count` zeros, allocated once (no temporary bytes object)."""
+    return array.array("f", [0.0]) * count
+
+
+def _dequantize_into(data, first_row, scales, chunk, dimensions):
+    """Decode int8 rows `chunk` (rows first_row onwards) into the float32 matrix `data`."""
+    rows = len(chunk) // dimensions if dimensions else 0
+    routines = vdsp()
+    if routines is None:
+        values = array.array("b")
+        values.frombytes(chunk)
+        for row in range(rows):
+            scale, base, start = scales[first_row + row], (first_row + row) * dimensions, row * dimensions
+            for index in range(dimensions):
+                data[base + index] = values[start + index] * scale
+        return
+    buffer = ctypes.create_string_buffer(bytes(chunk), len(chunk))
+    target = data.buffer_info()[0] + 4 * first_row * dimensions
+    routines["vDSP_vflt8"](ctypes.addressof(buffer), 1, target, 1, rows * dimensions)
+    factor = ctypes.c_float()
+    for row in range(rows):
+        factor.value = scales[first_row + row]
+        offset = target + 4 * row * dimensions
+        routines["vDSP_vsmul"](offset, 1, ctypes.addressof(factor), offset, 1, dimensions)
+
+
 def dequantize_rows(scales, quantized, dimensions):
     """The float32 matrix quantize_rows encoded."""
     rows = len(scales)
     if len(quantized) != rows * dimensions:
         raise ValueError("int8 matrix size does not match its scales")
-    data = array.array("f", bytes(4 * rows * dimensions))
-    routines = vdsp()
-    if routines is None or not rows:
-        values = array.array("b")
-        values.frombytes(quantized)
-        for row in range(rows):
-            scale, start = scales[row], row * dimensions
-            for index in range(start, start + dimensions):
-                data[index] = values[index] * scale
-        return data
-    buffer = ctypes.create_string_buffer(bytes(quantized), len(quantized))
-    target = data.buffer_info()[0]
-    routines["vDSP_vflt8"](ctypes.addressof(buffer), 1, target, 1, rows * dimensions)
-    factor = ctypes.c_float()
-    for row in range(rows):
-        factor.value = scales[row]
-        offset = 4 * row * dimensions
-        routines["vDSP_vsmul"](target + offset, 1, ctypes.addressof(factor), target + offset, 1, dimensions)
+    data = zeros(rows * dimensions)
+    view = memoryview(quantized)
+    for first in range(0, rows, CODEC_ROWS):
+        _dequantize_into(data, first, scales, view[first * dimensions:(first + CODEC_ROWS) * dimensions], dimensions)
     return data
+
+
+def read_int8_rows(handle, rows, dimensions):
+    """An int8 snapshot file (rows scales, then rows * dimensions bytes) as a float32
+    matrix, read and decoded a bounded number of rows at a time."""
+    scales = array.array("f")
+    scales.frombytes(handle.read(4 * rows))
+    if len(scales) != rows:
+        raise ValueError("int8 matrix is shorter than its scales")
+    data = zeros(rows * dimensions)
+    for first in range(0, rows, CODEC_ROWS):
+        count = min(CODEC_ROWS, rows - first)
+        chunk = handle.read(count * dimensions)
+        if len(chunk) != count * dimensions:
+            raise ValueError("int8 matrix size does not match its scales")
+        _dequantize_into(data, first, scales, chunk, dimensions)
+    if handle.read(1):
+        raise ValueError("int8 matrix size does not match its scales")
+    return data
+
+
+def write_int8_rows(handle, data, dimensions):
+    """Write a float32 matrix as read_int8_rows reads it, quantizing a bounded number of
+    rows at a time; the scales are written last, into the space left for them."""
+    rows = len(data) // dimensions if dimensions else 0
+    scales = zeros(rows)
+    handle.seek(4 * rows)
+    for first in range(0, rows, CODEC_ROWS):
+        count = min(CODEC_ROWS, rows - first)
+        chunk_scales, quantized = quantize_rows(data[first * dimensions:(first + count) * dimensions], dimensions)
+        scales[first:first + count] = chunk_scales
+        handle.write(quantized)
+    handle.seek(0)
+    scales.tofile(handle)
+
+
+def read_float32_rows(handle):
+    """A float32 snapshot file as a matrix, read a bounded number of bytes at a time."""
+    data = array.array("f")
+    while True:
+        chunk = handle.read(4 * 512 * CODEC_ROWS)
+        if not chunk:
+            return data
+        if len(chunk) % 4:
+            raise ValueError("float32 matrix has a partial value")
+        data.frombytes(chunk)

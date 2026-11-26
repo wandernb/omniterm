@@ -66,6 +66,35 @@ class VectorMatrixTests(unittest.TestCase):
             self.assertEqual(len(expected), 6)
             self.assertSameRanking(matrix.top(query, 6, rare), expected)
 
+    def test_snapshot_rows_stream_in_bounded_steps_and_decode_like_the_whole_matrix(self):
+        import io
+        from unittest import mock
+        matrix = self.matrix(True)
+        _, data = matrix.to_snapshot()
+        rows = len(data) // self.dimensions
+        whole = VECTORS.dequantize_rows(*VECTORS.quantize_rows(data, self.dimensions), self.dimensions)
+        with mock.patch.object(VECTORS, "CODEC_ROWS", 7):
+            handle = io.BytesIO()
+            VECTORS.write_int8_rows(handle, data, self.dimensions)
+            self.assertEqual(len(handle.getvalue()), rows * (4 + self.dimensions))
+            handle.seek(0)
+            streamed = VECTORS.read_int8_rows(handle, rows, self.dimensions)
+            self.assertEqual(streamed.tobytes(), whole.tobytes())
+            handle.seek(0)
+            with self.assertRaises(ValueError):
+                VECTORS.read_int8_rows(handle, rows + 1, self.dimensions)
+            floats = io.BytesIO(data.tobytes())
+            self.assertEqual(VECTORS.read_float32_rows(floats).tobytes(), data.tobytes())
+
+    def test_ranking_widens_past_the_first_candidates_like_brute_force(self):
+        matrix = self.matrix(True)
+        # Accepts few records, all far down most rankings: the first 64 candidates hold none.
+        sparse = lambda record, meta: record.endswith("7") and meta["workspace"] == "/w2"  # noqa: E731
+        for query in self.queries:
+            expected = brute_force(self.rows, query, 5, sparse)
+            self.assertSameRanking(matrix.top(query, 5, sparse), expected)
+        self.assertEqual(matrix.top(self.queries[0], 3, lambda record, meta: False), [])
+
     def test_replaced_and_deleted_rows_are_honoured_and_compaction_keeps_rankings(self):
         matrix = self.matrix(True)
         query = self.queries[0]

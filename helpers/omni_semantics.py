@@ -438,17 +438,14 @@ class SemanticIndex:
             return False
         yield
         try:
+            # Read and decoded in bounded steps: the whole file is never held
+            # beside the matrix it becomes.
             if metadata["version"] == SNAPSHOT_INT8_VERSION:
-                rows = len(metadata.get("rows") or [])
                 with open(paths[2], "rb") as handle:
-                    scales = array.array("f")
-                    scales.frombytes(handle.read(4 * rows))
-                    quantized = handle.read()
-                data = VECTORS.dequantize_rows(scales, quantized, dimensions)
+                    data = VECTORS.read_int8_rows(handle, len(metadata.get("rows") or []), dimensions)
             else:
-                data = array.array("f")
                 with open(paths[1], "rb") as handle:
-                    data.frombytes(handle.read())
+                    data = VECTORS.read_float32_rows(handle)
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
             return False
         yield
@@ -484,12 +481,14 @@ class SemanticIndex:
             metadata, data = matrix.to_snapshot()
             metadata.update(version=SNAPSHOT_INT8_VERSION if int8 else SNAPSHOT_VERSION, model=self.embedding.model_id,
                             identity=identity, persisted_after=self._matrix_loader[corpus]["persisted_after"])
+            # Quantized and encoded as they are written, so a save never holds a
+            # second copy of the matrix or the whole metadata text.
             if int8:
-                scales, quantized = VECTORS.quantize_rows(data, matrix.dimensions)
-                rows = (paths[2], lambda handle: (scales.tofile(handle), handle.write(quantized)))
+                rows = (paths[2], lambda handle: VECTORS.write_int8_rows(handle, data, matrix.dimensions))
             else:
                 rows = (paths[1], lambda handle: data.tofile(handle))
-            for path, write in (rows, (paths[0], lambda handle: handle.write(json.dumps(metadata).encode("utf-8")))):
+            for path, write in (rows, (paths[0], lambda handle: [handle.write(part.encode("utf-8")) for part in
+                                                                  json.JSONEncoder().iterencode(metadata)])):
                 temporary = path.with_name(path.name + ".tmp")
                 with open(temporary, "wb") as handle:
                     write(handle)

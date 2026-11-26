@@ -297,6 +297,33 @@ class KnowledgeTests(unittest.TestCase):
         restored.restore([{"key": key, "value": value} for key, value in native.items()], final=True)
         self.assertEqual(restored.knowledge_status()["messages"], self.store.knowledge_status()["messages"])
 
+    def test_pending_bytes_grow_with_indexing_and_return_to_zero_on_acknowledgement(self):
+        self.write(self.codex / "rollout-pending.jsonl", self.codex_events("pending", "p" * 200000))
+        self.complete_scan()
+        status = self.request("knowledge_status")["status"]
+        self.assertGreater(status["pending_bytes"], 200000)
+        while self.store._pending:
+            self.request("ack_writes", revision=self.request("drain_writes")["_revision"])
+        self.assertEqual(self.request("knowledge_status")["status"]["pending_bytes"], 0)
+
+    def test_delivery_only_scan_reads_no_transcript(self):
+        self.write(self.codex / "rollout-later.jsonl", self.codex_events("later", "Not read under pressure"))
+        delivered = self.request("scan", delivery_only=True)
+        self.assertTrue(delivered["delivery_only"])
+        self.assertEqual(delivered["processed_files"], 0)
+        self.assertEqual(self.request("list_sessions")["sessions"], [])
+        self.complete_scan()
+        self.assertEqual(len(self.request("list_sessions")["sessions"]), 1)
+
+    def test_relieving_pressure_keeps_pending_writes_and_rejects_unknown_levels(self):
+        self.write(self.codex / "rollout-kept.jsonl", self.codex_events("kept", "Kept through pressure"))
+        self.complete_scan()
+        pending = dict(self.store._pending)
+        self.assertTrue(pending)
+        self.request("relieve_pressure", level=2)
+        self.assertEqual(dict(self.store._pending), pending)
+        self.assertFalse(self.store.request({"op": "relieve_pressure", "level": 3})["ok"])
+
     def test_memory_revisions_validate_evidence_and_survive_source_deletion(self):
         path = self.write(self.claude / "workspace/session.jsonl", [self.claude_message("The launch needs a native signature")])
         self.complete_scan()
@@ -1848,6 +1875,23 @@ class NativeProjectionTests(KnowledgeTests):
             self.complete_scan()
             self.acknowledge_all()
             self.assertFalse(self.store.capacity_limited)
+        self.assertEqual(len(self.request("list_sessions")["sessions"]), 2)
+
+    def test_pending_writes_past_the_high_mark_pause_indexing_until_saved(self):
+        self.write(self.claude / "workspace/session.jsonl", [self.claude_message("First zebra")])
+        self.write(self.claude / "workspace/another.jsonl", [self.claude_message("Second otter")])
+        with mock.patch.object(KNOWLEDGE, "PENDING_HIGH_BYTES", 1), mock.patch.object(KNOWLEDGE, "PENDING_LOW_BYTES", 1):
+            self.store.scan()
+            self.assertTrue(self.store._pending)
+            self.assertTrue(self.store.capacity_limited)
+            self.assertEqual(self.store.scan()["processed_files"], 0, "nothing new is read while writes wait")
+            # Each save lets indexing take one more step: it always catches up.
+            for _ in range(50):
+                self.acknowledge_all()
+                self.assertFalse(self.store.capacity_limited)
+                if self.store.scan()["scan_complete"] and not self.store._pending:
+                    break
+            self.acknowledge_all()
         self.assertEqual(len(self.request("list_sessions")["sessions"]), 2)
 
     def test_native_projection_schema_migrates_old_records_and_keeps_fts_current(self):

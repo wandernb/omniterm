@@ -10,6 +10,7 @@ cannot set the thread name.
 import base64
 import collections
 import datetime as dt
+import gc
 import hashlib
 import heapq
 import importlib.util
@@ -42,6 +43,12 @@ MAX_BATCH = 512 * 1024
 # stays well under that; candidates that do not fit wait for the next batch.
 CANDIDATE_RESPONSE_BYTES = 24 * 1024
 CACHE_LIMIT_BYTES = 128 * 1024 * 1024
+# A read-through worker keeps every write it has produced until the scheduler
+# saves and acknowledges it. Past the high mark it reads no more transcripts and
+# embeds nothing (explicit changes still go through); it resumes below the low
+# mark, so production waits for saving instead of growing the worker's memory.
+PENDING_HIGH_BYTES = 128 * 1024 * 1024
+PENDING_LOW_BYTES = 96 * 1024 * 1024
 SOURCE_BLOCK_BYTES = 65536
 SOURCE_AUDIT_BLOCKS = 4
 INGEST_PARSER_VERSION = 2
@@ -128,7 +135,7 @@ PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "k
                         "set_unblocker_policy", "list_projects", "get_project", "get_project_file",
                         "list_project_folder", "project_of", *ACCOUNT_OPS))
 INTERNAL_OPS = frozenset(("restore", "scan", "ack_writes", "drain_writes", "update_live_sessions",
-                          "update_memory_sessions", "memory_tick", "embed"))
+                          "update_memory_sessions", "memory_tick", "embed", "relieve_pressure"))
 
 
 def embed_budget(arguments):
@@ -305,6 +312,10 @@ class KnowledgeStore:
         """)
         self._revision = 0
         self._pending = collections.OrderedDict()
+        # Serialized size of each pending value and their total, so the scheduler
+        # can see (and bound) what waits in this worker's memory for a save.
+        self._pending_sizes = {}
+        self._pending_bytes = 0
         self._discovery = None
         self._discovery_state = None
         self._jsonl_ingestion_cursor = None
@@ -441,6 +452,9 @@ class KnowledgeStore:
         self._revision += 1
         self._pending.pop(key, None)
         self._pending[key] = (self._revision, value)
+        size = len(key) + (len(json_text(value)) if value is not None else 4)
+        self._pending_bytes += size - self._pending_sizes.get(key, 0)
+        self._pending_sizes[key] = size
 
     def _document(self, key, value, emit=True):
         self._shadow_document(key)
@@ -1315,6 +1329,37 @@ class KnowledgeStore:
                 "scan_complete": self._discovery is None and not backlog_files and not self._pending_native_history() and
                                  self._pending_source_audits() == 0 and keep_going() and self._blocked_sources() == 0,
                 "backlog_files": backlog_files}
+
+    def deliver(self):
+        """The part of a scan that must not wait under memory pressure: session
+        message receipts and the outbox. No transcript is read or indexed."""
+        self._reconcile_receipts()
+        self._advance_outbox()
+        self.connection.commit()
+        return {"discovered_files": 0, "processed_files": 0, "processed_bytes": 0, "audited_bytes": 0,
+                "interrupted": False, "scan_complete": False, "delivery_only": True,
+                "backlog_files": max(1, self._pending_after_scan or 0)}
+
+    def relieve_pressure(self, level):
+        """Release caches that are rebuilt on demand. Warning drops the query and
+        graph caches; critical also forgets the vector matrices, which reload in
+        slices from the index. Pending writes, transcripts and vectors are kept."""
+        if isinstance(level, bool) or level not in (1, 2):
+            raise KnowledgeError("level must be 1 (warning) or 2 (critical)")
+        released = []
+        if self._semantics:
+            self._semantics._embed_cache.clear()
+            released.append("embed_cache")
+            if level == 2:
+                self._semantics.reset_matrices()
+                released.append("matrices")
+        if self._hippocampus is not None:
+            self._hippocampus._similarity_cache = {}
+            self._hippocampus._vector_cache = None
+            self._hippocampus._vector_cache_at = 0.0
+            released.append("graph_vectors")
+        gc.collect()
+        return {"released": released}
 
     def _pending_native_history(self):
         return self.connection.execute(
@@ -2942,7 +2987,8 @@ class KnowledgeStore:
                 "source_audits_pending": self._pending_source_audits(),
                 "blocked_sources": self._blocked_sources(),
                 "readthrough": self.readthrough, "codex_live_discovery": self._codex_discovery,
-                "pending_writes": len(self._pending), "errors": list(self._errors),
+                "pending_writes": len(self._pending), "pending_bytes": self._pending_bytes,
+                "pending_limit_bytes": PENDING_HIGH_BYTES, "errors": list(self._errors),
                 "malformed_records": self.connection.execute("SELECT COALESCE(SUM(malformed),0) FROM sources").fetchone()[0],
                 "embedding": self.semantics.status(vectors=vectors, count_vectors=not self.readthrough) if self._semantics is not False else
                              {"available": False, "model": None, "error": "Inference disabled for this store"},
@@ -3088,7 +3134,13 @@ class KnowledgeStore:
     @property
     def capacity_limited(self):
         if self.readthrough:
-            return False
+            limited = self.__dict__.get("_pending_limited", False)
+            if self._pending_bytes >= PENDING_HIGH_BYTES:
+                limited = True
+            elif self._pending_bytes < PENDING_LOW_BYTES:
+                limited = False
+            self._pending_limited = limited
+            return limited
         return self.cache_bytes >= CACHE_LIMIT_BYTES
 
     @property
@@ -4186,8 +4238,13 @@ class KnowledgeStore:
                 self.restore(arguments.get("records", []), final=arguments.get("final") is True)
                 result = {"restored": len(arguments.get("records", []))}
             elif op == "scan":
-                result = self.scan(arguments.get("max_files", 100), arguments.get("byte_budget", 262144),
-                                   embed=arguments.get("embed", True) is not False)
+                if arguments.get("delivery_only") is True:
+                    result = self.deliver()
+                else:
+                    result = self.scan(arguments.get("max_files", 100), arguments.get("byte_budget", 262144),
+                                       embed=arguments.get("embed", True) is not False)
+            elif op == "relieve_pressure":
+                result = self.relieve_pressure(arguments.get("level"))
             elif op == "embed":
                 result = self.embed(arguments)
             elif op == "configure_storage":
@@ -4201,6 +4258,7 @@ class KnowledgeStore:
                 for key, (record_revision, _) in list(self._pending.items()):
                     if record_revision <= revision:
                         self._pending.pop(key)
+                        self._pending_bytes -= self._pending_sizes.pop(key, 0)
                         self._evict_acknowledged(key)
                 self._acknowledged = max(self._acknowledged, revision)
                 self.connection.commit()

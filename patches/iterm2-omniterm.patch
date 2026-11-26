@@ -3190,10 +3190,10 @@ index 0000000000000000000000000000000000000000..6618ff51c34677f10d650f08a15ccc92
 +}
 diff --git a/ModernTests/OmniSchedulerTests.m b/ModernTests/OmniSchedulerTests.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..445fce95dc00ab32ba490c22986effc3e62c9024
+index 0000000000000000000000000000000000000000..c0313984807362a825f4d4a2a8cdd9df8403afb2
 --- /dev/null
 +++ b/ModernTests/OmniSchedulerTests.m
-@@ -0,0 +1,3157 @@
+@@ -0,0 +1,3350 @@
 +//
 +//  OmniSchedulerTests.m
 +//  ModernTests
@@ -3227,6 +3227,8 @@ index 0000000000000000000000000000000000000000..445fce95dc00ab32ba490c22986effc3
 +- (BOOL)openKnowledgeDatabase;
 +- (BOOL)commitKnowledgeResponse:(NSDictionary *)response;
 +- (NSDictionary *)performKnowledgeWorkerRequest:(NSDictionary *)request;
++- (NSDictionary *)knowledgeMaintenance;
++- (double)knowledgeClock;
 +- (NSDictionary *)responseForKnowledgeRequest:(id)request;
 +- (NSDictionary *)sendKnowledgeWorkerRequest:(NSDictionary *)request;
 +- (BOOL)ensureKnowledgeWorker;
@@ -3266,6 +3268,12 @@ index 0000000000000000000000000000000000000000..445fce95dc00ab32ba490c22986effc3
 +@property(nonatomic, copy) NSDictionary *(^workerRequest)(NSDictionary *request);
 +@property(nonatomic, copy) NSArray *liveRunFixtures;
 +@property(nonatomic) BOOL workerThrows;
++// A fake monotonic clock: each worker call advances it by secondsPerCall.
++@property(nonatomic) BOOL fakeClock;
++@property(nonatomic) double now;
++@property(nonatomic) double secondsPerCall;
++@property(nonatomic) NSInteger pressureLevel;
++@property(nonatomic, copy) NSDictionary *embedFixture;
 +@end
 +
 +@implementation OmniKnowledgeTestScheduler
@@ -3279,7 +3287,17 @@ index 0000000000000000000000000000000000000000..445fce95dc00ab32ba490c22986effc3
 +    return YES;
 +}
 +- (NSDictionary *)sendKnowledgeWorkerRequest:(NSDictionary *)request {
++    self.now += self.secondsPerCall;
 +    return self.workerRequest ? self.workerRequest(request) : @{ @"ok": @YES };
++}
++- (double)knowledgeClock {
++    return self.fakeClock ? self.now : [super knowledgeClock];
++}
++- (NSInteger)knowledgeMemoryPressure {
++    return self.pressureLevel;
++}
++- (NSDictionary *)knowledgeEmbedRequest {
++    return self.embedFixture ?: OmniEmbedRequest(0, NO, NO, 0);
 +}
 +- (NSArray *)rowsForSQL:(NSString *)sql bindings:(NSArray *)bindings {
 +    if (self.liveRunFixtures) {
@@ -3732,6 +3750,181 @@ index 0000000000000000000000000000000000000000..445fce95dc00ab32ba490c22986effc3
 +        }
 +    }
 +    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++
++#pragma mark - Paced indexing
++
++- (void)testKnowledgeTickBudgetTiers {
++    NSDictionary *interactive = OmniEmbedRequest(5, YES, NO, 0);
++    NSDictionary *idle = OmniEmbedRequest(600, YES, NO, 0);
++    OmniKnowledgeBudget budget = OmniKnowledgeTickBudget(interactive, 0, NO);
++    XCTAssertEqual(budget.scans, 1);
++    XCTAssertEqual(budget.writeBytes, 1024u * 1024u);
++    XCTAssertEqualWithAccuracy(budget.workSeconds, 0.5, 1e-9);
++    XCTAssertTrue(budget.embed && budget.maintenance);
++    budget = OmniKnowledgeTickBudget(idle, 0, NO);
++    XCTAssertEqualObjects(@(budget.tier), @"idle");
++    XCTAssertGreaterThan(budget.scans, 1);
++    XCTAssertEqualObjects(@(OmniKnowledgeTickBudget(idle, 0, YES).tier), @"interactive", @"no catch-up burst after a wake");
++    XCTAssertEqualObjects(@(OmniKnowledgeTickBudget(OmniEmbedRequest(600, NO, NO, 0), 0, NO).tier), @"interactive", @"battery");
++    XCTAssertEqualObjects(@(OmniKnowledgeTickBudget(OmniEmbedRequest(600, YES, YES, 0), 0, NO).tier), @"interactive", @"Low Power Mode");
++    XCTAssertEqualObjects(@(OmniKnowledgeTickBudget(OmniEmbedRequest(600, YES, NO, 2), 0, NO).tier), @"interactive", @"thermal");
++    for (NSInteger level = 1; level <= 2; level++) {
++        budget = OmniKnowledgeTickBudget(idle, level, NO);
++        XCTAssertEqual(budget.scans, 0);
++        XCTAssertFalse(budget.embed || budget.maintenance);
++        XCTAssertGreaterThan(budget.writeBytes, 0u, @"saving continues under pressure");
++    }
++}
++
++static NSDictionary *OmniBacklogWrite(NSString *key, NSUInteger bytes) {
++    return @{ @"key": key, @"value": @{ @"text": [@"" stringByPaddingToLength:bytes withString:@"x" startingAtIndex:0] } };
++}
++
++// A worker whose pending set never empties: every reply carries one ~300 KB
++// write and more to come. A tick saves at most its allowance, acknowledges
++// only what it saved, and then produces nothing new until the rest is saved.
++- (void)testKnowledgeTickSavesAtMostItsAllowanceAndStopsProducing {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    __block NSInteger revision = 0;
++    __block NSInteger acknowledged = 0;
++    NSMutableArray *operations = [NSMutableArray array];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        if ([request[@"op"] isEqual:@"ack_writes"]) {
++            XCTAssertEqual([request[@"revision"] integerValue], acknowledged + 1, @"acknowledged in order, one batch at a time");
++            acknowledged = [request[@"revision"] integerValue];
++            return @{ @"ok": @YES };
++        }
++        [operations addObject:[request[@"delivery_only"] isEqual:@YES] ? @"deliver" : request[@"op"]];
++        // The head of the pending set is resent until it is acknowledged.
++        const NSInteger head = acknowledged + 1;
++        revision = MAX(revision, head);
++        return @{ @"ok": @YES, @"backlog_files": @1,
++                  @"_writes": @[ OmniBacklogWrite([NSString stringWithFormat:@"message:%ld", (long)head], 300 * 1024) ],
++                  @"_revision": @(head), @"_more_writes": @YES };
++    };
++    [scheduler tickKnowledge];
++    NSDictionary *maintenance = scheduler.knowledgeMaintenance;
++    XCTAssertLessThanOrEqual([maintenance[@"tick_write_bytes"] unsignedIntegerValue], 1024u * 1024u);
++    XCTAssertEqual(acknowledged, 3, @"three 300 KB batches fit in one megabyte");
++    XCTAssertEqualObjects(maintenance[@"writes_waiting"], @YES);
++    XCTAssertFalse([operations containsObject:@"embed"]);
++    XCTAssertFalse([operations containsObject:@"memory_tick"]);
++    XCTAssertFalse([operations containsObject:@"scan"], @"no transcript is read while writes wait");
++    XCTAssertTrue([operations containsObject:@"deliver"], @"session messages are still delivered");
++    XCTAssertNotNil([self savedKnowledgeRecord:@"message:3"]);
++    XCTAssertNil([self savedKnowledgeRecord:@"message:4"]);
++
++    // Once the worker's pending set empties, the next tick produces again.
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        if (![request[@"op"] isEqual:@"ack_writes"]) [operations addObject:request[@"op"]];
++        return @{ @"ok": @YES };
++    };
++    [operations removeAllObjects];
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"writes_waiting"], @NO);
++    XCTAssertTrue([operations containsObject:@"scan"]);
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++// A batch that does not fit the rest of a tick's allowance waits, whole and
++// unacknowledged, and is the first thing saved by the next tick.
++- (void)testKnowledgeBatchOverTheRemainingAllowanceWaitsForTheNextTick {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    __block NSInteger acknowledged = 0;
++    NSMutableArray *acks = [NSMutableArray array];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        if ([request[@"op"] isEqual:@"ack_writes"]) {
++            acknowledged = [request[@"revision"] integerValue];
++            [acks addObject:request[@"revision"]];
++            return @{ @"ok": @YES };
++        }
++        if (acknowledged >= 2) return @{ @"ok": @YES };
++        const NSInteger head = acknowledged + 1;
++        return @{ @"ok": @YES,
++                  @"_writes": @[ OmniBacklogWrite([NSString stringWithFormat:@"message:big%ld", (long)head], 700 * 1024) ],
++                  @"_revision": @(head), @"_more_writes": @(head < 2) };
++    };
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects(acks, (@[ @1 ]));
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"last_yield"], @"write_budget");
++    XCTAssertNil([self savedKnowledgeRecord:@"message:big2"]);
++    [scheduler tickKnowledge];
++    XCTAssertEqualObjects(acks, (@[ @1, @2 ]));
++    XCTAssertNotNil([self savedKnowledgeRecord:@"message:big2"]);
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++// When a scan alone spends the tick's half second, the following ticks start
++// where it stopped, so embedding and the memory tick still run.
++- (void)testKnowledgeTickRotatesStagesWhenTheBudgetIsSpent {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    scheduler.fakeClock = YES;
++    scheduler.now = 1000;
++    NSMutableArray *operations = [NSMutableArray array];
++    __block OmniKnowledgeTestScheduler *weakScheduler = scheduler;
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        NSString *op = request[@"op"];
++        if ([@[ @"scan", @"embed", @"memory_tick" ] containsObject:op]) {
++            [operations addObject:op];
++            weakScheduler.now += 0.6;
++        }
++        return @{ @"ok": @YES, @"backlog_files": @100 };
++    };
++    for (NSInteger tick = 0; tick < 3; tick++) {
++        scheduler.now += 5;
++        [scheduler tickKnowledge];
++    }
++    XCTAssertEqualObjects(operations, (@[ @"scan", @"embed", @"memory_tick" ]));
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"last_yield"], @"work_budget");
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++- (void)testKnowledgeMemoryPressureReleasesCachesOnceAndPausesIndexing {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
++    NSMutableArray *operations = [NSMutableArray array];
++    scheduler.workerRequest = ^NSDictionary *(NSDictionary *request) {
++        NSString *op = request[@"op"];
++        if ([op isEqual:@"relieve_pressure"]) op = [NSString stringWithFormat:@"relieve:%@", request[@"level"]];
++        if ([request[@"delivery_only"] isEqual:@YES]) op = @"deliver";
++        [operations addObject:op];
++        return @{ @"ok": @YES, @"backlog_files": @100 };
++    };
++    scheduler.pressureLevel = 1;
++    [scheduler tickKnowledge];
++    [scheduler tickKnowledge];
++    scheduler.pressureLevel = 2;
++    [scheduler tickKnowledge];
++    NSArray *expected = @[ @"update_memory_sessions", @"update_live_sessions", @"relieve:1", @"deliver",
++                           @"update_memory_sessions", @"update_live_sessions", @"deliver",
++                           @"update_memory_sessions", @"update_live_sessions", @"relieve:2", @"deliver" ];
++    XCTAssertEqualObjects(operations, expected);
++    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"tier"], @"pressure");
++    scheduler.workerRequest = nil;
++    [scheduler stop];
++}
++
++- (void)testKnowledgeUnchangedRecordIsNotRewritten {
++    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
++    NSDictionary *write = @{ @"key": @"memory:same", @"value": @{ @"body": @"Same" } };
++    XCTAssertTrue(([scheduler commitKnowledgeResponse:@{ @"_writes": @[ write ] }]));
++    XCTAssertEqualObjects([scheduler valueForKey:@"knowledgeSkippedWrites"], @0);
++    XCTAssertTrue(([scheduler commitKnowledgeResponse:@{ @"_writes": @[ write ] }]));
++    XCTAssertEqualObjects([scheduler valueForKey:@"knowledgeSkippedWrites"], @1);
++    XCTAssertTrue(([scheduler commitKnowledgeResponse:@{ @"_writes": @[ @{ @"key": @"memory:same", @"value": @{ @"body": @"Changed" } } ] }]));
++    XCTAssertEqualObjects([self savedKnowledgeRecord:@"memory:same"], (@{ @"body": @"Changed" }));
++    XCTAssertTrue(([scheduler commitKnowledgeResponse:@{ @"_writes": @[ @{ @"key": @"memory:same", @"value": NSNull.null } ] }]));
++    XCTAssertNil([self savedKnowledgeRecord:@"memory:same"]);
++    XCTAssertEqualObjects([scheduler valueForKey:@"knowledgeSkippedWrites"], @1);
 +    [scheduler stop];
 +}
 +
@@ -18006,10 +18199,10 @@ index 0000000000000000000000000000000000000000..1d6c0eeb0f46cb007052ec260f5f3ff7
 +}
 diff --git a/sources/OmniTerm/OmniMarkdownEditor.swift b/sources/OmniTerm/OmniMarkdownEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e64d473dc
+index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d03fa430a0
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMarkdownEditor.swift
-@@ -0,0 +1,1943 @@
+@@ -0,0 +1,1963 @@
 +import AppKit
 +import Foundation
 +
@@ -19441,6 +19634,9 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +    // `backing.string` copies the whole text each time, which made long
 +    // documents lay out in quadratic time. The copy is kept until an edit.
 +    private var cachedString: String?
++    // Counts every change of text or attributes, so a measurement of the text
++    // knows whether it is still current.
++    private(set) var editCount = 0
 +
 +    override var string: String {
 +        if let cachedString {
@@ -19458,6 +19654,7 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +    override func replaceCharacters(in range: NSRange, with str: String) {
 +        beginEditing()
 +        cachedString = nil
++        editCount += 1
 +        backing.replaceCharacters(in: range, with: str)
 +        edited(.editedCharacters, range: range, changeInLength: (str as NSString).length - range.length)
 +        endEditing()
@@ -19465,6 +19662,7 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +
 +    override func setAttributes(_ attrs: [NSAttributedString.Key: Any]?, range: NSRange) {
 +        beginEditing()
++        editCount += 1
 +        backing.setAttributes(attrs, range: range)
 +        edited(.editedAttributes, range: range, changeInLength: 0)
 +        endEditing()
@@ -19477,6 +19675,7 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +        beginEditing()
 +        let oldLength = backing.length
 +        cachedString = nil
++        editCount += 1
 +        backing.setAttributedString(rendered)
 +        edited([.editedCharacters, .editedAttributes], range: NSRange(location: 0, length: oldLength),
 +               changeInLength: rendered.length - oldLength)
@@ -19676,11 +19875,16 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +    // The Markdown as given; in reading mode the text view holds its
 +    // rendering instead.
 +    private var source = ""
++    // The last measured text height, so the several height queries of one
++    // page layout (and every unchanged relayout) measure the text once.
++    private var measured: (width: CGFloat, edits: Int, generation: Int, height: CGFloat)?
++    private var textGeneration = 0
 +    // Reading mode: the Markdown rendered as GitHub or Obsidian show it,
 +    // syntax hidden, instead of styled in place.
 +    var rendersMarkdown = false {
 +        didSet {
 +            guard rendersMarkdown != oldValue else { return }
++            textGeneration += 1
 +            if rendersMarkdown {
 +                render()
 +            } else {
@@ -19741,6 +19945,7 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +            // out a long README for nothing blocks the main thread.
 +            guard newValue != source else { return }
 +            source = newValue
++            textGeneration += 1
 +            if rendersMarkdown {
 +                propertiesExpanded = false
 +                render()
@@ -19753,6 +19958,7 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +    }
 +
 +    private func render() {
++        textGeneration += 1
 +        frontMatter = OmniMarkdownFrontMatter.parse(source)
 +        let entries = frontMatter?.entries ?? []
 +        let rendered = OmniMarkdownRenderer.render(frontMatter?.body ?? source, fontSize: textView.markdownStorage.fontSize,
@@ -19825,11 +20031,18 @@ index 0000000000000000000000000000000000000000..62c0fc07a8030a8b69dc5fb825deeb0e
 +    func contentHeight(forWidth width: CGFloat) -> CGFloat {
 +        guard let layoutManager = textView.layoutManager, let container = textView.textContainer else { return 0 }
 +        let textWidth = max(1, width - 2 * Self.inset.width)
++        let edits = textView.markdownStorage.editCount
++        if let measured, measured.width == textWidth, measured.edits == edits, measured.generation == textGeneration,
++           container.size.width == textWidth {
++            return measured.height
++        }
 +        if container.size.width != textWidth {
 +            container.size = NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude)
 +        }
 +        layoutManager.ensureLayout(for: container)
-+        return ceil(layoutManager.usedRect(for: container).height) + 2 * Self.inset.height
++        let height = ceil(layoutManager.usedRect(for: container).height) + 2 * Self.inset.height
++        measured = (textWidth, edits, textGeneration, height)
++        return height
 +    }
 +
 +    // Whether the text is long enough to collapse at a width.
@@ -25123,10 +25336,10 @@ index 0000000000000000000000000000000000000000..554d9e02d474dbec94336134f672b942
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df1463144db9
+index 0000000000000000000000000000000000000000..031125fbc4f9edd5fa56371012876054cc191b85
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1612 @@
+@@ -0,0 +1,1635 @@
 +import AppKit
 +import Foundation
 +
@@ -25346,6 +25559,10 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +    // The Knowledge tab's folder, inside the knowledge folder.
 +    private var knowledgePath = ""
 +    private var unknownRetries = 0
++    // The sidebar reloads the page every two seconds. A reload never overlaps
++    // the one still answering, and a page whose data came back unchanged is
++    // not rebuilt (its README is not laid out again).
++    private var reloading = false
 +    private var buttonsZone: OmniButtonZone?
 +    private var tabsZone: OmniButtonZone?
 +    private(set) var zones: [(title: String, zone: OmniListZone)] = []
@@ -25387,12 +25604,17 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +    }
 +
 +    override func reload() {
++        guard !reloading else { return }
++        reloading = true
 +        OmniSchedulerClient.request(["op": "get_settings"]) { [weak self] response in
-+            self?.settings = response["settings"] as? [String: Any] ?? [:]
-+            if let projectID = self?.projectID {
-+                self?.reloadProject(projectID, refresh: false)
++            guard let self else { return }
++            let settings = response["settings"] as? [String: Any] ?? [:]
++            let changed = !NSDictionary(dictionary: settings).isEqual(to: self.settings)
++            self.settings = settings
++            if let projectID = self.projectID {
++                self.reloadProject(projectID, refresh: false, force: changed)
 +            } else {
-+                self?.reloadList(refresh: false)
++                self.reloadList(refresh: false, force: changed)
 +            }
 +        }
 +    }
@@ -25405,7 +25627,7 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +        return layout["names"] as? [String: String] ?? [:]
 +    }
 +
-+    private func reloadList(refresh: Bool) {
++    private func reloadList(refresh: Bool, force: Bool = true) {
 +        if projects.isEmpty {
 +            projects = OmniProjectsCache.load()
 +            if !projects.isEmpty {
@@ -25419,17 +25641,25 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +        }
 +        OmniSchedulerClient.request(request) { [weak self] response in
 +            guard let self else { return }
++            self.reloading = false
 +            guard OmniPane.isOK(response) else {
 +                self.showMessage(OmniPane.unreachableMessage(response))
 +                return
 +            }
-+            self.forge = response["forge"] as? [String: Any] ?? [:]
-+            self.projects = response["projects"] as? [[String: Any]] ?? []
-+            self.rebuild()
++            let forge = response["forge"] as? [String: Any] ?? [:]
++            let projects = response["projects"] as? [[String: Any]] ?? []
++            let unchanged = NSDictionary(dictionary: forge).isEqual(to: self.forge) &&
++                NSArray(array: projects).isEqual(to: self.projects)
++            self.forge = forge
++            self.projects = projects
++            // A message (an earlier failure) is replaced even by unchanged data.
++            if force || !unchanged || !self.messageLabel.isHidden {
++                self.rebuild()
++            }
 +        }
 +    }
 +
-+    private func reloadProject(_ id: String, refresh: Bool) {
++    private func reloadProject(_ id: String, refresh: Bool, force: Bool = true) {
 +        if project == nil {
 +            let known = OmniProjectsCache.load().first { $0["root"] as? String == id }
 +            showMessage("Loading " + (known.map { OmniProjectsModel.name($0, aliases: aliases) } ?? "the project") + "…")
@@ -25440,6 +25670,7 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +        }
 +        OmniSchedulerClient.request(request) { [weak self] response in
 +            guard let self else { return }
++            self.reloading = false
 +            guard OmniPane.isOK(response), let project = response["project"] as? [String: Any] else {
 +                let error = response["error"] as? String
 +                // Just after a launch the worker may not have listed the
@@ -25454,7 +25685,12 @@ index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df14
 +                self.showMessage("This project could not be read." + (error.map { "\n\($0)" } ?? ""))
 +                return
 +            }
++            let unchanged = self.project.map { NSDictionary(dictionary: $0).isEqual(to: project) } ?? false
 +            self.project = project
++            if !force && !refresh && unchanged && self.messageLabel.isHidden {
++                self.loadTabData()
++                return
++            }
 +            if let readme = project["readme"] as? [String: Any], let text = readme["text"] as? String {
 +                self.readmeView.text = OmniReportText.sanitized(text)
 +            }
@@ -27194,10 +27430,10 @@ index 0000000000000000000000000000000000000000..bca17bdc36df4d2d6e533de6529276e1
 +}
 diff --git a/sources/OmniTerm/OmniScheduler.h b/sources/OmniTerm/OmniScheduler.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe56ebb3ba5
+index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604e255727c
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.h
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,72 @@
 +#import <Foundation/Foundation.h>
 +
 +NS_ASSUME_NONNULL_BEGIN
@@ -27206,6 +27442,21 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +// run (OmniTerm's own housekeeping agents) opens without being selected, so it
 +// never takes the window away from what the person is looking at.
 +typedef void (^OmniSchedulerLaunchHandler)(NSString *command, NSString *title, NSString *runID, NSString *agent, BOOL background);
++
++// What one background indexing tick is admitted to do (OmniKnowledgeTickBudget).
++typedef struct {
++    const char *tier;       // "interactive", "idle" or "pressure"
++    NSInteger scans;        // scan passes; 0 delivers session messages only
++    NSUInteger writeBytes;  // serialized background writes saved per tick
++    double workSeconds;     // soft budget: no further maintenance starts once spent
++    BOOL embed;             // embedding admitted
++    BOOL maintenance;       // memory tick and incremental vacuum admitted
++} OmniKnowledgeBudget;
++
++// embedRequest carries idle_seconds, on_ac, low_power and thermal_state;
++// memoryPressure is 0 (normal), 1 (warning) or 2 (critical); resumed is true
++// on the first tick after a long gap, such as a wake from sleep.
++OmniKnowledgeBudget OmniKnowledgeTickBudget(NSDictionary *embedRequest, NSInteger memoryPressure, BOOL resumed);
 +
 +@interface OmniScheduler : NSObject
 +
@@ -27257,10 +27508,10 @@ index 0000000000000000000000000000000000000000..b3d160ad81439256c441fe27ef9d7fe5
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66ad26da47
+index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69713fc4a2
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4257 @@
+@@ -0,0 +1,4524 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -27303,6 +27554,9 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +@property(nonatomic, copy) NSString *agentsPath;
 +@property(nonatomic, copy) NSString *settingsPath;
 +@property(atomic, copy) NSString *agentFilesFingerprint;
++// The last indexing tick's admission and progress, read by knowledge_status
++// from any thread: replaced as a whole once per tick.
++@property(atomic, copy) NSDictionary *knowledgeMaintenance;
 +- (NSDictionary *)defaultSettings;
 +- (id)nextRunForAgent:(NSDictionary *)agent after:(NSTimeInterval)timestamp;
 +- (void)enforceRunRetention;
@@ -27317,6 +27571,9 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +- (NSString *)knowledgeSchemaSQL;
 +- (NSString *)knowledgeWorkerHomePath;
 +- (BOOL)commitKnowledgeResponse:(NSDictionary *)response;
++- (double)knowledgeClock;
++- (NSInteger)knowledgeMemoryPressure;
++- (NSDictionary *)knowledgeEmbedRequest;
 +- (void)startKnowledge;
 +- (void)stopKnowledge;
 +- (void)tickKnowledge;
@@ -27547,6 +27804,53 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +                            (NSInteger)process.thermalState);
 +}
 +
++// What one five-second indexing tick may do. Interactive use, battery and Low
++// Power Mode get one scan and one megabyte of saved writes; once half a second
++// of work is spent no further maintenance starts (a call or a save already
++// running finishes). Only an idle Mac on power, not just woken, gets a burst.
++// Memory pressure stops scans, embedding and maintenance but keeps saving and
++// delivering, so nothing already produced waits in the worker's memory.
++OmniKnowledgeBudget OmniKnowledgeTickBudget(NSDictionary *embedRequest, NSInteger memoryPressure, BOOL resumed) {
++    if (memoryPressure > 0) {
++        return (OmniKnowledgeBudget){ .tier = "pressure", .scans = 0, .writeBytes = 1024 * 1024, .workSeconds = 0.5,
++                                      .embed = NO, .maintenance = NO };
++    }
++    const double idle = [embedRequest[@"idle_seconds"] doubleValue];
++    const BOOL burst = !resumed && idle >= 120 && [embedRequest[@"on_ac"] isEqual:@YES] &&
++                       ![embedRequest[@"low_power"] isEqual:@YES] && [embedRequest[@"thermal_state"] integerValue] <= 1;
++    if (burst) {
++        return (OmniKnowledgeBudget){ .tier = "idle", .scans = 8, .writeBytes = 8 * 1024 * 1024, .workSeconds = 2.5,
++                                      .embed = YES, .maintenance = YES };
++    }
++    return (OmniKnowledgeBudget){ .tier = "interactive", .scans = 1, .writeBytes = 1024 * 1024, .workSeconds = 0.5,
++                                  .embed = YES, .maintenance = YES };
++}
++
++// The indexing tick's stages, taken in turn from where the last tick stopped,
++// so a backlog of scans can never starve embedding, trimming or vacuum.
++typedef NS_ENUM(NSInteger, OmniKnowledgePhase) {
++    OmniKnowledgePhaseScan,
++    OmniKnowledgePhaseEmbed,
++    OmniKnowledgePhaseMemoryTick,
++    OmniKnowledgePhaseVacuum,
++    OmniKnowledgePhaseCount,
++};
++
++static NSString *OmniKnowledgePhaseName(NSInteger phase) {
++    switch (phase) {
++        case OmniKnowledgePhaseScan: return @"scan";
++        case OmniKnowledgePhaseEmbed: return @"embed";
++        case OmniKnowledgePhaseMemoryTick: return @"memory_tick";
++        default: return @"vacuum";
++    }
++}
++
++typedef NS_ENUM(NSInteger, OmniKnowledgeCommit) {
++    OmniKnowledgeCommitFailed,
++    OmniKnowledgeCommitSaved,
++    OmniKnowledgeCommitDeferred, // Over this tick's write allowance: left pending, unacknowledged.
++};
++
 +static NSDictionary *OmniDefaultNotificationSettings(void);
 +static NSDictionary *OmniDefaultAgentDefaults(void);
 +
@@ -27565,6 +27869,24 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +    // indexing tick yields to them between its worker calls, so a request
 +    // waits for at most one call rather than a whole tick.
 +    atomic_int _knowledgeWaiters;
++    // The dispatch memory-pressure level (0 normal, 1 warning, 2 critical).
++    atomic_int _knowledgePressure;
++    dispatch_source_t _knowledgePressureSource;
++    // Indexing tick state, touched only on the knowledge queue.
++    OmniKnowledgeBudget _tickBudget;
++    BOOL _tickBudgeted;
++    double _tickStarted;
++    NSUInteger _tickWriteBytes;
++    NSString *_tickYield;
++    double _lastKnowledgeTick;
++    NSInteger _knowledgePhase;
++    NSInteger _relievedPressure;
++    // The worker still holds writes this scheduler has not saved: no new work is
++    // produced until they are, so its pending set stays bounded.
++    BOOL _knowledgeBackpressure;
++    unsigned long long _knowledgeSavedBytes;
++    unsigned long long _knowledgeSkippedWrites;
++    unsigned long long _knowledgeTicks;
 +}
 +
 +- (NSDictionary *)defaultSettings {
@@ -27935,6 +28257,30 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +        }
 +    });
 +    dispatch_resume(_knowledgeTimer);
++    _knowledgePressureSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
++                                                      DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN |
++                                                          DISPATCH_MEMORYPRESSURE_CRITICAL,
++                                                      _knowledgeQueue);
++    dispatch_source_t pressureSource = _knowledgePressureSource;
++    atomic_int *pressure = &_knowledgePressure;
++    dispatch_source_set_event_handler(pressureSource, ^{
++        const unsigned long level = dispatch_source_get_data(pressureSource);
++        atomic_store(pressure, (level & DISPATCH_MEMORYPRESSURE_CRITICAL) ? 2 : (level & DISPATCH_MEMORYPRESSURE_WARN) ? 1 : 0);
++    });
++    dispatch_resume(pressureSource);
++}
++
++// Monotonic seconds that keep counting through sleep, so a wake shows as a gap.
++- (double)knowledgeClock {
++    return (double)clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1e9;
++}
++
++- (NSInteger)knowledgeMemoryPressure {
++    return atomic_load(&_knowledgePressure);
++}
++
++- (NSDictionary *)knowledgeEmbedRequest {
++    return OmniCurrentEmbedRequest();
 +}
 +
 +- (void)stopKnowledge {
@@ -27943,6 +28289,11 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +        dispatch_source_cancel(_knowledgeTimer);
 +        dispatch_release(_knowledgeTimer);
 +        _knowledgeTimer = nil;
++    }
++    if (_knowledgePressureSource) {
++        dispatch_source_cancel(_knowledgePressureSource);
++        dispatch_release(_knowledgePressureSource);
++        _knowledgePressureSource = nil;
 +    }
 +    dispatch_sync(_knowledgeQueue, ^{
 +        if (self->_knowledgeTask.running) {
@@ -28105,50 +28456,97 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +}
 +
 +- (BOOL)commitKnowledgeResponse:(NSDictionary *)response {
++    return [self commitKnowledgeResponse:response allowance:NSUIntegerMax savedBytes:NULL] == OmniKnowledgeCommitSaved;
++}
++
++// Saves one response's writes in one transaction, or none of them. A batch
++// larger than `allowance` (serialized key and value bytes) is deferred whole:
++// the worker keeps it pending, so a drain only ever saves a prefix of its
++// writes in revision order. A value byte-identical to the saved row is not
++// rewritten: REPLACE would delete and reinsert its projections for nothing.
++- (OmniKnowledgeCommit)commitKnowledgeResponse:(NSDictionary *)response
++                                     allowance:(NSUInteger)allowance
++                                    savedBytes:(NSUInteger *)savedBytes {
++    if (savedBytes) *savedBytes = 0;
 +    id writes = response[@"_writes"];
-+    if (!writes) return YES;
-+    if (![writes isKindOfClass:[NSArray class]] || [(NSArray *)writes count] > 10000 || !_knowledgeDatabase) return NO;
++    if (!writes) return OmniKnowledgeCommitSaved;
++    if (![writes isKindOfClass:[NSArray class]] || [(NSArray *)writes count] > 10000 || !_knowledgeDatabase) return OmniKnowledgeCommitFailed;
++    NSMutableArray *encoded = [NSMutableArray arrayWithCapacity:[(NSArray *)writes count]];
++    NSUInteger total = 0;
 +    for (id write in writes) {
-+        if (![write isKindOfClass:[NSDictionary class]]) return NO;
++        if (![write isKindOfClass:[NSDictionary class]]) return OmniKnowledgeCommitFailed;
 +        id key = write[@"key"];
 +        id value = write[@"value"];
 +        if (![key isKindOfClass:[NSString class]] || ![key length] || [key length] > 512 ||
-+            (![value isKindOfClass:[NSDictionary class]] && value != [NSNull null])) return NO;
++            (![value isKindOfClass:[NSDictionary class]] && value != [NSNull null])) return OmniKnowledgeCommitFailed;
 +        BOOL validNamespace = NO;
 +        for (NSString *prefix in @[ @"source:", @"message:", @"memory:", @"memory_revision:", @"receipt:", @"vector:", @"metadata:", @"block:",
 +                                     @"unblock-audit:" ]) {
 +            if ([key hasPrefix:prefix]) validNamespace = YES;
 +        }
-+        if (!validNamespace) return NO;
-+    }
-+    if (![(NSArray *)writes count]) return YES;
-+    if (sqlite3_exec(_knowledgeDatabase, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return NO;
-+    BOOL committed = YES;
-+    for (NSDictionary *write in writes) {
-+        const BOOL remove = write[@"value"] == [NSNull null];
-+        const char *sql = remove ? "DELETE FROM records WHERE key=?" : "INSERT OR REPLACE INTO records(key,value) VALUES(?,?)";
-+        sqlite3_stmt *statement = NULL;
-+        if (sqlite3_prepare_v2(_knowledgeDatabase, sql, -1, &statement, NULL) != SQLITE_OK) {
-+            committed = NO;
-+            break;
++        if (!validNamespace) return OmniKnowledgeCommitFailed;
++        if (value == [NSNull null]) {
++            [encoded addObject:[NSNull null]];
++            total += [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
++            continue;
 +        }
-+        sqlite3_bind_text(statement, 1, [write[@"key"] UTF8String], -1, SQLITE_TRANSIENT);
-+        if (!remove) {
-+            NSData *data = [NSJSONSerialization dataWithJSONObject:write[@"value"] options:0 error:nil];
-+            if (!data || data.length > 800 * 1024) {
-+                sqlite3_finalize(statement);
-+                committed = NO;
-+                break;
++        NSData *data = [NSJSONSerialization dataWithJSONObject:value options:0 error:nil];
++        if (!data || data.length > 800 * 1024) return OmniKnowledgeCommitFailed;
++        [encoded addObject:data];
++        total += [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + data.length;
++    }
++    if (!encoded.count) return OmniKnowledgeCommitSaved;
++    if (total > allowance) return OmniKnowledgeCommitDeferred;
++    if (sqlite3_exec(_knowledgeDatabase, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return OmniKnowledgeCommitFailed;
++    sqlite3_stmt *insert = NULL, *removal = NULL, *existing = NULL;
++    BOOL committed = sqlite3_prepare_v2(_knowledgeDatabase, "INSERT OR REPLACE INTO records(key,value) VALUES(?,?)", -1, &insert, NULL) == SQLITE_OK &&
++                     sqlite3_prepare_v2(_knowledgeDatabase, "DELETE FROM records WHERE key=?", -1, &removal, NULL) == SQLITE_OK &&
++                     sqlite3_prepare_v2(_knowledgeDatabase, "SELECT value FROM records WHERE key=?", -1, &existing, NULL) == SQLITE_OK;
++    unsigned long long skipped = 0;
++    for (NSUInteger index = 0; committed && index < encoded.count; index++) {
++        const char *key = [((NSDictionary *)((NSArray *)writes)[index])[@"key"] UTF8String];
++        NSData *data = encoded[index] == [NSNull null] ? nil : encoded[index];
++        if (!data) {
++            sqlite3_bind_text(removal, 1, key, -1, SQLITE_TRANSIENT);
++            committed = sqlite3_step(removal) == SQLITE_DONE;
++            sqlite3_reset(removal);
++            sqlite3_clear_bindings(removal);
++            continue;
++        }
++        // A delete marker (version-3 messages) always goes through its trigger.
++        const BOOL marker = [((NSDictionary *)((NSArray *)writes)[index])[@"value"][@"_deleted"] isEqual:@YES];
++        BOOL same = NO;
++        if (!marker) {
++            sqlite3_bind_text(existing, 1, key, -1, SQLITE_TRANSIENT);
++            if (sqlite3_step(existing) == SQLITE_ROW) {
++                const void *saved = sqlite3_column_blob(existing, 0);
++                const int length = sqlite3_column_bytes(existing, 0);
++                same = saved && (NSUInteger)length == data.length && memcmp(saved, data.bytes, data.length) == 0;
 +            }
-+            sqlite3_bind_text(statement, 2, data.bytes, (int)data.length, SQLITE_TRANSIENT);
++            sqlite3_reset(existing);
++            sqlite3_clear_bindings(existing);
 +        }
-+        committed = sqlite3_step(statement) == SQLITE_DONE;
-+        sqlite3_finalize(statement);
-+        if (!committed) break;
++        if (same) {
++            skipped++;
++            continue;
++        }
++        sqlite3_bind_text(insert, 1, key, -1, SQLITE_TRANSIENT);
++        sqlite3_bind_text(insert, 2, data.bytes, (int)data.length, SQLITE_TRANSIENT);
++        committed = sqlite3_step(insert) == SQLITE_DONE;
++        sqlite3_reset(insert);
++        sqlite3_clear_bindings(insert);
 +    }
++    sqlite3_finalize(insert);
++    sqlite3_finalize(removal);
++    sqlite3_finalize(existing);
 +    if (committed) committed = sqlite3_exec(_knowledgeDatabase, "COMMIT", NULL, NULL, NULL) == SQLITE_OK;
-+    if (!committed) sqlite3_exec(_knowledgeDatabase, "ROLLBACK", NULL, NULL, NULL);
-+    return committed;
++    if (!committed) {
++        sqlite3_exec(_knowledgeDatabase, "ROLLBACK", NULL, NULL, NULL);
++        return OmniKnowledgeCommitFailed;
++    }
++    _knowledgeSkippedWrites += skipped;
++    if (savedBytes) *savedBytes = total;
++    return OmniKnowledgeCommitSaved;
 +}
 +
 +- (NSDictionary *)performKnowledgeWorkerRequest:(NSDictionary *)request {
@@ -28158,15 +28556,30 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +- (NSDictionary *)performKnowledgeWorkerRequest:(NSDictionary *)request drain:(OmniKnowledgeDrain)drain {
 +    NSDictionary *response = [self sendKnowledgeWorkerRequest:request];
 +    NSDictionary *result = response;
-+    if (drain == OmniKnowledgeDrainNone) {
-+        NSMutableDictionary *publicResult = [[result mutableCopy] autorelease];
-+        [publicResult removeObjectsForKeys:@[ @"_writes", @"_revision", @"_more_writes" ]];
-+        return publicResult;
-+    }
++    NSMutableDictionary *publicResult = [[result mutableCopy] autorelease];
++    [publicResult removeObjectsForKeys:@[ @"_writes", @"_revision", @"_more_writes" ]];
++    if (drain == OmniKnowledgeDrainNone) return publicResult;
++    // Inside an indexing tick, saves count against the tick's write allowance.
++    // The first batch of a tick is always admitted, so one record larger than
++    // the allowance still gets through; a later one that does not fit waits.
++    const BOOL budgeted = drain == OmniKnowledgeDrainYielding && _tickBudgeted;
 +    for (NSUInteger batch = 0; batch < 64; batch++) {
-+        if (![self commitKnowledgeResponse:response]) {
++        NSUInteger allowance = NSUIntegerMax;
++        if (budgeted && _tickWriteBytes > 0) {
++            allowance = _tickWriteBytes >= _tickBudget.writeBytes ? 0 : _tickBudget.writeBytes - _tickWriteBytes;
++        }
++        NSUInteger saved = 0;
++        const OmniKnowledgeCommit commit = [self commitKnowledgeResponse:response allowance:allowance savedBytes:&saved];
++        if (commit == OmniKnowledgeCommitFailed) {
 +            return OmniKnowledgeError(@"knowledge_persistence", @"Knowledge changes could not be saved; retry without changing the request ID");
 +        }
++        if (commit == OmniKnowledgeCommitDeferred) {
++            _knowledgeBackpressure = YES;
++            _tickYield = @"write_budget";
++            return publicResult;
++        }
++        _knowledgeSavedBytes += saved;
++        if (budgeted) _tickWriteBytes += saved;
 +        if (response[@"_revision"]) {
 +            if (![response[@"_revision"] isKindOfClass:[NSNumber class]]) {
 +                return OmniKnowledgeError(@"knowledge_protocol", @"Knowledge worker returned an invalid revision");
@@ -28177,15 +28590,24 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +            }
 +        }
 +        // Indexing writes stay pending in the worker; the next tick saves the rest.
-+        const BOOL yield = drain == OmniKnowledgeDrainYielding && [self knowledgeRequestsWaiting];
-+        if (![response[@"_more_writes"] isEqual:@YES] || yield) {
-+            NSMutableDictionary *publicResult = [[result mutableCopy] autorelease];
-+            [publicResult removeObjectsForKeys:@[ @"_writes", @"_revision", @"_more_writes" ]];
++        const BOOL more = [response[@"_more_writes"] isEqual:@YES];
++        NSString *yield = nil;
++        if (drain == OmniKnowledgeDrainYielding && [self knowledgeRequestsWaiting]) {
++            yield = @"request_waiting";
++        } else if (budgeted && _tickWriteBytes >= _tickBudget.writeBytes) {
++            yield = @"write_budget";
++        } else if (budgeted && [self knowledgeClock] - _tickStarted >= _tickBudget.workSeconds) {
++            yield = @"work_budget";
++        }
++        if (!more || yield) {
++            _knowledgeBackpressure = more;
++            if (more) _tickYield = yield;
 +            return publicResult;
 +        }
 +        response = [self sendKnowledgeWorkerRequest:@{ @"op": @"drain_writes" }];
 +        if (![response[@"ok"] isEqual:@YES]) return response;
 +    }
++    _knowledgeBackpressure = YES;
 +    return OmniKnowledgeError(@"knowledge_backlog", @"Knowledge changes remain pending; retry shortly");
 +}
 +
@@ -28207,7 +28629,7 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +    @try {
 +        NSDictionary *response = [self performKnowledgeWorkerRequest:arguments drain:OmniKnowledgeDrainNone];
 +        NSString *code = [response[@"code"] isKindOfClass:[NSString class]] ? response[@"code"] : nil;
-+        return [code hasPrefix:@"knowledge_"] ? nil : response;
++        return [code hasPrefix:@"knowledge_"] ? nil : [self knowledgeResponse:response withMaintenanceFor:arguments];
 +    } @catch (NSException *exception) {
 +        return nil;
 +    } @finally {
@@ -28230,12 +28652,25 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +        if (![self ensureKnowledgeWorker]) {
 +            return OmniKnowledgeError(@"knowledge_unavailable", @"OmniTerm knowledge is starting or unavailable; retry shortly");
 +        }
-+        return [self performKnowledgeWorkerRequest:arguments
-+                                             drain:OmniIsKnowledgeReadOperation(arguments[@"op"]) ? OmniKnowledgeDrainNone : OmniKnowledgeDrainAll];
++        NSDictionary *response = [self performKnowledgeWorkerRequest:arguments
++                                                               drain:OmniIsKnowledgeReadOperation(arguments[@"op"]) ? OmniKnowledgeDrainNone : OmniKnowledgeDrainAll];
++        return [self knowledgeResponse:response withMaintenanceFor:arguments];
 +    } @catch (NSException *exception) {
 +        NSLog(@"OmniScheduler rejected knowledge request: %@", exception.name);
 +        return OmniKnowledgeError(@"invalid_request", @"Malformed knowledge request");
 +    }
++}
++
++// knowledge_status also reports the indexing tick's admission and progress.
++- (NSDictionary *)knowledgeResponse:(NSDictionary *)response withMaintenanceFor:(NSDictionary *)request {
++    NSDictionary *maintenance = self.knowledgeMaintenance;
++    if (![request[@"op"] isEqual:@"knowledge_status"] || !maintenance ||
++        ![response[@"status"] isKindOfClass:[NSDictionary class]]) return response;
++    NSMutableDictionary *status = [[response[@"status"] mutableCopy] autorelease];
++    status[@"maintenance"] = maintenance;
++    NSMutableDictionary *decorated = [[response mutableCopy] autorelease];
++    decorated[@"status"] = status;
++    return decorated;
 +}
 +
 +// True while a knowledge request is queued behind the indexing tick.
@@ -28245,6 +28680,50 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +
 +- (void)tickKnowledge {
 +    if (!self.knowledgeEnabled || [self knowledgeRequestsWaiting] || ![self ensureKnowledgeWorker]) return;
++    const double now = [self knowledgeClock];
++    // After a wake (or any long stall) the tick does its normal share, never a
++    // catch-up burst for the time that passed.
++    const BOOL resumed = _lastKnowledgeTick > 0 && now - _lastKnowledgeTick > 60;
++    _lastKnowledgeTick = now;
++    NSDictionary *embedRequest = [self knowledgeEmbedRequest];
++    const NSInteger pressure = [self knowledgeMemoryPressure];
++    _tickBudget = OmniKnowledgeTickBudget(embedRequest, pressure, resumed);
++    _tickBudgeted = YES;
++    _tickStarted = now;
++    _tickWriteBytes = 0;
++    _tickYield = nil;
++    _knowledgeTicks++;
++    @try {
++        [self runKnowledgeTickWithEmbedRequest:embedRequest pressure:pressure];
++    } @finally {
++        _tickBudgeted = NO;
++        self.knowledgeMaintenance = @{ @"tier": @(_tickBudget.tier), @"memory_pressure": @(pressure),
++                                       @"work_seconds": @(round(([self knowledgeClock] - _tickStarted) * 1000) / 1000),
++                                       @"work_budget_seconds": @(_tickBudget.workSeconds),
++                                       @"tick_write_bytes": @(_tickWriteBytes), @"write_budget_bytes": @(_tickBudget.writeBytes),
++                                       @"saved_bytes": @(_knowledgeSavedBytes), @"unchanged_writes_skipped": @(_knowledgeSkippedWrites),
++                                       @"writes_waiting": @(_knowledgeBackpressure), @"last_yield": _tickYield ?: @"complete",
++                                       @"next_phase": OmniKnowledgePhaseName(_knowledgePhase), @"ticks": @(_knowledgeTicks) };
++    }
++}
++
++// True while this tick may start more maintenance.
++- (BOOL)knowledgeTickMayContinue {
++    NSString *reason = nil;
++    if ([self knowledgeRequestsWaiting]) {
++        reason = @"request_waiting";
++    } else if (_knowledgeBackpressure) {
++        reason = @"writes_waiting";
++    } else if (_tickWriteBytes >= _tickBudget.writeBytes) {
++        reason = @"write_budget";
++    } else if ([self knowledgeClock] - _tickStarted >= _tickBudget.workSeconds) {
++        reason = @"work_budget";
++    }
++    if (reason) _tickYield = reason;
++    return reason == nil;
++}
++
++- (void)runKnowledgeTickWithEmbedRequest:(NSDictionary *)embedRequest pressure:(NSInteger)pressure {
 +    __block NSArray *sessions = nil;
 +    __block NSArray *memorySessions = nil;
 +    dispatch_sync(_queue, ^{
@@ -28283,43 +28762,82 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +    [memorySessions release];
 +    [self performKnowledgeWorkerRequest:@{ @"op": @"update_live_sessions", @"sessions": sessions ?: @[] } drain:OmniKnowledgeDrainYielding];
 +    [sessions release];
-+    if ([self knowledgeRequestsWaiting]) return;
-+    // A request waits for at most the one scan in progress, so scans are kept
-+    // short: 25 files and one megabyte each (about half a second on a large
-+    // index whose disk the saves also use). While a backlog remains and nothing
-+    // is waiting, more scans run in this tick, so a multi-gigabyte backlog still
-+    // drains in about an hour.
-+    for (NSInteger pass = 0; pass < 16; pass++) {
-+        if (pass > 0 && [self knowledgeRequestsWaiting]) return;
-+        NSDictionary *scanned = [self performKnowledgeWorkerRequest:@{ @"op": @"scan", @"max_files": @25,
-+                                                                        @"byte_budget": @1048576, @"embed": @NO }
-+                                                               drain:OmniKnowledgeDrainYielding];
-+        if (OmniIntegerValue(scanned[@"backlog_files"]) <= 0) break;
++    if ([self knowledgeRequestsWaiting]) {
++        _tickYield = @"request_waiting";
++        return;
 +    }
-+    // Embedding is its own request, so no request waits for a scan and a few
-+    // embeddings back to back.
-+    if ([self knowledgeRequestsWaiting]) return;
-+    // An idle burst runs as short slices with a check between them, so a search
-+    // waits for at most one slice rather than the whole burst.
-+    NSDictionary *embedRequest = OmniCurrentEmbedRequest();
-+    NSDictionary *embedded = [self performKnowledgeWorkerRequest:embedRequest drain:OmniKnowledgeDrainYielding];
-+    NSInteger slices = MIN(MAX(OmniIntegerValue(embedded[@"slices"]), 1), 16);
-+    if (slices > 1) {
-+        NSMutableDictionary *followup = [embedRequest mutableCopy];
-+        followup[@"followup"] = @YES;
-+        for (NSInteger slice = 1; slice < slices; slice++) {
-+            if ([self knowledgeRequestsWaiting]) return;
-+            embedded = [self performKnowledgeWorkerRequest:followup drain:OmniKnowledgeDrainYielding];
-+            if (OmniIntegerValue(embedded[@"slices"]) <= 1) break;
++    // Rising pressure releases the worker's rebuildable caches once per level.
++    if (pressure > _relievedPressure) {
++        [self performKnowledgeWorkerRequest:@{ @"op": @"relieve_pressure", @"level": @(MIN(pressure, 2)) } drain:OmniKnowledgeDrainYielding];
++    }
++    _relievedPressure = pressure;
++    // Writes the worker already holds are saved before anything new is made.
++    if (_knowledgeBackpressure) {
++        [self performKnowledgeWorkerRequest:@{ @"op": @"drain_writes" } drain:OmniKnowledgeDrainYielding];
++    }
++    if (_tickBudget.scans <= 0 || _knowledgeBackpressure) {
++        // Session messages are still delivered; no transcript is read.
++        [self performKnowledgeWorkerRequest:@{ @"op": @"scan", @"delivery_only": @YES } drain:OmniKnowledgeDrainYielding];
++        if (!_tickYield) _tickYield = _knowledgeBackpressure ? @"writes_waiting" : @"memory_pressure";
++        return;
++    }
++    BOOL worked = NO;
++    for (NSInteger step = 0; step < OmniKnowledgePhaseCount; step++) {
++        const NSInteger phase = (_knowledgePhase + step) % OmniKnowledgePhaseCount;
++        const BOOL admitted = phase == OmniKnowledgePhaseScan ||
++                              (phase == OmniKnowledgePhaseEmbed ? _tickBudget.embed : _tickBudget.maintenance);
++        if (!admitted) continue;
++        if (worked && ![self knowledgeTickMayContinue]) {
++            _knowledgePhase = phase;
++            return;
 +        }
++        worked = YES;
++        [self runKnowledgePhase:phase embedRequest:embedRequest];
 +    }
-+    if ([self knowledgeRequestsWaiting]) return;
-+    // The hippocampus keeps the Memory page's corpus counts warm and journals
-+    // an ingestion snapshot at most every ten minutes.
-+    NSDictionary *ticked = [self performKnowledgeWorkerRequest:@{ @"op": @"memory_tick" } drain:OmniKnowledgeDrainYielding];
-+    [self raiseKnowledgeNotification:ticked[@"notify"]];
-+    if ([self knowledgeRequestsWaiting]) return;
-+    [self incrementalVacuumKnowledge];
++    _knowledgePhase = (_knowledgePhase + 1) % OmniKnowledgePhaseCount;
++}
++
++- (void)runKnowledgePhase:(NSInteger)phase embedRequest:(NSDictionary *)embedRequest {
++    switch (phase) {
++        case OmniKnowledgePhaseScan:
++            // A request waits for at most the one scan in progress, so scans are
++            // kept short: 25 files and one megabyte each. More run only within an
++            // idle tick's budget.
++            for (NSInteger pass = 0; pass < _tickBudget.scans; pass++) {
++                if (pass > 0 && ![self knowledgeTickMayContinue]) return;
++                NSDictionary *scanned = [self performKnowledgeWorkerRequest:@{ @"op": @"scan", @"max_files": @25,
++                                                                                @"byte_budget": @1048576, @"embed": @NO }
++                                                                       drain:OmniKnowledgeDrainYielding];
++                if (OmniIntegerValue(scanned[@"backlog_files"]) <= 0) return;
++            }
++            return;
++        case OmniKnowledgePhaseEmbed: {
++            // An idle burst runs as short slices with a check between them, so a
++            // search waits for at most one slice rather than the whole burst.
++            NSDictionary *embedded = [self performKnowledgeWorkerRequest:embedRequest drain:OmniKnowledgeDrainYielding];
++            NSInteger slices = MIN(MAX(OmniIntegerValue(embedded[@"slices"]), 1), 16);
++            if (slices > 1) {
++                NSMutableDictionary *followup = [[embedRequest mutableCopy] autorelease];
++                followup[@"followup"] = @YES;
++                for (NSInteger slice = 1; slice < slices; slice++) {
++                    if (![self knowledgeTickMayContinue]) return;
++                    embedded = [self performKnowledgeWorkerRequest:followup drain:OmniKnowledgeDrainYielding];
++                    if (OmniIntegerValue(embedded[@"slices"]) <= 1) return;
++                }
++            }
++            return;
++        }
++        case OmniKnowledgePhaseMemoryTick: {
++            // The hippocampus keeps the Memory page's corpus counts warm and
++            // journals an ingestion snapshot at most every ten minutes.
++            NSDictionary *ticked = [self performKnowledgeWorkerRequest:@{ @"op": @"memory_tick" } drain:OmniKnowledgeDrainYielding];
++            [self raiseKnowledgeNotification:ticked[@"notify"]];
++            return;
++        }
++        default:
++            [self incrementalVacuumKnowledge];
++            return;
++    }
 +}
 +
 +// The helper asks for an Inbox item (the storage budget) in its tick result; it
@@ -43427,6 +43945,55 @@ index 5c8f59d81c6663c53e2f482b1d2e4ff944b8a606..998be0b20d1a34b6d2f0f2544c22ecf8
      switch (windowType) {
          case WINDOW_TYPE_COMPACT:
          case WINDOW_TYPE_NORMAL:
+diff --git a/sources/ShellIntegration/iTermShellHistoryController.h b/sources/ShellIntegration/iTermShellHistoryController.h
+index e2ac760e417084536e548ebd3e20d0097e199041..9df3dbc91da43611ae3b7262c8fc280c909553c8 100644
+--- a/sources/ShellIntegration/iTermShellHistoryController.h
++++ b/sources/ShellIntegration/iTermShellHistoryController.h
+@@ -110,5 +110,9 @@ extern NSString *const kDirectoriesDidChangeNotificationName;
+ - (NSString *)databaseFilenamePrefix;
+ - (BOOL)finishInitialization;
+ - (instancetype)initPartially;
++- (BOOL)initializeCoreDataWithRetry:(BOOL)retry vacuum:(BOOL)vacuum;
++// The Core Data model resource, or nil when the bundle no longer has it.
++- (NSURL *)managedObjectModelURL;
++- (NSString *)pathToDatabase;
+ 
+ @end
+diff --git a/sources/ShellIntegration/iTermShellHistoryController.m b/sources/ShellIntegration/iTermShellHistoryController.m
+index 3b1cee184846b12e43f1d5e1150242672f630ba9..7bcbd5eb570ba060fe65de4076f25d2b08485f3e 100644
+--- a/sources/ShellIntegration/iTermShellHistoryController.m
++++ b/sources/ShellIntegration/iTermShellHistoryController.m
+@@ -162,11 +162,26 @@ static NSString *iTermShellIntegrationRemoteHostKey(id<VT100RemoteHostReading> s
+ // Note: setting vacuum to YES forces it to use the on-disk sqlite database. This allows you to
+ // vacuum a database after changing the setting to in-memory. It doesn't make sense to vacuum RAM,
+ // after all.
++// Look the model up by the base class so a test subclass living in another bundle still finds
++// it in the app bundle, then in the main bundle. A bundle replaced or removed while the app runs
++// can lack it: history is optional, so that disables it rather than aborting the app.
++- (NSURL *)managedObjectModelURL {
++    for (NSBundle *bundle in @[ [NSBundle bundleForClass:[iTermShellHistoryController class]], NSBundle.mainBundle ]) {
++        NSURL *url = [bundle URLForResource:@"Model" withExtension:@"momd"];
++        if (url) {
++            return url;
++        }
++    }
++    return nil;
++}
++
+ - (BOOL)initializeCoreDataWithRetry:(BOOL)retry vacuum:(BOOL)vacuum {
+-    // Look the model up by the base class so a test subclass living in another bundle still finds
+-    // it in the app bundle.
+-    NSURL *modelURL = [[NSBundle bundleForClass:[iTermShellHistoryController class]] URLForResource:@"Model" withExtension:@"momd"];
+-    assert(modelURL);
++    NSURL *modelURL = [self managedObjectModelURL];
++    if (!modelURL) {
++        // The database is left alone: nothing is wrong with it.
++        XLog(@"Shell history is unavailable: its data model is missing from %@", NSBundle.mainBundle.bundlePath);
++        return NO;
++    }
+ 
+     NSManagedObjectModel *managedObjectModel =
+         [[[NSManagedObjectModel alloc] initWithContentsOfURL:modelURL] autorelease];
 diff --git a/sources/TerminalView/PTYTextView+ARC.m b/sources/TerminalView/PTYTextView+ARC.m
 index ec58a0440bd28bd860af33f8b79ddf706d37fb40..dd310309bbc53d5f6508a97327adfd8e29e7d21a 100644
 --- a/sources/TerminalView/PTYTextView+ARC.m

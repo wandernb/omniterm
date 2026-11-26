@@ -14,6 +14,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- Indexing a large history no longer competes with your work. Each five-second pass now does one short scan and saves at most a megabyte, stopping after half a second. Bigger bursts run only while the Mac sits idle on power, never as catch-up after a wake. Under memory pressure indexing pauses and the knowledge worker frees its rebuildable caches, while session messages are still delivered. The worker holds no more than about 128 MB of unsaved writes. Unchanged records are no longer rewritten. Semantic-search snapshots load and save in bounded steps instead of holding several copies of the vector matrix. `knowledge_status` reports each pass under `maintenance`.
+- Project pages no longer rebuild and re-measure their README every two seconds when nothing changed.
+- A missing shell-history resource, for example in an app bundle replaced while running, now turns shell history off instead of crashing OmniTerm.
 - OmniTerm no longer comes to the front by itself. Runs, sessions, restarts and startup can no longer activate it, raise its window or switch Spaces while you are in another app; only the shortcut, the menu bar, the Dock icon, a notification click or an omniterm:// link bring it forward.
 - Agents no longer pull OmniTerm forward when they wake its scheduler, and new notifications no longer bring the Inbox window to your Space.
 
