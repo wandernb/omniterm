@@ -22,11 +22,11 @@ its own tab—not as captured batch output.
 [![OmniTerm agent dashboard](docs/assets/screenshots/omni-dashboard-detail.png)](docs/assets/screenshots/omni-dashboard-detail.png)
 
 <p align="center">
-  <a href="https://github.com/wandernb/omniterm/releases/download/v0.8.1/OmniTerm-0.8.1.dmg"><strong>Download latest · OmniTerm 0.8.1 DMG</strong></a>
+  <a href="https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.dmg"><strong>Download latest · OmniTerm 0.8.2 DMG</strong></a>
   ·
-  <a href="https://github.com/wandernb/omniterm/releases/download/v0.8.1/OmniTerm-0.8.1.zip">ZIP</a>
+  <a href="https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.zip">ZIP</a>
   ·
-  <a href="releases/0.8.1/SHA256SUMS">Checksums</a>
+  <a href="releases/0.8.2/SHA256SUMS">Checksums</a>
   <br>
   <a href="https://wandernb.github.io/omniterm/">Documentation website</a>
   ·
@@ -64,10 +64,10 @@ its own tab—not as captured batch output.
 
 ## Install
 
-Download the latest [OmniTerm 0.8.1 DMG](https://github.com/wandernb/omniterm/releases/download/v0.8.1/OmniTerm-0.8.1.dmg)
+Download the latest [OmniTerm 0.8.2 DMG](https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.dmg)
 and run **Install OmniTerm.command**. It installs the app, stable CLI launchers,
-and provider MCP registrations. A [ZIP archive](https://github.com/wandernb/omniterm/releases/download/v0.8.1/OmniTerm-0.8.1.zip)
-and [SHA-256 manifest](https://github.com/wandernb/omniterm/releases/download/v0.8.1/SHA256SUMS)
+and provider MCP registrations. A [ZIP archive](https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.zip)
+and [SHA-256 manifest](https://github.com/wandernb/omniterm/releases/download/v0.8.2/SHA256SUMS)
 are also stored in this repository. Download counts are tracked on the
 [GitHub release page](https://github.com/wandernb/omniterm/releases/latest). See
 [Installation](docs/INSTALLATION.md) for checksums, verification, upgrades, and
