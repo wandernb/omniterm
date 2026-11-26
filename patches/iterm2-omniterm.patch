@@ -3311,10 +3311,10 @@ index 0000000000000000000000000000000000000000..6618ff51c34677f10d650f08a15ccc92
 +}
 diff --git a/ModernTests/OmniSchedulerTests.m b/ModernTests/OmniSchedulerTests.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..c0313984807362a825f4d4a2a8cdd9df8403afb2
+index 0000000000000000000000000000000000000000..4b3f5afc0c8baa20c04e70acd8ebecec3d6781ea
 --- /dev/null
 +++ b/ModernTests/OmniSchedulerTests.m
-@@ -0,0 +1,3350 @@
+@@ -0,0 +1,3351 @@
 +//
 +//  OmniSchedulerTests.m
 +//  ModernTests
@@ -3982,8 +3982,8 @@ index 0000000000000000000000000000000000000000..c0313984807362a825f4d4a2a8cdd9df
 +    [scheduler stop];
 +}
 +
-+// When a scan alone spends the tick's half second, the following ticks start
-+// where it stopped, so embedding and the memory tick still run.
++// When a scan alone spends the tick's half second, every tick still scans
++// once, and the maintenance after it takes turns from where the last stopped.
 +- (void)testKnowledgeTickRotatesStagesWhenTheBudgetIsSpent {
 +    OmniKnowledgeTestScheduler *scheduler = [self knowledgeScheduler];
 +    [scheduler setValue:@YES forKey:@"knowledgeEnabled"];
@@ -3999,11 +3999,12 @@ index 0000000000000000000000000000000000000000..c0313984807362a825f4d4a2a8cdd9df
 +        }
 +        return @{ @"ok": @YES, @"backlog_files": @100 };
 +    };
-+    for (NSInteger tick = 0; tick < 3; tick++) {
++    for (NSInteger tick = 0; tick < 4; tick++) {
 +        scheduler.now += 5;
 +        [scheduler tickKnowledge];
 +    }
-+    XCTAssertEqualObjects(operations, (@[ @"scan", @"embed", @"memory_tick" ]));
++    // The fourth tick's maintenance is the vacuum, which asks the worker nothing.
++    XCTAssertEqualObjects(operations, (@[ @"scan", @"embed", @"scan", @"memory_tick", @"scan", @"scan", @"embed" ]));
 +    XCTAssertEqualObjects(scheduler.knowledgeMaintenance[@"last_yield"], @"work_budget");
 +    scheduler.workerRequest = nil;
 +    [scheduler stop];
@@ -27737,10 +27738,10 @@ index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69713fc4a2
+index 0000000000000000000000000000000000000000..83bb3c5f5d00d14702f2cc01b23bef96b95e7640
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4524 @@
+@@ -0,0 +1,4527 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -28055,10 +28056,10 @@ index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69
 +                                  .embed = YES, .maintenance = YES };
 +}
 +
-+// The indexing tick's stages, taken in turn from where the last tick stopped,
-+// so a backlog of scans can never starve embedding, trimming or vacuum.
++// The maintenance after each tick's scan, taken in turn from where the last
++// tick stopped, so a backlog of scans can never starve embedding, trimming or
++// vacuum. The scan itself (which also delivers session messages) runs every tick.
 +typedef NS_ENUM(NSInteger, OmniKnowledgePhase) {
-+    OmniKnowledgePhaseScan,
 +    OmniKnowledgePhaseEmbed,
 +    OmniKnowledgePhaseMemoryTick,
 +    OmniKnowledgePhaseVacuum,
@@ -28067,7 +28068,6 @@ index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69
 +
 +static NSString *OmniKnowledgePhaseName(NSInteger phase) {
 +    switch (phase) {
-+        case OmniKnowledgePhaseScan: return @"scan";
 +        case OmniKnowledgePhaseEmbed: return @"embed";
 +        case OmniKnowledgePhaseMemoryTick: return @"memory_tick";
 +        default: return @"vacuum";
@@ -29010,13 +29010,16 @@ index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69
 +        if (!_tickYield) _tickYield = _knowledgeBackpressure ? @"writes_waiting" : @"memory_pressure";
 +        return;
 +    }
++    [self scanKnowledge];
++    // One maintenance stage always follows the scan, so a scan that spends the
++    // budget cannot starve them; more run while the budget lasts.
 +    BOOL worked = NO;
 +    for (NSInteger step = 0; step < OmniKnowledgePhaseCount; step++) {
 +        const NSInteger phase = (_knowledgePhase + step) % OmniKnowledgePhaseCount;
-+        const BOOL admitted = phase == OmniKnowledgePhaseScan ||
-+                              (phase == OmniKnowledgePhaseEmbed ? _tickBudget.embed : _tickBudget.maintenance);
++        const BOOL admitted = phase == OmniKnowledgePhaseEmbed ? _tickBudget.embed : _tickBudget.maintenance;
 +        if (!admitted) continue;
-+        if (worked && ![self knowledgeTickMayContinue]) {
++        if (_knowledgeBackpressure || [self knowledgeRequestsWaiting] || (worked && ![self knowledgeTickMayContinue])) {
++            if (_knowledgeBackpressure) _tickYield = @"writes_waiting";
 +            _knowledgePhase = phase;
 +            return;
 +        }
@@ -29026,20 +29029,21 @@ index 0000000000000000000000000000000000000000..9752a5fa6299521a717e919a24eede69
 +    _knowledgePhase = (_knowledgePhase + 1) % OmniKnowledgePhaseCount;
 +}
 +
++// A request waits for at most the one scan in progress, so scans are kept
++// short: 25 files and one megabyte each. More run only within an idle tick's
++// budget.
++- (void)scanKnowledge {
++    for (NSInteger pass = 0; pass < _tickBudget.scans; pass++) {
++        if (pass > 0 && ![self knowledgeTickMayContinue]) return;
++        NSDictionary *scanned = [self performKnowledgeWorkerRequest:@{ @"op": @"scan", @"max_files": @25,
++                                                                        @"byte_budget": @1048576, @"embed": @NO }
++                                                               drain:OmniKnowledgeDrainYielding];
++        if (OmniIntegerValue(scanned[@"backlog_files"]) <= 0) return;
++    }
++}
++
 +- (void)runKnowledgePhase:(NSInteger)phase embedRequest:(NSDictionary *)embedRequest {
 +    switch (phase) {
-+        case OmniKnowledgePhaseScan:
-+            // A request waits for at most the one scan in progress, so scans are
-+            // kept short: 25 files and one megabyte each. More run only within an
-+            // idle tick's budget.
-+            for (NSInteger pass = 0; pass < _tickBudget.scans; pass++) {
-+                if (pass > 0 && ![self knowledgeTickMayContinue]) return;
-+                NSDictionary *scanned = [self performKnowledgeWorkerRequest:@{ @"op": @"scan", @"max_files": @25,
-+                                                                                @"byte_budget": @1048576, @"embed": @NO }
-+                                                                       drain:OmniKnowledgeDrainYielding];
-+                if (OmniIntegerValue(scanned[@"backlog_files"]) <= 0) return;
-+            }
-+            return;
 +        case OmniKnowledgePhaseEmbed: {
 +            // An idle burst runs as short slices with a check between them, so a
 +            // search waits for at most one slice rather than the whole burst.
@@ -44141,6 +44145,82 @@ index a69f33a268e2f1164a5a6962d36bc5e6d912a3f8..35e7b03da712d741bb4b709070c87aa6
  - (NSTimeInterval)textViewTimeSinceLastUserInput {
      if (_lastUserInput == 0) {
          return INFINITY;
+diff --git a/sources/PTYSession/PTYSession.swift b/sources/PTYSession/PTYSession.swift
+index 7460f5c92a6974628020727d8062d2c802c060f7..19cedffe049e8e61436a3738eef53f1ce855d603 100644
+--- a/sources/PTYSession/PTYSession.swift
++++ b/sources/PTYSession/PTYSession.swift
+@@ -188,7 +188,7 @@ class PTYSessionSwiftState: NSObject {
+ extension PTYSession {
+     var aiState: String {
+         var items = [String]()
+-        if iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() {
++        if iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true {
+             if let currentCommand, !currentCommand.isEmpty {
+                 items.append("This command is currently executing: \(currentCommand)")
+             } else {
+@@ -546,7 +546,7 @@ extension PTYSession {
+ 
+     func isAtPromptRemoteCommand(isAtPrompt: RemoteCommand.IsAtPrompt,
+                                  completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.", "Failed to check if you’re at the prompt because Shell Integration is not installed.")
+             return
+         }
+@@ -555,7 +555,7 @@ extension PTYSession {
+ 
+     func executeCommandRemoteCommand(executeCommand: RemoteCommand.ExecuteCommand,
+                                      completion: @escaping (String, String) throws -> ()) rethrows {
+-        if !iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() || currentCommand == nil {
++        if iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() != true || currentCommand == nil {
+             try jankyExecuteCommand(executeCommand, completion: completion)
+         } else {
+             try goodExecuteCommand(executeCommand, completion: completion)
+@@ -641,7 +641,7 @@ extension PTYSession {
+ 
+     func getLastExitStatusRemoteCommand(getLastExitStatus: RemoteCommand.GetLastExitStatus,
+                                         completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.",
+                        "Failed to get the last command’s exit status because shell integration is not installed.")
+             return
+@@ -656,7 +656,7 @@ extension PTYSession {
+ 
+     func getCommandHistoryRemoteCommand(getCommandHistory: RemoteCommand.GetCommandHistory,
+                                         completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.",
+                        "Command history isn’t available because Shell Integration isn’t installed.")
+             return
+@@ -686,7 +686,7 @@ extension PTYSession {
+ 
+     func getLastCommandRemoteCommand(getLastCommand: RemoteCommand.GetLastCommand,
+                                      completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.",
+                        "The last command execute can’t be provided because Shell Integration isn’t installed.")
+             return
+@@ -700,7 +700,7 @@ extension PTYSession {
+ 
+     func getCommandBeforeCursorRemoteCommand(getCommandBeforeCursor: RemoteCommand.GetCommandBeforeCursor,
+                                              completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.",
+             "The contents of the shell prompt could not be determined because Shell Integration isn’t installed.")
+             return
+@@ -716,7 +716,7 @@ extension PTYSession {
+ 
+     func searchCommandHistoryRemoteCommand(searchCommandHistory: RemoteCommand.SearchCommandHistory,
+                                            completion: @escaping (String, String) throws -> ()) rethrows {
+-        guard iTermShellHistoryController.sharedInstance().commandHistoryHasEverBeenUsed() else {
++        guard iTermShellHistoryController.sharedInstance()?.commandHistoryHasEverBeenUsed() == true else {
+             try completion("Tell the user they need to install Shell Integration to access this information.",
+                        "Command history is not available because Shell Integration isn’t installed.")
+             return
 diff --git a/sources/SessionCreation/iTermSessionLauncher.m b/sources/SessionCreation/iTermSessionLauncher.m
 index 436ad48e9a870fd736573e1b64b377ab7a417811..b07201c55433de955d93e2eb5db52e915fbb94a7 100644
 --- a/sources/SessionCreation/iTermSessionLauncher.m

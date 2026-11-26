@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import math
 import random
 import unittest
@@ -85,6 +86,11 @@ class VectorMatrixTests(unittest.TestCase):
                 VECTORS.read_int8_rows(handle, rows + 1, self.dimensions)
             floats = io.BytesIO(data.tobytes())
             self.assertEqual(VECTORS.read_float32_rows(floats).tobytes(), data.tobytes())
+            metadata, _ = matrix.to_snapshot()
+            metadata["model"] = "fixture"
+            written = io.BytesIO()
+            VECTORS.write_json(written, metadata)
+            self.assertEqual(written.getvalue(), json.dumps(metadata).encode("utf-8"))
 
     def test_ranking_widens_past_the_first_candidates_like_brute_force(self):
         matrix = self.matrix(True)

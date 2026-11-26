@@ -12,6 +12,7 @@ import calendar
 import ctypes
 import time
 import heapq
+import json
 import math
 
 ACCELERATE = "/System/Library/Frameworks/Accelerate.framework/Accelerate"
@@ -281,12 +282,15 @@ class VectorMatrix:
         row_record = self.row_record
         eligible = (lambda row: row_record[row] >= 0) if slots is None else (lambda row: row_record[row] in slots)
         verdicts, results = {}, []
-        # The best `width` eligible rows, widened until enough records pass the
-        # filter. nlargest(n) equals the first n of a full sort, so the ranking
-        # is a brute-force scan's while only `width` rows are held at a time.
+        # The best `width` eligible rows first, holding only those; when too few
+        # of them pass the filter, one full sort of the eligible rows follows.
+        # nlargest(n) equals the first n of that sort, so the ranking is a
+        # brute-force scan's either way.
         width, start = max(64, limit * 16), 0
         while len(results) < limit:
-            candidates = heapq.nlargest(width, filter(eligible, range(len(self.row_key))), key=scores.__getitem__)
+            eligible_rows = filter(eligible, range(len(self.row_key)))
+            candidates = heapq.nlargest(width, eligible_rows, key=scores.__getitem__) if start == 0 else \
+                sorted(eligible_rows, key=scores.__getitem__, reverse=True)
             for row in candidates[start:]:
                 slot = row_record[row]
                 verdict = verdicts.get(slot)
@@ -300,9 +304,9 @@ class VectorMatrix:
                         verdicts[slot] = "taken"
                         if len(results) == limit:
                             break
-            if len(candidates) < width:
+            if start or len(candidates) < width:
                 break  # every eligible row was looked at
-            start, width = len(candidates), width * 8
+            start = len(candidates)
         return results
 
     def to_snapshot(self):
@@ -507,6 +511,26 @@ def write_int8_rows(handle, data, dimensions):
         handle.write(quantized)
     handle.seek(0)
     scales.tofile(handle)
+
+
+def write_json(handle, value, chunk=CODEC_ROWS):
+    """json.dumps(value) written to a binary handle, its top-level lists encoded a
+    chunk of items at a time: the C encoder's speed without the whole text in memory."""
+    if not isinstance(value, dict):
+        handle.write(json.dumps(value).encode("utf-8"))
+        return
+    handle.write(b"{")
+    for index, (key, item) in enumerate(value.items()):
+        handle.write((", " if index else "").encode() + json.dumps(key).encode("utf-8") + b": ")
+        if not isinstance(item, list):
+            handle.write(json.dumps(item).encode("utf-8"))
+            continue
+        handle.write(b"[")
+        for start in range(0, len(item), chunk):
+            part = json.dumps(item[start:start + chunk])[1:-1]
+            handle.write(((", " if start else "") + part).encode("utf-8"))
+        handle.write(b"]")
+    handle.write(b"}")
 
 
 def read_float32_rows(handle):

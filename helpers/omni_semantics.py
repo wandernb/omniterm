@@ -487,8 +487,7 @@ class SemanticIndex:
                 rows = (paths[2], lambda handle: VECTORS.write_int8_rows(handle, data, matrix.dimensions))
             else:
                 rows = (paths[1], lambda handle: data.tofile(handle))
-            for path, write in (rows, (paths[0], lambda handle: [handle.write(part.encode("utf-8")) for part in
-                                                                  json.JSONEncoder().iterencode(metadata)])):
+            for path, write in (rows, (paths[0], lambda handle: VECTORS.write_json(handle, metadata))):
                 temporary = path.with_name(path.name + ".tmp")
                 with open(temporary, "wb") as handle:
                     write(handle)
