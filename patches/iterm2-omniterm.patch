@@ -8987,6 +8987,95 @@ index 0000000000000000000000000000000000000000..51e23a79271ef5c4cab5abb88fb2eafb
 +        XCTAssertEqual(OmniTerminalSnapshotView.render("ok\u{1b}", font: font).string, "ok")
 +    }
 +}
+diff --git a/ModernTests/OmniTicketsTests.swift b/ModernTests/OmniTicketsTests.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c01afc214d
+--- /dev/null
++++ b/ModernTests/OmniTicketsTests.swift
+@@ -0,0 +1,83 @@
++//
++//  OmniTicketsTests.swift
++//  ModernTests
++//
++//  A project's Tickets tab: grouping and filtering, and the store, which
++//  must never lose a file it cannot read.
++//
++
++import XCTest
++@testable import iTerm2SharedARC
++
++final class OmniTicketsTests: XCTestCase {
++    private var savedDirectory: URL!
++    private var temp: URL!
++
++    override func setUp() {
++        super.setUp()
++        savedDirectory = OmniTicketStore.directory
++        temp = FileManager.default.temporaryDirectory.appendingPathComponent("omni-tickets-\(UUID().uuidString)")
++        OmniTicketStore.directory = temp
++    }
++
++    override func tearDown() {
++        OmniTicketStore.directory = savedDirectory
++        try? FileManager.default.removeItem(at: temp)
++        super.tearDown()
++    }
++
++    private func ticket(_ number: Int, _ status: OmniTicketStatus, _ priority: OmniTicketPriority) -> OmniTicket {
++        let date = Date(timeIntervalSince1970: TimeInterval(1_800_000_000 + number))
++        return OmniTicket(id: "t\(number)", number: number, title: "T\(number)", content: "", status: status,
++                          priority: priority, created: date, updated: date)
++    }
++
++    func testGroupsFollowFilterAndOrderByPriority() {
++        let tickets = [ticket(1, .open, .longTerm), ticket(2, .open, .urgent), ticket(3, .done, .urgent),
++                       ticket(4, .discarded, .urgent), ticket(5, .inProgress, .shortTerm)]
++        var view = OmniTicketView()
++        let groups = OmniTicketsModel.groups(tickets, view: view)
++        XCTAssertEqual(groups.map(\.key), ["open", "in_progress", "done"])
++        XCTAssertEqual(groups[0].tickets.map(\.number), [2, 1])
++        view.grouping = .priority
++        view.statuses = [.open, .inProgress]
++        let byPriority = OmniTicketsModel.groups(tickets, view: view)
++        XCTAssertEqual(byPriority.map(\.key), ["urgent", "short_term", "middle_term", "long_term"])
++        XCTAssertEqual(byPriority[0].tickets.map(\.number), [2])
++        XCTAssertEqual(OmniTicketsModel.neighbour(of: tickets[1], delta: 1, view: view), "short_term")
++        XCTAssertNil(OmniTicketsModel.neighbour(of: tickets[1], delta: -1, view: view))
++    }
++
++    func testStoreRoundTripsAndKeepsAnUnreadableFile() throws {
++        var file = OmniTicketFile(root: "/projects/demo")
++        file.tickets = [ticket(1, .inProgress, .urgent)]
++        file.nextNumber = 2
++        file.view.layout = .board
++        XCTAssertTrue(OmniTicketStore.save(file))
++        XCTAssertEqual(OmniTicketStore.load(root: "/projects/demo"), file)
++
++        let url = OmniTicketStore.url(for: "/projects/broken")
++        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
++        try Data("{\"tickets\": [{\"status\": \"someday\"}]}".utf8).write(to: url)
++        XCTAssertTrue(OmniTicketStore.load(root: "/projects/broken").tickets.isEmpty)
++        let kept = try FileManager.default.contentsOfDirectory(atPath: temp.path).filter { $0.contains("unreadable") }
++        XCTAssertEqual(kept.count, 1)
++    }
++
++    func testBuildsListBoardAndDetailWithoutAWindow() {
++        var file = OmniTicketFile(root: "/projects/build")
++        file.tickets = [ticket(1, .open, .urgent), ticket(2, .done, .longTerm)]
++        OmniTicketStore.save(file)
++        let controller = OmniTicketsController(root: "/projects/build")
++        let column = OmniColumnView()
++        // The list leaves out empty groups' rows; the board keeps every column.
++        XCTAssertEqual(controller.build(into: column, previous: []).count, 2)
++        controller.toggleLayout(nil)
++        column.removeAll()
++        XCTAssertEqual(controller.build(into: column, previous: []).count, 3)
++        controller.open("t1")
++        column.removeAll()
++        XCTAssertTrue(controller.build(into: column, previous: []).isEmpty)
++        XCTAssertTrue(controller.isEditingTicket)
++    }
++}
 diff --git a/ModernTests/OmniWindowTypeTests.m b/ModernTests/OmniWindowTypeTests.m
 new file mode 100644
 index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cca009992d
@@ -40824,10 +40913,10 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +}
 diff --git a/sources/OmniTerm/OmniTickets.swift b/sources/OmniTerm/OmniTickets.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4baa9f5dff
+index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6d1fe822c
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTickets.swift
-@@ -0,0 +1,1214 @@
+@@ -0,0 +1,1230 @@
 +import AppKit
 +import CryptoKit
 +import Foundation
@@ -41055,7 +41144,10 @@ index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4b
 +            file.root = root
 +            return file
 +        } catch {
-+            DLog("Unreadable tickets file for \(root): \(error)")
++            // Keep the unreadable file beside the new one rather than overwrite it.
++            let aside = url(for: root).deletingPathExtension().appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
++            try? FileManager.default.moveItem(at: url(for: root), to: aside)
++            DLog("Unreadable tickets file for \(root), moved to \(aside.path): \(error)")
 +            return OmniTicketFile(root: root)
 +        }
 +    }
@@ -41104,6 +41196,7 @@ index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4b
 +    init(root: String) {
 +        file = OmniTicketStore.load(root: root)
 +        super.init()
++        focusSelection()
 +        titleField.font = OmniTheme.Font.title
 +        titleField.isBordered = false
 +        titleField.drawsBackground = false
@@ -41128,8 +41221,11 @@ index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4b
 +    }
 +
 +    deinit {
-+        saveTimer?.invalidate()
-+        OmniTicketStore.save(file)
++        // Only typing waits to be saved; everything else saved at once.
++        if saveTimer != nil {
++            saveTimer?.invalidate()
++            OmniTicketStore.save(file)
++        }
 +    }
 +
 +    var isEditingTicket: Bool {
@@ -41346,12 +41442,17 @@ index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4b
 +        focusAfterBuild = { [weak self] in
 +            guard let self else { return }
 +            let owner = self.groupZones.first { self.selectedID != nil && $0.zone.keys.contains(self.selectedID!) } ?? self.groupZones.first
-+            guard let owner else { return }
++            guard let owner else {
++                if let buttons = self.buttonsZone, buttons.zoneCanEnter {
++                    buttons.zoneEnter()
++                }
++                return
++            }
 +            if let selectedID = self.selectedID, owner.zone.keys.contains(selectedID) {
 +                owner.zone.select(selectedID)
 +            }
 +            if owner.zone.zoneCanEnter {
-+                self.window()?.makeFirstResponder(owner.zone.zoneFirstResponder)
++                owner.zone.zoneEnter()
 +                self.rows[self.selectedID ?? ""]?.scrollToVisible(self.rows[self.selectedID ?? ""]?.bounds ?? .zero)
 +            }
 +        }
@@ -41652,6 +41753,10 @@ index 0000000000000000000000000000000000000000..537c974058891d7a61c5a4a9a35a7c4b
 +    func handleShortcut(_ event: NSEvent, focused: OmniFocusZone?) -> Bool {
 +        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
 +        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
++        // The focused list's selection is the ticket the keys act on.
++        if let zone = groupZones.first(where: { $0.zone === focused })?.zone {
++            selectedID = zone.selectedKey
++        }
 +        if openID != nil {
 +            if event.keyCode == 53, flags.isEmpty {
 +                closeTicket(nil)
