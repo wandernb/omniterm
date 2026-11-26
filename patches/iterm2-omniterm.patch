@@ -15480,10 +15480,10 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +}
 diff --git a/sources/OmniTerm/OmniDockPresence.swift b/sources/OmniTerm/OmniDockPresence.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b081cba25a8cfa5434d88e4acc6e993b0bc5c211
+index 0000000000000000000000000000000000000000..d03f55313be021cde4609317a81ee4827aa52cbb
 --- /dev/null
 +++ b/sources/OmniTerm/OmniDockPresence.swift
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,198 @@
 +//
 +//  OmniDockPresence.swift
 +//  iTerm2SharedARC
@@ -15493,6 +15493,7 @@ index 0000000000000000000000000000000000000000..b081cba25a8cfa5434d88e4acc6e993b
 +//
 +
 +import AppKit
++import os.log
 +
 +@objc(OmniDockTerminateDecision)
 +enum OmniDockTerminateDecision: Int {
@@ -15591,8 +15592,14 @@ index 0000000000000000000000000000000000000000..b081cba25a8cfa5434d88e4acc6e993b
 +        if appActive || explicitShowDepth > 0 || isHandlingUserInput() {
 +            return true
 +        }
-+        return ProcessInfo.processInfo.systemUptime - lastExplicitShowEnd < explicitActivationGrace
++        let allowed = ProcessInfo.processInfo.systemUptime - lastExplicitShowEnd < explicitActivationGrace
++        if !allowed {
++            os_log("refused to take focus by itself", log: focusLog, type: .default)
++        }
++        return allowed
 +    }
++
++    private static let focusLog = OSLog(subsystem: "com.omniterm.app", category: "focus")
 +
 +    private let anyWindowVisible: () -> Bool
 +    private let appIsActive: () -> Bool
