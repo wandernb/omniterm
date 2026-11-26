@@ -14767,10 +14767,10 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..fe14c3be66118062ed681162b8c92e9d152377aa
+index 0000000000000000000000000000000000000000..fc60ec0d3111bc839423e6c33102aa7a890ed6dd
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,843 @@
+@@ -0,0 +1,851 @@
 +import AppKit
 +import Foundation
 +
@@ -14834,6 +14834,14 @@ index 0000000000000000000000000000000000000000..fe14c3be66118062ed681162b8c92e9d
 +    func paneProjectsChanged()
 +    // Opens what a search found: a page, a session at a message, a memory.
 +    func paneOpenSearchHit(_ hit: OmniSearchHit)
++    // The page the window shows now, for commands started from a menu.
++    var paneShownRoute: OmniPaneRoute? { get }
++}
++
++extension OmniPaneActions {
++    var paneShownRoute: OmniPaneRoute? {
++        return nil
++    }
 +}
 +
 +// Hosts the native content of the right panel. Overview covers the whole tab
@@ -15616,7 +15624,7 @@ index 0000000000000000000000000000000000000000..fe14c3be66118062ed681162b8c92e9d
 +}
 diff --git a/sources/OmniTerm/OmniContextMenus.swift b/sources/OmniTerm/OmniContextMenus.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8733cfe0c
+index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457a1280a68
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContextMenus.swift
 @@ -0,0 +1,297 @@
@@ -15718,7 +15726,7 @@ index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8
 +
 +    private static func isClickable(_ view: NSView) -> Bool {
 +        switch view {
-+        case is NSButton, is NSSegmentedControl, is NSSlider, is NSColorWell:
++        case is NSButton, is NSSegmentedControl, is NSSlider, is NSColorWell, is NSSwitch, is NSStepper:
 +            return true
 +        default:
 +            return false
@@ -15782,7 +15790,7 @@ index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8
 +                    problem(response["error"] as? String ?? "The agent could not be started.", window: window)
 +                    return
 +                }
-+                actions?.paneExpectTab(forRun: runID, showing: .run(runID), from: .agent(name))
++                actions?.paneExpectTab(forRun: runID, showing: .run(runID), from: actions?.paneShownRoute ?? .agent(name))
 +                changed()
 +            }
 +        }
@@ -15811,7 +15819,7 @@ index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8
 +            OmniSchedulerClient.request(["op": "delete_agent", "name": name]) { response in
 +                if !OmniPane.isOK(response) {
 +                    problem(response["error"] as? String ?? "The agent could not be deleted.", window: window)
-+                } else if let window, window.isVisible {
++                } else if actions?.paneShownRoute == .agent(name) {
 +                    actions?.paneOpen(.overview)
 +                }
 +                changed()
@@ -15846,7 +15854,7 @@ index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8
 +                        problem(response["error"] as? String ?? "The session could not be resumed.", window: window)
 +                        return
 +                    }
-+                    actions?.paneExpectTab(forRun: newID, showing: .run(newID), from: .run(runID))
++                    actions?.paneExpectTab(forRun: newID, showing: .run(newID), from: actions?.paneShownRoute ?? .run(runID))
 +                    changed()
 +                }
 +            }
@@ -35840,10 +35848,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..ebef2ac1894e843276e1571ffeb5bc751c8c5ca4
+index 0000000000000000000000000000000000000000..a2a361ce30ee2f645b3f2388ea0514b2d4141c7b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4980 @@
+@@ -0,0 +1,4988 @@
 +import AppKit
 +import Foundation
 +import os
@@ -36295,6 +36303,8 @@ index 0000000000000000000000000000000000000000..ebef2ac1894e843276e1571ffeb5bc75
 +        outlineView.draggingDestinationFeedbackStyle = .sourceList
 +        outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
 +        contextMenu.delegate = self
++        // Items say themselves whether they apply (a live session cannot resume).
++        contextMenu.autoenablesItems = false
 +        outlineView.menu = contextMenu
 +        scrollView.documentView = outlineView
 +        root.addSubview(scrollView)
@@ -36443,6 +36453,10 @@ index 0000000000000000000000000000000000000000..ebef2ac1894e843276e1571ffeb5bc75
 +
 +    // What the right side shows, nil for a terminal.
 +    var shownRoute: OmniPaneRoute? {
++        return contentHost.route
++    }
++
++    var paneShownRoute: OmniPaneRoute? {
 +        return contentHost.route
 +    }
 +
@@ -39104,6 +39118,8 @@ index 0000000000000000000000000000000000000000..ebef2ac1894e843276e1571ffeb5bc75
 +        self.editing = nil
 +        let field = editing.field
 +        field.isEditable = false
++        // A selectable title keeps the text cursor over a clickable row.
++        field.isSelectable = false
 +        field.drawsBackground = false
 +        field.delegate = nil
 +        let row = editing.row
@@ -43411,6 +43427,50 @@ index 5c8f59d81c6663c53e2f482b1d2e4ff944b8a606..998be0b20d1a34b6d2f0f2544c22ecf8
      switch (windowType) {
          case WINDOW_TYPE_COMPACT:
          case WINDOW_TYPE_NORMAL:
+diff --git a/sources/TerminalView/PTYTextView+ARC.m b/sources/TerminalView/PTYTextView+ARC.m
+index ec58a0440bd28bd860af33f8b79ddf706d37fb40..dd310309bbc53d5f6508a97327adfd8e29e7d21a 100644
+--- a/sources/TerminalView/PTYTextView+ARC.m
++++ b/sources/TerminalView/PTYTextView+ARC.m
+@@ -715,10 +715,39 @@ iTermCommandInfoViewControllerDelegate>
+ 
+ #pragma mark - Mouse Cursor
+ 
++// OmniTerm lays its pages over the terminal. While one covers the pointer,
++// the terminal keeps no document cursor, so its text cursor never shows
++// through the page's buttons and rows.
++- (BOOL)omniPageCoversEvent:(NSEvent *)event {
++    NSView *contentView = self.window.contentView;
++    if (!contentView || !event) {
++        return NO;
++    }
++    NSView *base = contentView.superview ?: contentView;
++    NSView *hit = [contentView hitTest:[base convertPoint:event.locationInWindow fromView:nil]];
++    if (!hit || hit == self || [hit isDescendantOf:self]) {
++        return NO;
++    }
++    for (NSView *view = hit; view; view = view.superview) {
++        if ([NSStringFromClass([view class]) hasSuffix:@"OmniContentHost"]) {
++            return YES;
++        }
++    }
++    return NO;
++}
++
+ - (BOOL)updateCursor:(NSEvent *)event action:(URLAction *)action {
+     NSString *hover = nil;
+     VT100GridWindowedRange anchorRange = VT100GridWindowedRangeMake(VT100GridCoordRangeMake(-1, -1, -1, -1), -1, -1);
+     BOOL changed = NO;
++    if ([self omniPageCoversEvent:event]) {
++        if (cursor_ != nil) {
++            cursor_ = nil;
++            [self.enclosingScrollView setDocumentCursor:nil];
++            return YES;
++        }
++        return NO;
++    }
+     if (([[iTermApplication sharedApplication] it_modifierFlags] & kDragPaneModifiers) == kDragPaneModifiers) {
+         changed = [self setCursor:[NSCursor openHandCursor]];
+     } else if (([[iTermApplication sharedApplication] it_modifierFlags] & kRectangularSelectionModifierMask) == kRectangularSelectionModifiers) {
 diff --git a/sources/TerminalView/PseudoTerminal+WindowStyle.m b/sources/TerminalView/PseudoTerminal+WindowStyle.m
 index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d1de7aeed 100644
 --- a/sources/TerminalView/PseudoTerminal+WindowStyle.m
