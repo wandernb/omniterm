@@ -12464,10 +12464,10 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
      NSDictionary *callbackUserInfo = clickContext[@"CallbackUserInfo"];
 diff --git a/sources/OmniTerm/OmniAgentEditor.swift b/sources/OmniTerm/OmniAgentEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d80e711fe6c2815f0d9a9c419e210b0d498b1a84
+index 0000000000000000000000000000000000000000..2f6eb54eef4b89d9864d285308bfe8c267b43bf6
 --- /dev/null
 +++ b/sources/OmniTerm/OmniAgentEditor.swift
-@@ -0,0 +1,746 @@
+@@ -0,0 +1,747 @@
 +import AppKit
 +import Foundation
 +
@@ -13087,6 +13087,7 @@ index 0000000000000000000000000000000000000000..d80e711fe6c2815f0d9a9c419e210b0d
 +        let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 600, height: 640),
 +                             styleMask: [.titled, .resizable], backing: .buffered, defer: false)
 +        window.minSize = NSSize(width: 480, height: 400)
++        window.acceptsMouseMovedEvents = true
 +        super.init(window: window)
 +        let root = OmniResizingView()
 +        root.frame = NSRect(x: 0, y: 0, width: 600, height: 640)
@@ -14960,10 +14961,10 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..fc60ec0d3111bc839423e6c33102aa7a890ed6dd
+index 0000000000000000000000000000000000000000..3d98229a83cf2db71019e145f57132daeaa864bd
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,851 @@
+@@ -0,0 +1,852 @@
 +import AppKit
 +import Foundation
 +
@@ -15065,6 +15066,7 @@ index 0000000000000000000000000000000000000000..fc60ec0d3111bc839423e6c33102aa7a
 +
 +    init() {
 +        super.init(frame: .zero)
++        OmniPointer.startWatching()
 +        // Layer-backed like its siblings: a view that draws without a layer
 +        // beside the tab view has kept the terminal's Metal view off screen.
 +        wantsLayer = true
@@ -15817,10 +15819,10 @@ index 0000000000000000000000000000000000000000..fc60ec0d3111bc839423e6c33102aa7a
 +}
 diff --git a/sources/OmniTerm/OmniContextMenus.swift b/sources/OmniTerm/OmniContextMenus.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457a1280a68
+index 0000000000000000000000000000000000000000..fed309712b1c186e922d88b6b5f2bbcc4356abad
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContextMenus.swift
-@@ -0,0 +1,297 @@
+@@ -0,0 +1,365 @@
 +import AppKit
 +import Foundation
 +
@@ -15905,6 +15907,35 @@ index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457
 +        }
 +    }
 +
++    private static var monitor: Any?
++
++    // The safety net for controls built after a page was shown (editor
++    // choices, chips, detail buttons): the first time the mouse moves over
++    // one, it gets the pointer too. Runs in OmniTerm's own process only.
++    static func startWatching() {
++        guard monitor == nil else { return }
++        monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
++            guard let content = event.window?.contentView else { return event }
++            let base = content.superview ?? content
++            var view = content.hitTest(base.convert(event.locationInWindow, from: nil))
++            var depth = 0
++            while let current = view, depth < 4, !(current is NSTextView) {
++                if isClickable(current) {
++                    if !current.trackingAreas.contains(where: { $0.owner === shared }) {
++                        shared.attach(to: current)
++                        if (current as? NSControl)?.isEnabled != false {
++                            NSCursor.pointingHand.set()
++                        }
++                    }
++                    break
++                }
++                view = current.superview
++                depth += 1
++            }
++            return event
++        }
++    }
++
 +    // Adds the pointer to `view` and every clickable control inside it.
 +    static func install(in view: NSView) {
 +        if isClickable(view) {
@@ -15967,13 +15998,24 @@ index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457
 +                          silenceable: .kiTermWarningTypePersistent, heading: "OmniTerm", cancelLabel: "OK", window: window)
 +    }
 +
++    // A one-field question; nil when cancelled or left blank.
++    static func ask(_ heading: String, value: String, window: NSWindow?) -> String? {
++        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
++        field.stringValue = value
++        let selection = iTermWarning.show(withTitle: heading, actions: ["Rename", "Cancel"], actionMapping: nil,
++                                          accessory: field, identifier: nil, silenceable: .kiTermWarningTypePersistent,
++                                          heading: heading, cancelLabel: "Cancel", window: window)
++        let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        return selection == .kiTermWarningSelection0 && !text.isEmpty && text != value ? text : nil
++    }
++
 +    static func copy(_ text: String) {
 +        NSPasteboard.general.clearContents()
 +        NSPasteboard.general.setString(text, forType: .string)
 +    }
 +
 +    // An agent: open, run, edit, schedule on or off, delete.
-+    static func agent(_ name: String, enabled: Bool?, actions: OmniPaneActions?, window: NSWindow?,
++    static func agent(_ name: String, enabled: Bool?, actions: OmniPaneActions?, window: NSWindow?, rename: Bool = true,
 +                      changed: @escaping () -> Void = {}) -> NSMenu {
 +        let menu = NSMenu()
 +        menu.addAction("Open", symbol: .arrowRightCircle) { actions?.paneOpen(.agent(name)) }
@@ -15990,6 +16032,21 @@ index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457
 +        menu.addAction("Edit…", symbol: .pencil) {
 +            guard let window else { return }
 +            OmniAgentEditorSheet.present(agentName: name, on: window) { _ in changed() }
++        }
++        if rename {
++            menu.addAction("Rename…", symbol: .characterCursorIbeam) {
++                guard let newName = ask("Rename Agent", value: name, window: window) else { return }
++                OmniSchedulerClient.request(["op": "rename_agent", "name": name, "new_name": newName]) { response in
++                    guard OmniPane.isOK(response) else {
++                        problem(response["error"] as? String ?? "The agent could not be renamed.", window: window)
++                        return
++                    }
++                    if actions?.paneShownRoute == .agent(name) {
++                        actions?.paneOpen(.agent(newName))
++                    }
++                    changed()
++                }
++            }
 +        }
 +        if let enabled {
 +            menu.addAction(enabled ? "Pause Schedule" : "Resume Schedule", symbol: enabled ? .pause : .calendar) {
@@ -16062,7 +16119,7 @@ index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457
 +    }
 +
 +    // A Claude or Codex session: open, resume or show its terminal, find it in memory.
-+    static func session(_ session: [AnyHashable: Any], actions: OmniPaneActions?, window: NSWindow?) -> NSMenu {
++    static func session(_ session: [AnyHashable: Any], actions: OmniPaneActions?, window: NSWindow?, rename: Bool = true) -> NSMenu {
 +        let menu = NSMenu()
 +        let id = session["session_id"] as? String ?? ""
 +        let qualified = id
@@ -16073,6 +16130,19 @@ index 0000000000000000000000000000000000000000..59e60acc0d54d2dd5bc6846e25c5a457
 +            menu.addAction("Resume in a New Tab", symbol: .arrowClockwise, enabled: !OmniSessionText.isLive(session)) {
 +                if let problem = actions?.paneResumeSession(session) {
 +                    self.problem(problem, window: window)
++                }
++            }
++        }
++        if rename, !id.isEmpty {
++            menu.addAction("Rename…", symbol: .characterCursorIbeam) {
++                let current = session["title"] as? String ?? ""
++                guard let title = ask("Rename Session", value: current, window: window) else { return }
++                OmniSchedulerClient.request(["op": "rename_session", "session_id": id, "title": title]) { response in
++                    if OmniPane.isOK(response) {
++                        actions?.paneSessionsChanged()
++                    } else {
++                        problem(response["error"] as? String ?? "The session could not be renamed.", window: window)
++                    }
 +                }
 +            }
 +        }
@@ -16681,10 +16751,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..2c80c7de59fae729ad31cfd9b0cf599b3bd7f620
+index 0000000000000000000000000000000000000000..42d5ff43e0078e54feac6d7cb1fdfc5dd7fd025b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1270 @@
+@@ -0,0 +1,1272 @@
 +import AppKit
 +import Foundation
 +
@@ -16927,6 +16997,8 @@ index 0000000000000000000000000000000000000000..2c80c7de59fae729ad31cfd9b0cf599b
 +                                     backing: .buffered,
 +                                     defer: false)
 +        window.title = "OMNI · Inbox"
++        // Mouse moves reach OmniPointer's watcher, for the pointing hand.
++        window.acceptsMouseMovedEvents = true
 +        // The filters bar has the title bar's colour; a hairline parts them.
 +        OmniTheme.applyTitlebarSeparator(to: window)
 +        window.isReleasedWhenClosed = false
@@ -20168,10 +20240,10 @@ index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d0
 +}
 diff --git a/sources/OmniTerm/OmniMemoryGraphView.swift b/sources/OmniTerm/OmniMemoryGraphView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..eeaef8f22a3b95268c43a018b7608d4cb490a135
+index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b98246720
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryGraphView.swift
-@@ -0,0 +1,1187 @@
+@@ -0,0 +1,1200 @@
 +import AppKit
 +import Foundation
 +import os.signpost
@@ -21268,8 +21340,21 @@ index 0000000000000000000000000000000000000000..eeaef8f22a3b95268c43a018b7608d4c
 +    }
 +
 +    // The hovered node's edges and label come forward; its full label is the tooltip.
++    // Right-click: the node under the pointer (selected first), or nil on the background.
++    var contextMenu: ((OmniMemoryGraphNode?) -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        let hit = node(at: convert(event.locationInWindow, from: nil))
++        if let hit, hit.id != selectedID {
++            select(hit.id)
++        }
++        return contextMenu?(hit) ?? super.menu(for: event)
++    }
++
 +    func hover(_ id: String?) {
 +        guard id != hoveredID else { return }
++        // A node opens on click: the pointing hand over it.
++        (id == nil ? NSCursor.arrow : NSCursor.pointingHand).set()
 +        hoveredID = id
 +        toolTip = id.flatMap { nodeIndex[$0] }.map { nodes[$0].label }
 +        needsDisplay = true
@@ -21361,10 +21446,10 @@ index 0000000000000000000000000000000000000000..eeaef8f22a3b95268c43a018b7608d4c
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..00fbc31fb8edf3602d94437d7e340f3b0242d7e7
+index 0000000000000000000000000000000000000000..79d6d5819503037be512c22d34a54a7a38c067e0
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2459 @@
+@@ -0,0 +1,2481 @@
 +import AppKit
 +import Foundation
 +
@@ -22267,6 +22352,28 @@ index 0000000000000000000000000000000000000000..00fbc31fb8edf3602d94437d7e340f3b
 +            self?.expandGraph(id, force: NSEvent.modifierFlags.contains(.option)) ?? false
 +        }
 +        canvas.toggleNode = { [weak self] id in self?.toggleMindMapBranch(id) }
++        canvas.contextMenu = { [weak self] node in
++            guard let self else { return nil }
++            let menu = NSMenu()
++            if let node {
++                menu.addAction("Open", symbol: .arrowRightCircle) { [weak self] in self?.openFromGraph(node.id) }
++                menu.addAction("Expand Neighbours", symbol: .plusCircle) { [weak self] in
++                    _ = self?.expandGraph(node.id, force: false)
++                }
++                if node.childrenCount > 0 {
++                    menu.addAction(node.collapsed ? "Expand Branch" : "Collapse Branch", symbol: .chevronDown) { [weak self] in
++                        self?.toggleMindMapBranch(node.id)
++                    }
++                }
++                menu.addAction("Center on It", symbol: .scope) { [weak self] in self?.canvas.center(on: node.id) }
++                menu.addItem(.separator())
++                menu.addAction("Copy Label", symbol: .docOnDoc) { OmniContextMenus.copy(node.label) }
++                menu.addItem(.separator())
++            }
++            menu.addAction("Fit to View", symbol: .arrowUpLeftAndArrowDownRight) { [weak self] in self?.fitGraph(nil) }
++            menu.addAction("Overview", symbol: .squareGrid2x2) { [weak self] in self?.graphOverview(nil) }
++            return menu
++        }
 +        canvas.keyHandler = { [weak self] event in
 +            guard let self else { return false }
 +            // Option-Return expands the selected node's neighbourhood.
@@ -25336,10 +25443,10 @@ index 0000000000000000000000000000000000000000..554d9e02d474dbec94336134f672b942
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..031125fbc4f9edd5fa56371012876054cc191b85
+index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d7fb6cc81
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1635 @@
+@@ -0,0 +1,1636 @@
 +import AppKit
 +import Foundation
 +
@@ -26107,6 +26214,7 @@ index 0000000000000000000000000000000000000000..031125fbc4f9edd5fa56371012876054
 +                                                                  age: OmniSessionText.age(folder.modified), separator: true) { [weak self] in
 +                self?.openKnowledgeFolder(path)
 +            }))
++            fileMenu(rows.last?.row, path: "knowledge/" + path) { [weak self] in self?.openKnowledgeFolder(path) }
 +        }
 +        for file in listing.files {
 +            guard let path = file["path"] as? String else { continue }
@@ -36366,10 +36474,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a2a361ce30ee2f645b3f2388ea0514b2d4141c7b
+index 0000000000000000000000000000000000000000..199acc8bca290683b2dfb339b28f80e861d1678b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4988 @@
+@@ -0,0 +1,4989 @@
 +import AppKit
 +import Foundation
 +import os
@@ -39897,8 +40005,9 @@ index 0000000000000000000000000000000000000000..a2a361ce30ee2f645b3f2388ea0514b2
 +        case .agent:
 +            let name = row.title
 +            let agent = agents.first { $0["name"] as? String == name }
++            // The sidebar renames in place, below.
 +            let shared = OmniContextMenus.agent(name, enabled: (agent?["enabled"] as? NSNumber)?.boolValue, actions: self,
-+                                                window: window) { [weak self] in self?.requestSchedulerState() }
++                                                window: window, rename: false) { [weak self] in self?.requestSchedulerState() }
 +            if let live = recentRuns.first(where: { $0.agent == name && $0.isLive }) {
 +                shared.insertItem(OmniMenuItem("Show Terminal", symbol: .terminal) { [weak self] in
 +                    _ = self?.paneShowTerminal(forRun: live.id)
@@ -39911,7 +40020,7 @@ index 0000000000000000000000000000000000000000..a2a361ce30ee2f645b3f2388ea0514b2
 +        case .session:
 +            if case .session(let id) = row.route {
 +                let session = sessions.first { $0["session_id"] as? String == id } ?? ["session_id": id]
-+                merge(OmniContextMenus.session(session, actions: self, window: window))
++                merge(OmniContextMenus.session(session, actions: self, window: window, rename: false))
 +            }
 +        case .run, .recentRun:
 +            if case .run(let id) = row.route {
