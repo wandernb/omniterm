@@ -7203,10 +7203,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..68c129be58f9a32deac78ac89fac2160df7b1b93
+index 0000000000000000000000000000000000000000..192b71f6ebbe79bc0d6a11b74ef76c81beaeda4c
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2017 @@
+@@ -0,0 +1,2131 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -9223,6 +9223,120 @@ index 0000000000000000000000000000000000000000..68c129be58f9a32deac78ac89fac2160
 +                                using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
 +    var springLoadingHighlight: NSSpringLoadingHighlight { .none }
 +    func resetSpringLoading() {}
++}
++
++// MARK: - Right-click menus and the pointer, in the real window
++
++extension OmniSidebarUITests {
++    private func rightClick(at point: NSPoint, in view: NSView) -> NSEvent {
++        return NSEvent.mouseEvent(with: .rightMouseDown, location: view.convert(point, to: nil), modifierFlags: [],
++                                  timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
++                                  clickCount: 1, pressure: 1)!
++    }
++
++    private static func titles(_ menu: NSMenu?) -> [String] {
++        return (menu?.items ?? []).filter { !$0.isSeparatorItem }.map(\.title)
++    }
++
++    // The sidebar's own menu, built as AppKit builds it for a right-click on `row`.
++    private func sidebarMenu(forRow row: Int) -> [String] {
++        let rect = outlineView.rect(ofRow: row)
++        let menu = outlineView.menu(for: rightClick(at: NSPoint(x: rect.midX, y: rect.midY), in: outlineView))
++        if let menu {
++            sidebar.menuNeedsUpdate(menu)
++        }
++        return Self.titles(menu)
++    }
++
++    private static func descendants(of view: NSView) -> [NSView] {
++        return view.subviews + view.subviews.flatMap { descendants(of: $0) }
++    }
++
++    private func settle() {
++        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
++    }
++
++    func testRightClickingSidebarRowsOffersTheirCommands() throws {
++        showFolderSidebar()
++        let agent = sidebarMenu(forRow: try XCTUnwrap(row(titled: "Beta")))
++        for title in ["Open", "Run Now", "Edit…", "Pause Schedule", "Delete Agent…", "Rename…", "Move to"] {
++            XCTAssertTrue(agent.contains(title), "Agent menu lacks \(title): \(agent)")
++        }
++        XCTAssertEqual(agent.filter { $0 == "Rename…" }.count, 1, "Rename appears once")
++        let alphaRows = (0..<outlineView.numberOfRows).filter { cell($0)?.textField?.stringValue == "Alpha" }
++        let run = sidebarMenu(forRow: try XCTUnwrap(alphaRows.last))
++        XCTAssertTrue(run.contains("Open Report") && run.contains("Resume"), "Run menu: \(run)")
++        let folder = sidebarMenu(forRow: try XCTUnwrap(row(titled: "Ops")))
++        XCTAssertTrue(folder.contains("Rename Folder") && folder.contains("Delete Folder…"), "Folder menu: \(folder)")
++    }
++
++    func testRightClickingPageRowsOffersTheirCommands() throws {
++        fake.agents[1]["group"] = "Ops"
++        fake.groups = ["Ops"]
++        fake.runs = [["id": "run-1", "agent": "Alpha", "state": "completed", "started": 1_800_000_000,
++                      "finished": 1_800_000_060, "summary": "Fixed the build"]]
++        showSidebarWithPages()
++        sidebar.paneOpen(.group("Ops"))
++        wait("the folder page lists Beta") {
++            Self.descendants(of: window.contentView!).contains { ($0 as? OmniFolderEntryRow)?.titleText == "Beta" }
++        }
++        let beta = try XCTUnwrap(Self.descendants(of: window.contentView!).compactMap { $0 as? OmniFolderEntryRow }
++            .first { $0.titleText == "Beta" })
++        let agent = Self.titles(beta.menu(for: rightClick(at: .zero, in: beta)))
++        for title in ["Open", "Run Now", "Edit…", "Rename…", "Pause Schedule", "Delete Agent…"] {
++            XCTAssertTrue(agent.contains(title), "Folder-page agent menu lacks \(title): \(agent)")
++        }
++        sidebar.paneOpen(.overview)
++        wait("the dashboard lists the run") {
++            Self.descendants(of: window.contentView!).contains { $0 is OmniRunRowView }
++        }
++        let runRow = try XCTUnwrap(Self.descendants(of: window.contentView!).compactMap { $0 as? OmniRunRowView }.first)
++        let run = Self.titles(runRow.menu(for: rightClick(at: .zero, in: runRow)))
++        XCTAssertTrue(run.contains("Open Report") && (run.contains("Resume") || run.contains("Stop Run")), "Dashboard row menu: \(run)")
++    }
++
++    // Every page the sidebar opens: each visible button, pop-up, switch or
++    // segmented control has the pointer, and every clickable row sets it.
++    func testEveryClickableThingOnEveryPageShowsThePointer() {
++        fake.agents[1]["group"] = "Ops"
++        fake.groups = ["Ops"]
++        fake.runs = [["id": "run-1", "agent": "Alpha", "state": "completed", "started": 1_800_000_000,
++                      "finished": 1_800_000_060, "summary": "Fixed the build"]]
++        showSidebarWithPages()
++        var missing: [String] = []
++        var checked = 0
++        let routes: [OmniPaneRoute] = [.overview, .agent("Alpha"), .run("run-1"), .group("Ops"), .inbox, .memory,
++                                       .settings, .unblocker, .projects, .search("build")]
++        for route in routes {
++            sidebar.paneOpen(route)
++            settle()
++            window.layoutIfNeeded()
++            for view in Self.descendants(of: window.contentView!) where !view.isHiddenOrHasHiddenAncestor {
++                switch view {
++                case is NSButton, is NSSegmentedControl, is NSSwitch, is NSSlider:
++                    checked += 1
++                    // A search field's own magnifier and clear buttons belong to the field.
++                    var inField = false
++                    var chain: [String] = []
++                    var parent = view.superview
++                    while let current = parent {
++                        if current is NSTextField { inField = true }
++                        chain.append(String(describing: type(of: current)))
++                        parent = current.superview
++                    }
++                    if inField {
++                        checked -= 1
++                    } else if !view.trackingAreas.contains(where: { $0.owner === OmniPointer.shared }) {
++                        missing.append("\(route): \(type(of: view)) “\((view as? NSButton)?.title ?? "")” in \(chain.prefix(4).joined(separator: " < "))")
++                    }
++                default:
++                    break
++                }
++            }
++        }
++        XCTAssertGreaterThan(checked, 20, "The sweep found the pages’ controls")
++        XCTAssertEqual(missing, [], "Controls without the pointing hand")
++    }
 +}
 diff --git a/ModernTests/OmniTerminalSnapshotTests.swift b/ModernTests/OmniTerminalSnapshotTests.swift
 new file mode 100644
@@ -13957,10 +14071,10 @@ index 0000000000000000000000000000000000000000..285b59c9505d5df83f3be7e14d37a9d7
 +}
 diff --git a/sources/OmniTerm/OmniCardPane.swift b/sources/OmniTerm/OmniCardPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc3686195d425
+index 0000000000000000000000000000000000000000..276a4470f56b6c012eb2c66fec24329403b1580e
 --- /dev/null
 +++ b/sources/OmniTerm/OmniCardPane.swift
-@@ -0,0 +1,1120 @@
+@@ -0,0 +1,1133 @@
 +import AppKit
 +import Foundation
 +
@@ -14103,6 +14217,7 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +    }
 +
 +    override func layoutPane() {
++        OmniPointer.install(in: self)
 +        let width = bounds.width
 +        let headerHeight = headerOnlyHeight
 +        header.frame = NSRect(x: 0, y: 0, width: width, height: headerHeight)
@@ -14766,6 +14881,12 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +// The card's header: state badge, name, facts and actions, or a thin strip
 +// with the name when the terminal is expanded.
 +private final class OmniCardHeader: NSView {
++    // Its buttons get the pointing hand as they are added.
++    override func didAddSubview(_ subview: NSView) {
++        super.didAddSubview(subview)
++        OmniPointer.install(in: subview)
++    }
++
 +    private let badge = OmniBadgeView()
 +    private let title = NSTextField(labelWithString: "")
 +    private let meta = NSTextField(labelWithString: "")
@@ -14937,6 +15058,12 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +// run's last screen (`run_screen`) when one was recorded, else a message;
 +// either way with the buttons that bring a live session back.
 +private final class OmniSnapshotBand: NSView {
++    // Its buttons get the pointing hand as they are added.
++    override func didAddSubview(_ subview: NSView) {
++        super.didAddSubview(subview)
++        OmniPointer.install(in: subview)
++    }
++
 +    private static let barHeight: CGFloat = 40
 +
 +    private let title = NSTextField(labelWithString: "")
@@ -15083,10 +15210,10 @@ index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc368
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d98229a83cf2db71019e145f57132daeaa864bd
+index 0000000000000000000000000000000000000000..b6d92fe90f7268c14a9ed634789e41d8f89a075b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,852 @@
+@@ -0,0 +1,854 @@
 +import AppKit
 +import Foundation
 +
@@ -15578,6 +15705,8 @@ index 0000000000000000000000000000000000000000..3d98229a83cf2db71019e145f57132da
 +    }
 +
 +    func layoutPane() {
++        // Controls a page builds once its data arrives get the pointer here.
++        OmniPointer.install(in: self)
 +        let width = max(100, bounds.width - 80)
 +        let height = messageLabel.sizeThatFits(NSSize(width: width, height: 200)).height
 +        messageLabel.frame = NSRect(x: (bounds.width - width) / 2, y: bounds.height / 2 - height / 2 - 20,
@@ -36599,10 +36728,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..de05052bf6ad197337f6920cec0f64d52b2272ce
+index 0000000000000000000000000000000000000000..ec1c77404a51af82619c6e908245135c24978672
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5005 @@
+@@ -0,0 +1,5012 @@
 +import AppKit
 +import Foundation
 +import os
@@ -37207,6 +37336,7 @@ index 0000000000000000000000000000000000000000..de05052bf6ad197337f6920cec0f64d5
 +        }
 +        RunLoop.main.add(timer, forMode: .common)
 +        self.timer = timer
++        OmniPointer.install(in: root)
 +    }
 +
 +    // What the right side shows, nil for a terminal.
@@ -41311,6 +41441,12 @@ index 0000000000000000000000000000000000000000..de05052bf6ad197337f6920cec0f64d5
 +// A sidebar row: the rounded hover fill under the pointer, inset like the
 +// selection, on every row a person can select.
 +private final class OmniSidebarRowView: NSTableRowView {
++    // Its buttons get the pointing hand as they are added.
++    override func didAddSubview(_ subview: NSView) {
++        super.didAddSubview(subview)
++        OmniPointer.install(in: subview)
++    }
++
 +    private var hoverArea: NSTrackingArea?
 +
 +    override func resetCursorRects() {
