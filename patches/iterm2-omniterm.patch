@@ -9403,10 +9403,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..61b7ae205b7565b1914950656464d296
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad52e18675 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf42f551c0 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,32 @@
+@@ -7,6 +7,33 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -9424,6 +9424,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
 +		5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */; };
 +		5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */; };
 +		5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */; };
++		5D0A7B1C2E3F0000000000F1 /* OmniContextMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
 +		0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */; };
@@ -9439,7 +9440,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5164,33 @@
+@@ -5138,6 +5165,34 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -9458,6 +9459,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
 +		5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniProjectsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSearch.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTickets.swift; sourceTree = "<group>"; };
++		5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniContextMenus.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTerminalSnapshotView.swift; sourceTree = "<group>"; };
@@ -9473,7 +9475,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10660,33 @@
+@@ -10607,6 +10662,34 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -9492,6 +9494,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
 +				5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */,
 +				5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */,
 +				5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */,
++				5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
 +				0A0B0C0D0E0F000000000021 /* OmniTerminalSnapshotView.swift */,
@@ -9507,7 +9510,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18648,7 @@
+@@ -18568,7 +18651,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -9516,7 +9519,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18658,7 @@
+@@ -18578,7 +18661,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -9525,7 +9528,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18845,31 @@
+@@ -18765,6 +18848,32 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -9542,6 +9545,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
 +				5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */,
 +				5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */,
++				5D0A7B1C2E3F0000000000F1 /* OmniContextMenus.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
 +				0A0B0C0D0E0F000000000020 /* OmniTerminalSnapshotView.swift in Sources */,
@@ -9557,7 +9561,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20853,7 @@
+@@ -20748,6 +20857,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -9565,7 +9569,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21665,7 @@
+@@ -21559,7 +21669,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9574,7 +9578,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21698,7 @@
+@@ -21592,7 +21702,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9583,7 +9587,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21835,8 @@
+@@ -21729,8 +21839,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9594,7 +9598,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22923,8 @@
+@@ -22817,8 +22927,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9605,7 +9609,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24789,7 @@
+@@ -24683,7 +24793,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -9614,7 +9618,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24876,7 @@
+@@ -24770,7 +24880,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9623,7 +9627,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24963,7 @@
+@@ -24857,7 +24967,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9632,7 +9636,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25050,7 @@
+@@ -24944,7 +25054,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -9641,7 +9645,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25346,8 @@
+@@ -25240,8 +25350,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9652,7 +9656,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25441,8 @@
+@@ -25335,8 +25445,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -9663,7 +9667,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25646,7 @@
+@@ -25540,7 +25650,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -9672,7 +9676,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..d6119cda7ff4758a53d00ba8d07c1aad
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25679,7 @@
+@@ -25573,7 +25683,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -13637,10 +13641,10 @@ index 0000000000000000000000000000000000000000..285b59c9505d5df83f3be7e14d37a9d7
 +}
 diff --git a/sources/OmniTerm/OmniCardPane.swift b/sources/OmniTerm/OmniCardPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0a90c7a7246a100da9deecea92a7ede4f8d5ca84
+index 0000000000000000000000000000000000000000..8c9f43403ae1ac871c61207ae6cdc3686195d425
 --- /dev/null
 +++ b/sources/OmniTerm/OmniCardPane.swift
-@@ -0,0 +1,1115 @@
+@@ -0,0 +1,1120 @@
 +import AppKit
 +import Foundation
 +
@@ -14381,6 +14385,11 @@ index 0000000000000000000000000000000000000000..0a90c7a7246a100da9deecea92a7ede4
 +                                     badge: run.outcomeName, color: run.outcomeColor) { [weak self] in
 +                self?.choose(run.id)
 +            }
++            row.contextMenu = { [weak self] in
++                OmniContextMenus.run(run.id, agent: nil, live: run.isLive, actions: self?.actions, window: self?.window) {
++                    self?.didChangeAgent?()
++                }
++            }
 +            zoneItems.append((run.id, row))
 +            runsColumn.add(row, spacing: 2) { _ in OmniRunRowView.height }
 +        }
@@ -14758,10 +14767,10 @@ index 0000000000000000000000000000000000000000..0a90c7a7246a100da9deecea92a7ede4
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11b063d89b
+index 0000000000000000000000000000000000000000..fe14c3be66118062ed681162b8c92e9d152377aa
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,830 @@
+@@ -0,0 +1,843 @@
 +import AppKit
 +import Foundation
 +
@@ -14951,6 +14960,7 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +        pane.frame = bounds
 +        pane.autoresizingMask = [.width, .height]
 +        addSubview(pane)
++        OmniPointer.install(in: pane)
 +        self.pane = pane
 +        self.route = route
 +        isHidden = false
@@ -15228,6 +15238,7 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +        messageLabel.isHidden = true
 +        for view in contentViews {
 +            view.isHidden = false
++            OmniPointer.install(in: view)
 +        }
 +        layoutPane()
 +    }
@@ -15298,6 +15309,7 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +            addSubview(view)
 +        }
 +        entries.append(Entry(view: view, height: height, spacing: spacing, indent: indent))
++        OmniPointer.install(in: view)
 +    }
 +
 +    func addText(_ field: NSTextField, spacing: CGFloat = 8, indent: CGFloat = 0) {
@@ -15479,7 +15491,7 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +}
 +
 +// A clickable run row: outcome stripe, title and one-line summary.
-+final class OmniRunRowView: NSView, OmniZoneItem {
++final class OmniRunRowView: NSView, OmniZoneItem, OmniContextRow {
 +    private let stripe = NSView()
 +    private let title = NSTextField(labelWithString: "")
 +    private let detail = NSTextField(labelWithString: "")
@@ -15502,6 +15514,16 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +    static let height: CGFloat = 46
 +
 +    override var isFlipped: Bool { true }
++
++    var contextMenu: (() -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        return contextMenu?() ?? super.menu(for: event)
++    }
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +
 +    init(title: String, detail: String, badge badgeText: String, color: NSColor, action: @escaping () -> Void) {
 +        self.action = action
@@ -15590,6 +15612,309 @@ index 0000000000000000000000000000000000000000..65e63caebfcd1e782588a149e1cf4a11
 +        }
 +        NSColor.controlAccentColor.withAlphaComponent(alpha).setFill()
 +        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
++    }
++}
+diff --git a/sources/OmniTerm/OmniContextMenus.swift b/sources/OmniTerm/OmniContextMenus.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..d152aba9b3bc67926d3e762813b5b3e8733cfe0c
+--- /dev/null
++++ b/sources/OmniTerm/OmniContextMenus.swift
+@@ -0,0 +1,297 @@
++import AppKit
++import Foundation
++
++// MARK: - Menu items
++
++// A menu item that runs a closure, so a row's right-click menu is written
++// where the row is built.
++final class OmniMenuItem: NSMenuItem {
++    private let handler: () -> Void
++
++    init(_ title: String, symbol: SFSymbol? = nil, enabled: Bool = true, state: NSControl.StateValue = .off,
++         handler: @escaping () -> Void) {
++        self.handler = handler
++        super.init(title: title, action: #selector(fire(_:)), keyEquivalent: "")
++        target = self
++        isEnabled = enabled
++        self.state = state
++        if let symbol {
++            image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)
++        }
++    }
++
++    required init(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    @objc private func fire(_ sender: Any?) {
++        handler()
++    }
++}
++
++extension NSMenu {
++    @discardableResult
++    func addAction(_ title: String, symbol: SFSymbol? = nil, enabled: Bool = true, state: NSControl.StateValue = .off,
++                   _ handler: @escaping () -> Void) -> NSMenuItem {
++        let item = OmniMenuItem(title, symbol: symbol, enabled: enabled, state: state, handler: handler)
++        autoenablesItems = false
++        addItem(item)
++        return item
++    }
++
++    func addSubmenu(_ title: String, symbol: SFSymbol? = nil, _ build: (NSMenu) -> Void) {
++        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
++        if let symbol {
++            item.image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)
++        }
++        let submenu = NSMenu(title: title)
++        submenu.autoenablesItems = false
++        build(submenu)
++        item.submenu = submenu
++        addItem(item)
++    }
++
++    // Drops a trailing or doubled separator left by optional items.
++    func tidySeparators() {
++        var previousWasSeparator = true
++        for item in items {
++            if item.isSeparatorItem && previousWasSeparator {
++                removeItem(item)
++            } else {
++                previousWasSeparator = item.isSeparatorItem
++            }
++        }
++        if let last = items.last, last.isSeparatorItem {
++            removeItem(last)
++        }
++    }
++}
++
++// MARK: - Pointer cursor
++
++// Everything clickable on OmniTerm's pages shows the pointing hand, never
++// the text cursor. Rows set it in their own cursor rects; plain AppKit
++// controls get a cursor-update tracking area through `install`.
++final class OmniPointer: NSObject {
++    static let shared = OmniPointer()
++
++    private final class Weak {
++        weak var view: NSView?
++        init(_ view: NSView) {
++            self.view = view
++        }
++    }
++
++    // Adds the pointer to `view` and every clickable control inside it.
++    static func install(in view: NSView) {
++        if isClickable(view) {
++            shared.attach(to: view)
++        }
++        // Text views and terminals keep their own cursors.
++        guard !(view is NSTextView), !(view is NSTextField && (view as! NSTextField).isEditable) else { return }
++        for subview in view.subviews {
++            install(in: subview)
++        }
++    }
++
++    private static func isClickable(_ view: NSView) -> Bool {
++        switch view {
++        case is NSButton, is NSSegmentedControl, is NSSlider, is NSColorWell:
++            return true
++        default:
++            return false
++        }
++    }
++
++    private func attach(to view: NSView) {
++        guard !view.trackingAreas.contains(where: { $0.owner === self }) else { return }
++        view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
++                                            owner: self, userInfo: ["view": Weak(view)]))
++    }
++
++    private static func view(_ event: NSEvent) -> NSView? {
++        return (event.trackingArea?.userInfo?["view"] as? Weak)?.view
++    }
++
++    @objc func cursorUpdate(with event: NSEvent) {
++        let enabled = (Self.view(event) as? NSControl)?.isEnabled ?? true
++        (enabled ? NSCursor.pointingHand : NSCursor.arrow).set()
++    }
++
++    @objc func mouseEntered(with event: NSEvent) {
++    }
++
++    @objc func mouseExited(with event: NSEvent) {
++        if NSCursor.current == NSCursor.pointingHand {
++            NSCursor.arrow.set()
++        }
++    }
++}
++
++// A row that opens something: the pointing hand over it, and its own
++// right-click menu.
++protocol OmniContextRow: NSView {
++    var contextMenu: (() -> NSMenu?)? { get set }
++}
++
++// MARK: - Shared actions
++
++// The commands OmniTerm offers wherever an agent, run, session, file or
++// project appears, so every right-click menu says and does the same thing.
++enum OmniContextMenus {
++    static func problem(_ message: String, window: NSWindow?) {
++        iTermWarning.show(withTitle: message, actions: ["OK"], actionMapping: nil, accessory: nil, identifier: nil,
++                          silenceable: .kiTermWarningTypePersistent, heading: "OmniTerm", cancelLabel: "OK", window: window)
++    }
++
++    static func copy(_ text: String) {
++        NSPasteboard.general.clearContents()
++        NSPasteboard.general.setString(text, forType: .string)
++    }
++
++    // An agent: open, run, edit, schedule on or off, delete.
++    static func agent(_ name: String, enabled: Bool?, actions: OmniPaneActions?, window: NSWindow?,
++                      changed: @escaping () -> Void = {}) -> NSMenu {
++        let menu = NSMenu()
++        menu.addAction("Open", symbol: .arrowRightCircle) { actions?.paneOpen(.agent(name)) }
++        menu.addAction("Run Now", symbol: .play) {
++            OmniSchedulerClient.request(["op": "run_agent", "name": name]) { response in
++                guard OmniPane.isOK(response), let runID = response["run_id"] as? String else {
++                    problem(response["error"] as? String ?? "The agent could not be started.", window: window)
++                    return
++                }
++                actions?.paneExpectTab(forRun: runID, showing: .run(runID), from: .agent(name))
++                changed()
++            }
++        }
++        menu.addAction("Edit…", symbol: .pencil) {
++            guard let window else { return }
++            OmniAgentEditorSheet.present(agentName: name, on: window) { _ in changed() }
++        }
++        if let enabled {
++            menu.addAction(enabled ? "Pause Schedule" : "Resume Schedule", symbol: enabled ? .pause : .calendar) {
++                OmniSchedulerClient.request(["op": "set_enabled", "name": name, "enabled": !enabled]) { response in
++                    if !OmniPane.isOK(response) {
++                        problem(response["error"] as? String ?? "The schedule could not be changed.", window: window)
++                    }
++                    changed()
++                }
++            }
++        }
++        menu.addItem(.separator())
++        menu.addAction("Copy Name", symbol: .docOnDoc) { copy(name) }
++        menu.addAction("Delete Agent…", symbol: .trash) {
++            let choice = iTermWarning.show(withTitle: "Delete the agent “\(name)”? Its schedule stops and its file is removed. Run history is kept.",
++                                           actions: ["Delete", "Cancel"], actionMapping: nil, accessory: nil, identifier: nil,
++                                           silenceable: .kiTermWarningTypePersistent, heading: "Delete Agent",
++                                           cancelLabel: "Cancel", window: window)
++            guard choice == .kiTermWarningSelection0 else { return }
++            OmniSchedulerClient.request(["op": "delete_agent", "name": name]) { response in
++                if !OmniPane.isOK(response) {
++                    problem(response["error"] as? String ?? "The agent could not be deleted.", window: window)
++                } else if let window, window.isVisible {
++                    actions?.paneOpen(.overview)
++                }
++                changed()
++            }
++        }
++        return menu
++    }
++
++    // A run: its report, its terminal while live, stop or resume.
++    static func run(_ runID: String, agent: String?, live: Bool, actions: OmniPaneActions?, window: NSWindow?,
++                    changed: @escaping () -> Void = {}) -> NSMenu {
++        let menu = NSMenu()
++        menu.addAction("Open Report", symbol: .docText) { actions?.paneOpen(.run(runID)) }
++        if live {
++            menu.addAction("Show Terminal", symbol: .terminal) {
++                if actions?.paneShowTerminal(forRun: runID) != true {
++                    actions?.paneOpen(.run(runID))
++                }
++            }
++            menu.addAction("Stop Run", symbol: .stopCircle) {
++                OmniSchedulerClient.request(["op": "stop_run", "run_id": runID]) { response in
++                    if !OmniPane.isOK(response) {
++                        problem(response["error"] as? String ?? "The run had already ended.", window: window)
++                    }
++                    changed()
++                }
++            }
++        } else {
++            menu.addAction("Resume", symbol: .arrowClockwise) {
++                OmniSchedulerClient.request(["op": "resume_run", "run_id": runID]) { response in
++                    guard OmniPane.isOK(response), let newID = response["run_id"] as? String else {
++                        problem(response["error"] as? String ?? "The session could not be resumed.", window: window)
++                        return
++                    }
++                    actions?.paneExpectTab(forRun: newID, showing: .run(newID), from: .run(runID))
++                    changed()
++                }
++            }
++        }
++        if let agent {
++            menu.addItem(.separator())
++            menu.addAction("Open Agent “\(agent)”", symbol: .personCropCircle) { actions?.paneOpen(.agent(agent)) }
++        }
++        menu.addItem(.separator())
++        menu.addAction("Copy Run ID", symbol: .docOnDoc) { copy(runID) }
++        return menu
++    }
++
++    // A Claude or Codex session: open, resume or show its terminal, find it in memory.
++    static func session(_ session: [AnyHashable: Any], actions: OmniPaneActions?, window: NSWindow?) -> NSMenu {
++        let menu = NSMenu()
++        let id = session["session_id"] as? String ?? ""
++        let qualified = id
++        menu.addAction("Open", symbol: .arrowRightCircle) { actions?.paneOpen(.session(qualified)) }
++        if !id.isEmpty, actions?.paneHasTab(forSession: id) == true {
++            menu.addAction("Show Terminal", symbol: .terminal) { _ = actions?.paneShowTerminal(forSession: id) }
++        } else {
++            menu.addAction("Resume in a New Tab", symbol: .arrowClockwise, enabled: !OmniSessionText.isLive(session)) {
++                if let problem = actions?.paneResumeSession(session) {
++                    self.problem(problem, window: window)
++                }
++            }
++        }
++        menu.addAction("Search Memory for This Session", symbol: .magnifyingglass) {
++            actions?.paneSearchMemory("session:" + qualified)
++        }
++        if let folder = session["cwd"] as? String ?? session["workspace"] as? String, !folder.isEmpty {
++            menu.addItem(.separator())
++            menu.addAction("Reveal Folder in Finder", symbol: .folder) { reveal(folder) }
++        }
++        menu.addItem(.separator())
++        menu.addAction("Copy Session ID", symbol: .docOnDoc, enabled: !id.isEmpty) { copy(id) }
++        return menu
++    }
++
++    // A file or folder on disk.
++    static func path(_ path: String, open: (() -> Void)?) -> NSMenu {
++        let menu = NSMenu()
++        if let open {
++            menu.addAction("Open", symbol: .arrowRightCircle, open)
++        }
++        menu.addAction("Reveal in Finder", symbol: .folder) { reveal(path) }
++        menu.addAction("Open with Default App", symbol: .arrowUpRightSquare) {
++            NSWorkspace.shared.open(URL(fileURLWithPath: path))
++        }
++        menu.addItem(.separator())
++        menu.addAction("Copy Path", symbol: .docOnDoc) { copy(path) }
++        return menu
++    }
++
++    // A forge project.
++    static func project(_ root: String, actions: OmniPaneActions?) -> NSMenu {
++        let menu = NSMenu()
++        menu.addAction("Open", symbol: .arrowRightCircle) { actions?.paneOpen(.project(root)) }
++        menu.addItem(.separator())
++        menu.addAction("Reveal in Finder", symbol: .folder) { reveal(root) }
++        menu.addAction("Copy Path", symbol: .docOnDoc) { copy(root) }
++        return menu
++    }
++
++    static func reveal(_ path: String) {
++        let expanded = (path as NSString).expandingTildeInPath
++        NSWorkspace.shared.selectFile(expanded, inFileViewerRootedAtPath: "")
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniDockPresence.swift b/sources/OmniTerm/OmniDockPresence.swift
@@ -16155,10 +16480,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b4bb2fefd5627ec8c9088ceb6bc289fc0c7f11f7
+index 0000000000000000000000000000000000000000..2c80c7de59fae729ad31cfd9b0cf599b3bd7f620
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1227 @@
+@@ -0,0 +1,1270 @@
 +import AppKit
 +import Foundation
 +
@@ -16324,7 +16649,25 @@ index 0000000000000000000000000000000000000000..b4bb2fefd5627ec8c9088ceb6bc289fc
 +// The notification list. Right, Return and Tab move into the detail; the
 +// rest of the keys are the table's own.
 +private final class OmniInboxTableView: NSTableView {
++
++    // Rows open what they show: the pointing hand, not the arrow.
++    override func resetCursorRects() {
++        super.resetCursorRects()
++        addCursorRect(visibleRect, cursor: .pointingHand)
++    }
 +    var keyHandler: ((NSEvent) -> Bool)?
++
++    // Right-click selects the clicked row, then asks for its menu.
++    var contextMenu: ((Int) -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        let row = self.row(at: convert(event.locationInWindow, from: nil))
++        guard row >= 0, let contextMenu else { return super.menu(for: event) }
++        if !selectedRowIndexes.contains(row) {
++            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
++        }
++        return contextMenu(row) ?? super.menu(for: event)
++    }
 +
 +    override func keyDown(with event: NSEvent) {
 +        if keyHandler?(event) == true {
@@ -16512,6 +16855,11 @@ index 0000000000000000000000000000000000000000..b4bb2fefd5627ec8c9088ceb6bc289fc
 +        it_fatalError("init(coder:) is not supported")
 +    }
 +
++    override func viewDidAppear() {
++        super.viewDidAppear()
++        OmniPointer.install(in: view)
++    }
++
 +    override func loadView() {
 +        root.frame = NSRect(x: 0, y: 0, width: 1040, height: 680)
 +        view = root
@@ -16694,6 +17042,26 @@ index 0000000000000000000000000000000000000000..b4bb2fefd5627ec8c9088ceb6bc289fc
 +    // first button, Escape or Tab come back. Shift-Command-U marks read or
 +    // unread, Command-O resumes the run, Command-Delete deletes.
 +    private func buildKeyboard() {
++        tableView.contextMenu = { [weak self] row in
++            guard let self, row < self.items.count else { return nil }
++            let item = self.items[row]
++            let menu = NSMenu()
++            menu.addAction(item.unread ? "Mark as Read" : "Mark as Unread", symbol: item.unread ? .envelopeOpen : .envelopeBadge) { [weak self] in
++                self?.setRead(item.unread, for: item)
++            }
++            if item.runID != nil {
++                menu.addAction("Resume Run", symbol: .arrowClockwise) { [weak self] in self?.resumeRun(nil) }
++            }
++            if item.workspace != nil {
++                menu.addAction("Reveal Workspace in Finder", symbol: .folder) { [weak self] in self?.revealWorkspace(nil) }
++            }
++            menu.addItem(.separator())
++            menu.addAction("Copy Text", symbol: .docOnDoc) { OmniContextMenus.copy(item.title + "\n\n" + item.body) }
++            menu.addAction("Mark All as Read", symbol: .checkmarkCircle) { [weak self] in self?.markAllRead(nil) }
++            menu.addItem(.separator())
++            menu.addAction("Delete", symbol: .trash) { [weak self] in self?.deleteItem(nil) }
++            return menu
++        }
 +        tableView.keyHandler = { [weak self] event in
 +            guard let self else { return false }
 +            switch OmniZoneKey(event) {
@@ -20772,10 +21140,10 @@ index 0000000000000000000000000000000000000000..eeaef8f22a3b95268c43a018b7608d4c
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d84584a782375
+index 0000000000000000000000000000000000000000..00fbc31fb8edf3602d94437d7e340f3b0242d7e7
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2404 @@
+@@ -0,0 +1,2459 @@
 +import AppKit
 +import Foundation
 +
@@ -21141,7 +21509,25 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +
 +// A table that offers its keys to a handler first, as the page's zone.
 +final class OmniMemoryTableView: NSTableView {
++
++    // Rows open what they show: the pointing hand, not the arrow.
++    override func resetCursorRects() {
++        super.resetCursorRects()
++        addCursorRect(visibleRect, cursor: .pointingHand)
++    }
 +    var keyHandler: ((NSEvent) -> Bool)?
++
++    // Right-click selects the clicked row, then asks for its menu.
++    var contextMenu: ((Int) -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        let row = self.row(at: convert(event.locationInWindow, from: nil))
++        guard row >= 0, let contextMenu else { return super.menu(for: event) }
++        if !selectedRowIndexes.contains(row) {
++            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
++        }
++        return contextMenu(row) ?? super.menu(for: event)
++    }
 +
 +    override func keyDown(with event: NSEvent) {
 +        if keyHandler?(event) == true {
@@ -21393,6 +21779,11 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +        }
 +    }
 +
++    override func viewDidAppear() {
++        super.viewDidAppear()
++        OmniPointer.install(in: view)
++    }
++
 +    override func loadView() {
 +        view = root
 +        root.addSubview(bar)
@@ -21468,6 +21859,18 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +        sortPopUp.action = #selector(filtersChanged(_:))
 +        configureTable(memoryTable, in: memoryScroll, label: "Memories")
 +        memoryTable.keyHandler = { [weak self] event in self?.listZone.zoneHandleKey(event) ?? false }
++        memoryTable.contextMenu = { [weak self] row in
++            guard let self, row < self.memories.count else { return nil }
++            let memory = self.memories[row]
++            let menu = NSMenu()
++            menu.addAction(memory.pinned ? "Unpin" : "Pin", symbol: .pin) { [weak self] in self?.togglePin(nil) }
++            menu.addAction("Reinforce", symbol: .plusCircle) { [weak self] in self?.reinforce(nil) }
++            menu.addAction("Show in Graph", symbol: .pointTopleftDownCurvedtoPointBottomrightUp) { [weak self] in self?.showInGraph(nil) }
++            if memory.archived {
++                menu.addAction("Restore", symbol: .arrowUturnBackward) { [weak self] in self?.restoreMemory(nil) }
++            }
++            return menu
++        }
 +        configureText(detailText, in: detailScroll)
 +        pinButton.target = self
 +        pinButton.action = #selector(togglePin(_:))
@@ -21518,6 +21921,8 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +        searchStatus.font = OmniTheme.Font.meta
 +        searchStatus.textColor = OmniTheme.secondaryText
 +        let resultMenu = NSMenu(title: "Search result")
++        resultMenu.addItem(withTitle: "Open", action: #selector(searchDoubleClick(_:)), keyEquivalent: "")
++            .target = self
 +        resultMenu.addItem(withTitle: "More like this", action: #selector(moreLikeThis(_:)), keyEquivalent: "")
 +            .target = self
 +        searchTable.menu = resultMenu
@@ -21533,6 +21938,16 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +    private func setUpProcess() {
 +        configureTable(eventsTable, in: eventsScroll, label: "Memory journal")
 +        eventsTable.keyHandler = { [weak self] event in self?.eventsZone.zoneHandleKey(event) ?? false }
++        eventsTable.contextMenu = { [weak self] _ in
++            guard let self, let event = self.selectedEvent else { return nil }
++            let menu = NSMenu()
++            menu.addAction("Open Memory", symbol: .arrowRightCircle, enabled: event["memory_id"] is String) { [weak self] in
++                self?.openEventMemory(nil)
++            }
++            let runID = (event["actor"] as? [String: Any])?["run_id"] as? String
++            menu.addAction("Open Run", symbol: .docText, enabled: runID != nil) { [weak self] in self?.openEventRun(nil) }
++            return menu
++        }
 +        configureText(eventText, in: eventScroll)
 +        openMemoryButton.target = self
 +        openMemoryButton.action = #selector(openEventMemory(_:))
@@ -21546,6 +21961,14 @@ index 0000000000000000000000000000000000000000..8336e714ecfbe6ba80a4147bb90d8458
 +    private func setUpIngest() {
 +        configureTable(ingestTable, in: ingestScroll, label: "Memory ingest runs")
 +        ingestTable.keyHandler = { [weak self] event in self?.ingestZone.zoneHandleKey(event) ?? false }
++        ingestTable.contextMenu = { [weak self] _ in
++            guard let self else { return nil }
++            let menu = NSMenu()
++            menu.addAction("Open Run", symbol: .docText, enabled: self.selectedIngestRun != nil) { [weak self] in self?.openIngestRun(nil) }
++            menu.addAction("Open Agent", symbol: .personCropCircle, enabled: self.ingestAgent != nil) { [weak self] in self?.openIngestAgent(nil) }
++            menu.addAction("Run Now", symbol: .play, enabled: self.ingestAgent != nil) { [weak self] in self?.runIngestNow(nil) }
++            return menu
++        }
 +        ingestTable.doubleAction = #selector(openIngestRun(_:))
 +        ingestTable.target = self
 +        configureText(ingestDetailText, in: ingestDetailScroll)
@@ -23449,10 +23872,10 @@ index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc
 +}
 diff --git a/sources/OmniTerm/OmniPanes.swift b/sources/OmniTerm/OmniPanes.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c65fc0db6
+index 0000000000000000000000000000000000000000..554d9e02d474dbec94336134f672b942de20ad90
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanes.swift
-@@ -0,0 +1,1195 @@
+@@ -0,0 +1,1237 @@
 +import AppKit
 +import Foundation
 +
@@ -23673,6 +24096,7 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                self?.actions?.paneOpen(.project(project.root))
 +            }
 +            projectItems.append((project.root, row))
++            row.contextMenu = { [weak self] in OmniContextMenus.project(project.root, actions: self?.actions) }
 +            projectsColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
 +        }
 +        projectsZone.setItems(projectItems)
@@ -23697,6 +24121,7 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                self?.actions?.paneOpen(.session(sessionID))
 +            }
 +            sessionItems.append((sessionID, row))
++            row.contextMenu = { [weak self] in OmniContextMenus.session(session, actions: self?.actions, window: self?.window) }
 +            sessionsColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
 +        }
 +        sessionsZone.setItems(sessionItems)
@@ -23743,6 +24168,9 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                self?.actions?.paneOpen(.agent(agent.name))
 +            }
 +            upcomingItems.append((agent.name, row))
++            row.contextMenu = { [weak self] in
++                OmniContextMenus.agent(agent.name, enabled: agent.enabled, actions: self?.actions, window: self?.window) { self?.reload() }
++            }
 +            upcomingColumn.add(row, spacing: 2) { _ in OmniRunRowView.height }
 +        }
 +        upcomingZone.setItems(upcomingItems)
@@ -23760,6 +24188,9 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                self?.actions?.paneOpen(.run(run.id))
 +            }
 +            latestItems.append((run.id, row))
++            row.contextMenu = { [weak self] in
++                OmniContextMenus.run(run.id, agent: run.agent, live: run.isLive, actions: self?.actions, window: self?.window) { self?.reload() }
++            }
 +            latestColumn.add(row, spacing: 2) { _ in OmniRunRowView.height }
 +        }
 +        latestZone.setItems(latestItems)
@@ -23996,6 +24427,16 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                                             badge: "", status: nil) { [weak self] in
 +                    self?.actions?.paneOpen(.group(subgroup.path))
 +                }
++                row.contextMenu = { [weak self] in
++                    let menu = NSMenu()
++                    menu.addAction("Open", symbol: .arrowRightCircle) { self?.actions?.paneOpen(.group(subgroup.path)) }
++                    menu.addAction("Rename Folder", symbol: .pencil) { self?.actions?.paneFolder(.rename, path: subgroup.path) }
++                    menu.addAction("New Subfolder", symbol: .folderBadgePlus) { self?.actions?.paneFolder(.newSubfolder, path: subgroup.path) }
++                    menu.addAction("New Agent Here…", symbol: .plus) { self?.actions?.paneFolder(.newAgent, path: subgroup.path) }
++                    menu.addItem(.separator())
++                    menu.addAction("Delete Folder…", symbol: .trash) { self?.actions?.paneFolder(.delete, path: subgroup.path) }
++                    return menu
++                }
 +                rows.append(row)
 +                zoneItems.append(("group:\(subgroup.path)", row))
 +                entriesColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
@@ -24031,6 +24472,16 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +                                         title: name, detail: detail, badge: badge, status: status) { [weak self] in
 +                self?.actions?.paneOpen(.agent(name))
 +            }
++            row.contextMenu = { [weak self] in
++                let menu = OmniContextMenus.agent(name, enabled: agent.enabled, actions: self?.actions, window: self?.window) { self?.reload() }
++                if let run, run.isLive {
++                    menu.insertItem(.separator(), at: 2)
++                    menu.insertItem(OmniMenuItem("Show Terminal", symbol: .terminal) {
++                        _ = self?.actions?.paneShowTerminal(forRun: run.id)
++                    }, at: 2)
++                }
++                return menu
++            }
 +            rows.append(row)
 +            zoneItems.append(("agent:\(name)", row))
 +            entriesColumn.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
@@ -24064,7 +24515,7 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +
 +// A clickable folder or agent row: its icon, name, a detail line, a status
 +// dot after the name and a badge at the trailing edge.
-+final class OmniFolderEntryRow: NSView, OmniZoneItem {
++final class OmniFolderEntryRow: NSView, OmniZoneItem, OmniContextRow {
 +    private let iconView = NSImageView()
 +    private let emojiLabel = NSTextField(labelWithString: "")
 +    private let title = NSTextField(labelWithString: "")
@@ -24089,6 +24540,16 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +    static let height: CGFloat = 46
 +
 +    override var isFlipped: Bool { true }
++
++    var contextMenu: (() -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        return contextMenu?() ?? super.menu(for: event)
++    }
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +
 +    init(icon: OmniAgentIcon, iconColor: NSColor?, title: String, detail: String, badge: String, status: NSColor?,
 +         action: @escaping () -> Void) {
@@ -24617,6 +25078,10 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +}
 +
 +private final class OmniDisclosureHeader: NSView {
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +    private let button: NSButton
 +    private let label: NSTextField
 +
@@ -24650,10 +25115,10 @@ index 0000000000000000000000000000000000000000..7b840da894d0ca618c0b525db1940d1c
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2c0acbf86
+index 0000000000000000000000000000000000000000..7129517235260add9c4651517de4df1463144db9
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1576 @@
+@@ -0,0 +1,1612 @@
 +import AppKit
 +import Foundation
 +
@@ -25122,6 +25587,7 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                         badge: OmniSessionText.age(updated), status: nil) { [weak self] in
 +                self?.actions?.paneOpen(.project(root))
 +            }
++            row.contextMenu = { [weak self] in OmniContextMenus.project(root, actions: self?.actions) }
 +            return (key: root, row: row)
 +        }
 +        if byRoot.isEmpty, forge["available"] as? Bool == true {
@@ -25278,6 +25744,7 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                         badge: worktree["prunable"] as? Bool == true ? "prunable" : "", status: nil) {
 +                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
 +            }
++            row.contextMenu = { OmniContextMenus.path(path, open: nil) }
 +            return (key: path, row: row)
 +        })
 +        let current = git["branch"] as? String
@@ -25289,6 +25756,11 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                         title: name, detail: OmniProjectsModel.branchDetail(branch),
 +                                         badge: OmniSessionText.age(updated),
 +                                         status: name == current ? OmniTheme.running : nil) {}
++            row.contextMenu = {
++                let menu = NSMenu()
++                menu.addAction("Copy Branch Name", symbol: .docOnDoc) { OmniContextMenus.copy(name) }
++                return menu
++            }
 +            return (key: name, row: row)
 +        })
 +        if branches.count >= 40 {
@@ -25309,6 +25781,7 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                         status: live ? OmniTheme.running : nil) { [weak self] in
 +                self?.actions?.paneOpen(.session(sessionID))
 +            }
++            row.contextMenu = { [weak self] in OmniContextMenus.session(session, actions: self?.actions, window: self?.window) }
 +            return (key: sessionID, row: row)
 +        }
 +    }
@@ -25323,6 +25796,13 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                             title: name, detail: (agent["schedule"] as? [String: Any])?["phrase"] as? String ?? "",
 +                                             badge: agent["enabled"] as? Bool == false ? "paused" : "", status: nil) { [weak self] in
 +                    self?.actions?.paneOpen(.agent(name))
++                }
++                let enabled = agent["enabled"] as? Bool
++                row.contextMenu = { [weak self] in
++                    OmniContextMenus.agent(name, enabled: enabled, actions: self?.actions, window: self?.window) {
++                        self?.agents = nil
++                        self?.loadTabData()
++                    }
 +                }
 +                return (key: name, row: row)
 +            }
@@ -25392,10 +25872,20 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                                                         age: OmniSessionText.age(modified), separator: true) { [weak self] in
 +                self?.open(file: path)
 +            }))
++            fileMenu(rows.last?.row, path: path) { [weak self] in self?.open(file: path) }
 +        }
 +        explorer(crumbs: crumbs, trailing: "\(knowledge.count) files", key: "knowledge", previous: previous, rows: rows) { [weak self] path in
 +            self?.openKnowledgeFolder(path)
 +        }
++    }
++
++    // A file row's menu: open it here, or in the Finder or its app. Paths
++    // are relative to the main checkout.
++    private func fileMenu(_ row: OmniZoneItem?, path: String, open: (() -> Void)?) {
++        guard let row = row as? OmniContextRow else { return }
++        let base = project?["main"] as? String ?? project?["root"] as? String ?? ""
++        let absolute = (base as NSString).appendingPathComponent(path)
++        row.contextMenu = { OmniContextMenus.path(absolute, open: open) }
 +    }
 +
 +    private func openKnowledgeFolder(_ path: String) {
@@ -25516,6 +26006,7 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +                    self?.open(file: path)
 +                }
 +            }
++            fileMenu(row, path: path, open: secret ? nil : { [weak row] in row?.activate() })
 +            rows.append((key: path, row: row))
 +        }
 +        let count = entries.count
@@ -26070,7 +26561,7 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +
 +// One line of a folder listing: icon, name, a muted middle column and the
 +// age at the trailing edge, with a hairline under it.
-+final class OmniExplorerRow: NSView, OmniZoneItem {
++final class OmniExplorerRow: NSView, OmniZoneItem, OmniContextRow {
 +    static let height: CGFloat = 36
 +    private let iconView = NSImageView()
 +    private let name = NSTextField(labelWithString: "")
@@ -26093,6 +26584,16 @@ index 0000000000000000000000000000000000000000..daac73225fdae2c7e751ad4a0bfc6bd2
 +    }
 +
 +    override var isFlipped: Bool { true }
++
++    var contextMenu: (() -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        return contextMenu?() ?? super.menu(for: event)
++    }
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +
 +    init(symbol: SFSymbol, iconColor: NSColor?, name: String, detail: String, age: String, separator: Bool,
 +         action: @escaping () -> Void) {
@@ -31011,10 +31512,10 @@ index 0000000000000000000000000000000000000000..d1f7fc4f6183352d5dcf46a9bf688b66
 +@end
 diff --git a/sources/OmniTerm/OmniSearch.swift b/sources/OmniTerm/OmniSearch.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..07d0b57809c3eba64c8da793ec2ec87dc4bef70f
+index 0000000000000000000000000000000000000000..441acf361a5a306b82ddac8f6a61ad243989f373
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSearch.swift
-@@ -0,0 +1,605 @@
+@@ -0,0 +1,615 @@
 +import AppKit
 +import Foundation
 +
@@ -31307,6 +31808,12 @@ index 0000000000000000000000000000000000000000..07d0b57809c3eba64c8da793ec2ec87d
 +                                                     detail: hit.detail, badge: "", status: nil) { [weak self] in
 +                            self?.actions?.paneOpenSearchHit(hit)
 +                        }
++                        row.contextMenu = { [weak self] in
++                            let menu = NSMenu()
++                            menu.addAction("Open", symbol: .arrowRightCircle) { self?.actions?.paneOpenSearchHit(hit) }
++                            menu.addAction("Copy Title", symbol: .docOnDoc) { OmniContextMenus.copy(hit.title) }
++                            return menu
++                        }
 +                        items.append((hit.key, row))
 +                        list.add(row, spacing: 2) { _ in OmniFolderEntryRow.height }
 +                    }
@@ -31557,6 +32064,10 @@ index 0000000000000000000000000000000000000000..07d0b57809c3eba64c8da793ec2ec87d
 +
 +private final class OmniQuickNavRow: NSView {
 +    var onClick: (() -> Void)?
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +    var isSelected = false {
 +        didSet { needsDisplay = true }
 +    }
@@ -35329,10 +35840,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e737f7adcc
+index 0000000000000000000000000000000000000000..ebef2ac1894e843276e1571ffeb5bc751c8c5ca4
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,4914 @@
+@@ -0,0 +1,4980 @@
 +import AppKit
 +import Foundation
 +import os
@@ -35742,6 +36253,11 @@ index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e7
 +
 +    required init?(coder: NSCoder) {
 +        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func viewDidAppear() {
++        super.viewDidAppear()
++        OmniPointer.install(in: view)
 +    }
 +
 +    override func loadView() {
@@ -38833,6 +39349,62 @@ index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e7
 +            menuItem.target = self
 +            menuItem.representedObject = object
 +        }
++        // The shared commands for what the row shows, ahead of the
++        // sidebar's own (rename, pin, move, appearance).
++        func merge(_ other: NSMenu) {
++            for item in other.items {
++                other.removeItem(item)
++                menu.addItem(item)
++            }
++            menu.addItem(.separator())
++        }
++        let window = view.window
++        switch row.kind {
++        case .agent:
++            let name = row.title
++            let agent = agents.first { $0["name"] as? String == name }
++            let shared = OmniContextMenus.agent(name, enabled: (agent?["enabled"] as? NSNumber)?.boolValue, actions: self,
++                                                window: window) { [weak self] in self?.requestSchedulerState() }
++            if let live = recentRuns.first(where: { $0.agent == name && $0.isLive }) {
++                shared.insertItem(OmniMenuItem("Show Terminal", symbol: .terminal) { [weak self] in
++                    _ = self?.paneShowTerminal(forRun: live.id)
++                }, at: 2)
++                shared.insertItem(OmniMenuItem("Stop Run", symbol: .stopCircle) {
++                    OmniSchedulerClient.request(["op": "stop_run", "run_id": live.id]) { _ in }
++                }, at: 3)
++            }
++            merge(shared)
++        case .session:
++            if case .session(let id) = row.route {
++                let session = sessions.first { $0["session_id"] as? String == id } ?? ["session_id": id]
++                merge(OmniContextMenus.session(session, actions: self, window: window))
++            }
++        case .run, .recentRun:
++            if case .run(let id) = row.route {
++                let run = recentRuns.first { $0.id == id }
++                merge(OmniContextMenus.run(id, agent: run?.agent, live: row.kind == .run || run?.isLive == true,
++                                           actions: self, window: window) { [weak self] in self?.requestSchedulerState() })
++            }
++        case .terminal:
++            if let tab = row.tab {
++                menu.addAction("Show Terminal", symbol: .terminal) { [weak self] in
++                    if let item = tab.tabViewItem {
++                        self?.selectTab(item)
++                    }
++                }
++                menu.addItem(.separator())
++                menu.addAction("Close Tab", symbol: .xmark) { [weak self] in
++                    _ = self?.terminal?.closeTabIfConfirmed(tab)
++                }
++            }
++        case .project:
++            if case .project(let root) = row.route {
++                menu.addAction("Open", symbol: .arrowRightCircle) { [weak self] in self?.paneOpen(.project(root)) }
++                menu.addItem(.separator())
++            }
++        default:
++            break
++        }
 +        switch row.kind {
 +        case .session:
 +            add("Rename…", #selector(renameSession(_:)), row)
@@ -38952,6 +39524,7 @@ index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e7
 +        default:
 +            break
 +        }
++        menu.tidySeparators()
 +    }
 +
 +    // MARK: - Drag and drop
@@ -39955,6 +40528,10 @@ index 0000000000000000000000000000000000000000..34b209f1e732a1955868e20a9262c6e7
 +// selection, on every row a person can select.
 +private final class OmniSidebarRowView: NSTableRowView {
 +    private var hoverArea: NSTrackingArea?
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +    var isHovered = false {
 +        didSet {
 +            if isHovered != oldValue {
@@ -40913,10 +41490,10 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +}
 diff --git a/sources/OmniTerm/OmniTickets.swift b/sources/OmniTerm/OmniTickets.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6d1fe822c
+index 0000000000000000000000000000000000000000..a728f25ff229d3f55ae7a0cc310f928ce8fe5f86
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTickets.swift
-@@ -0,0 +1,1230 @@
+@@ -0,0 +1,1285 @@
 +import AppKit
 +import CryptoKit
 +import Foundation
@@ -41350,8 +41927,53 @@ index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6
 +            zone?.select(ticket.id)
 +            self.open(ticket.id)
 +        }
++        row.contextMenu = { [weak self, weak zone] in
++            zone?.select(ticket.id)
++            self?.selectedID = ticket.id
++            return self?.contextMenu(for: ticket.id)
++        }
 +        rows[ticket.id] = row
 +        return row
++    }
++
++    // Right-click on a ticket: the same commands as its keys.
++    private func contextMenu(for id: String) -> NSMenu? {
++        guard let ticket = ticket(id) else { return nil }
++        let menu = NSMenu()
++        menu.addAction("Open", symbol: .arrowRightCircle) { [weak self] in self?.open(id) }
++        menu.addSubmenu("Status", symbol: ticket.status.symbol) { submenu in
++            for status in OmniTicketStatus.allCases {
++                submenu.addAction(status.label, state: ticket.status == status ? .on : .off) { [weak self] in
++                    self?.change(id) { $0.status = status }
++                }.image = Self.image(status.symbol, color: status.color)
++            }
++        }
++        menu.addSubmenu("Priority", symbol: ticket.priority.symbol) { submenu in
++            for priority in OmniTicketPriority.allCases {
++                submenu.addAction(priority.label, state: ticket.priority == priority ? .on : .off) { [weak self] in
++                    self?.change(id) { $0.priority = priority }
++                }.image = Self.image(priority.symbol, color: priority.color)
++            }
++        }
++        menu.addItem(.separator())
++        menu.addAction("Copy Title", symbol: .docOnDoc) { OmniContextMenus.copy(ticket.title) }
++        menu.addAction("Copy as Markdown", symbol: .docOnDoc) {
++            OmniContextMenus.copy("# \(ticket.title)\n\n\(ticket.content)")
++        }
++        menu.addItem(.separator())
++        menu.addAction("Delete Ticket…", symbol: .trash) { [weak self] in
++            guard let self, self.delete(id) else { return }
++            self.focusSelection()
++            self.requestRebuild()
++        }
++        return menu
++    }
++
++    private func change(_ id: String, _ body: (inout OmniTicket) -> Void) {
++        update(id, body)
++        save()
++        focusSelection()
++        requestRebuild()
 +    }
 +
 +    private func symbol(forGroup key: String) -> SFSymbol {
@@ -41930,7 +42552,7 @@ index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6
 +}
 +
 +// One ticket: a row in the list, or a card on the board.
-+final class OmniTicketRow: NSView, OmniZoneItem {
++final class OmniTicketRow: NSView, OmniZoneItem, OmniContextRow {
 +    static let listHeight: CGFloat = 34
 +    static let cardHeight: CGFloat = 62
 +    private let ticket: OmniTicket
@@ -41953,6 +42575,16 @@ index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6
 +    }
 +
 +    override var isFlipped: Bool { true }
++
++    var contextMenu: (() -> NSMenu?)?
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        return contextMenu?() ?? super.menu(for: event)
++    }
++
++    override func resetCursorRects() {
++        addCursorRect(bounds, cursor: .pointingHand)
++    }
 +
 +    init(ticket: OmniTicket, fields: [OmniTicketField], card: Bool, action: @escaping () -> Void) {
 +        self.ticket = ticket
@@ -42149,10 +42781,10 @@ index 0000000000000000000000000000000000000000..4afc4cec46ca65bdd8758f2fb542c6c6
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..72e5ac216ebb6328bfdf42b89a0a35695f19ad10
+index 0000000000000000000000000000000000000000..b66e5c07214687fa79cca1503f7a719bc3bf4df5
 --- /dev/null
 +++ b/sources/OmniTerm/OmniUnblockerPane.swift
-@@ -0,0 +1,529 @@
+@@ -0,0 +1,535 @@
 +import AppKit
 +import Foundation
 +
@@ -42427,6 +43059,12 @@ index 0000000000000000000000000000000000000000..72e5ac216ebb6328bfdf42b89a0a3569
 +                self?.showAuditEntry(entry)
 +            }
 +            row.toolTip = OmniUnblockerModel.detail(for: entry)
++            row.contextMenu = { [weak self] in
++                let menu = NSMenu()
++                menu.addAction("Open Decision", symbol: .arrowRightCircle) { self?.showAuditEntry(entry) }
++                menu.addAction("Copy Details", symbol: .docOnDoc) { OmniContextMenus.copy(OmniUnblockerModel.detail(for: entry)) }
++                return menu
++            }
 +            return (key: "audit-\(index)", row: row)
 +        }
 +        if rows.isEmpty {

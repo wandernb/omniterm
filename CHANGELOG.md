@@ -9,6 +9,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Right-click works across OmniTerm. Agents offer Open, Run Now, Edit, Pause or Resume Schedule, Show Terminal, Stop and Delete. Runs offer their report, terminal, Stop or Resume. Sessions offer Open, Resume or Show Terminal, Search Memory and Copy ID. Tickets offer Open, Status, Priority, Copy and Delete. Files, projects, worktrees and branches offer Reveal in Finder, Open with Default App and Copy Path. Inbox items offer Mark Read or Unread, Resume, Reveal and Delete. Memories offer Pin, Reinforce, Show in Graph and Restore, and folders, search results and Unblocker decisions have menus too. Everything clickable now shows the pointing-hand cursor.
 - Projects have a Tickets tab: a backlog and board of tickets with a title, live Markdown content, a status (open, in progress, done, discarded) and a priority (urgent, short-term, middle-term, long-term). Show them as a list or a board, grouped by status or priority, filter by status or priority, pick the board’s columns and the row properties under Display, and work from the keyboard with Linear-style keys (C new, S status, P priority, ⌘B list or board, G group, F filter, ⇧←→ move a card).
 
 ### Fixed
