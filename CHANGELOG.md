@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-27
+
 ### Added
 
 - A built-in code graph. OmniTerm now maps the source files of every project it knows (forge's projects and the git repositories under `~/Projects`) into modules, classes and functions, with their imports, calls, inheritance and type references, and keeps that map current in the background. Agents ask it through the `code_graph` MCP tool, and you can ask it with `omni graph`: where something is defined, who calls or imports it, what a change affects, how two parts connect, which memories mention it, and a report of hubs, clusters and import cycles. Python is parsed exactly. Ruby, JavaScript/TypeScript, Swift, Objective-C, Go and Rust are matched by pattern, and those guessed links are marked `inferred`. Only names, paths and line numbers are stored, locally. Env files, secrets and privacy-guarded folders are never read.
@@ -1000,7 +1002,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/wandernb/omniterm/compare/v0.8.3...v0.9.0
 [0.8.3]: https://github.com/wandernb/omniterm/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wandernb/omniterm/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/wandernb/omniterm/compare/v0.8.0...v0.8.1
