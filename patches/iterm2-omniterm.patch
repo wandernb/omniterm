@@ -21871,10 +21871,10 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..131117b807f7caa01a7d87fc458b5c761e9ccf7e
+index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81ecd644d3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2513 @@
+@@ -0,0 +1,2519 @@
 +import AppKit
 +import Foundation
 +
@@ -22942,13 +22942,19 @@ index 0000000000000000000000000000000000000000..131117b807f7caa01a7d87fc458b5c76
 +        // Link switches fill the first row up to the search field's room; the rest follow the filters.
 +        let firstRowEnd = fitButton.frame.minX - 96
 +        var overflowX = filterX + 6
++        var overflowY = rowY + 32
 +        for (_, button) in edgeToggles {
 +            button.sizeToFit()
 +            if x + button.frame.width <= firstRowEnd {
 +                button.frame.origin = NSPoint(x: x, y: rowY + 2)
 +                x = button.frame.maxX + 8
 +            } else {
-+                button.frame.origin = NSPoint(x: overflowX, y: rowY + 32)
++                if overflowX + button.frame.width > width - 12 {
++                    // No room beside the filters either: a row of its own.
++                    overflowX = 12
++                    overflowY += 28
++                }
++                button.frame.origin = NSPoint(x: overflowX, y: overflowY)
 +                overflowX = button.frame.maxX + 8
 +                x = .greatestFiniteMagnitude  // keep the order: once one wraps, the rest do
 +            }
@@ -22957,7 +22963,7 @@ index 0000000000000000000000000000000000000000..131117b807f7caa01a7d87fc458b5c76
 +            .map(\.button.frame.maxX).max() ?? graphModeControl.frame.maxX : x
 +        graphSearch.frame = NSRect(x: max(searchStart + 6, fitButton.frame.minX - 190), y: rowY,
 +                                   width: min(180, max(80, fitButton.frame.minX - searchStart - 16)), height: controlHeight)
-+        let canvasTop: CGFloat = 72
++        let canvasTop: CGFloat = 72 + (overflowY - (rowY + 32))
 +        canvas.frame = NSRect(x: 0, y: canvasTop, width: width, height: max(0, height - canvasTop - 24))
 +        graphBackButton.sizeToFit()
 +        graphOverviewButton.sizeToFit()
