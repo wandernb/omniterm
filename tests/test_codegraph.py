@@ -125,6 +125,15 @@ class CodeGraphTests(unittest.TestCase):
         self.assertEqual(callers("parse_all"), [("run", "inferred")])
         self.assertEqual(callers("core/src/parse.rs", "importers"), [("core/src/lib.rs", "extracted")])
 
+    def test_secrets_and_keys_are_never_read(self):
+        for relative in ("deploy/id_ed25519", "config/secrets/tokens.py", ".env.py",
+                         "ops/credentials.py"):
+            self.write(relative, "#!/usr/bin/env python3\ndef leaked():\n    pass\n")
+        self.write("app.py", "def kept():\n    pass\n")
+        self.tick()
+        self.assertEqual(self.graph(mode="query", name="leaked")["results"], [])
+        self.assertEqual([r["path"] for r in self.graph(mode="query", name="kept")["results"]], ["app.py"])
+
 
 if __name__ == "__main__":
     unittest.main()

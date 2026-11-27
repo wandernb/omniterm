@@ -24,6 +24,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -34,7 +35,8 @@ FILES_PER_TICK = 200
 TICK_SECONDS = 0.3
 BYTES_PER_TICK = 2 * 1024 * 1024
 QUERY_REFRESH_SECONDS = 1.5
-QUERY_RELIST_SECONDS = 2.0  # a query about a project relists it when its list is older than this
+QUERY_RELIST_SECONDS = 2.0
+QUERY_LIST_WAIT = 1.0  # how long a query waits for its project's listing before answering from the index  # a query about a project relists it when its list is older than this
 MAX_FILE_BYTES = 512 * 1024
 MAX_PROJECT_FILES = 20000
 DISCOVERY_SECONDS = 600.0
@@ -51,8 +53,9 @@ SKIPPED_NAMES = frozenset((
     "dist", "build", "tmp", "log", "logs", "coverage", "__pycache__", ".next", ".cache", "public",
     "storage", "archives", "Library", "Pods", "DerivedData", "target", "site-packages", "bower_components",
 ))
-SENSITIVE = re.compile(r"(^|/)(\.env[^/]*|secrets?\.ya?ml|credentials[^/]*|master\.key|[^/]*\.(pem|key|p12|keystore))$"
-                       r"|(^|/)config/secrets/", re.IGNORECASE)
+SENSITIVE = re.compile(r"(^|/)(\.env[^/]*|secrets?\.ya?ml|credentials[^/]*|master\.key|id_(rsa|dsa|ecdsa|ed25519)[^/]*|"
+                       r"known_hosts|authorized_keys|[^/]*\.(pem|key|p12|p8|pfx|jks|keystore|keychain|asc|gpg))$"
+                       r"|(^|/)(config/secrets|\.ssh|\.gnupg)/", re.IGNORECASE)
 MODES = ("query", "explain", "neighbors", "path", "affected", "stats", "overview")
 CONFIDENCE_RANK = {"extracted": 0, "inferred": 1}
 # A bare-name match to one of these is far more often a built-in container or I/O method than the
@@ -789,6 +792,7 @@ class CodeGraph:
         self.clock = clock
         self._active = active  # callable -> workspaces with a recent session
         self._queue = deque()
+        self._listing = None  # a project being listed on a background thread
         self._discovered_at = None
         self._hot = set()
         self._errors = deque(maxlen=10)
@@ -901,14 +905,12 @@ class CodeGraph:
                 best = row["project"]
         return best
 
-    def relist(self, project, now=None):
-        """Compare the project's files with what is indexed; queue the differences. Returns the count queued."""
-        now = self.clock() if now is None else now
-        row = self.db.execute("SELECT root FROM projects WHERE project=?", (project,)).fetchone()
-        if row is None:
-            return 0
-        checkout = Path(row["root"])
-        stamp = self._stamp(checkout)
+    @staticmethod
+    def scan_files(checkout):
+        """The project's source files as {path: (language, mtime, size)}, with its stamp. No database work, so
+        it runs off the worker's thread: listing a large repository takes most of a second."""
+        checkout = Path(checkout)
+        stamp = CodeGraph._stamp(checkout)
         try:
             paths, by_git = list_files(checkout) if checkout.is_dir() else ([], False)
             error = None if checkout.is_dir() else "folder missing"
@@ -933,6 +935,55 @@ class CodeGraph:
             current[relative] = (language, attributes.st_mtime_ns, attributes.st_size)
             if len(current) >= MAX_PROJECT_FILES:
                 break
+        return {"current": current, "stamp": stamp, "git": by_git, "error": error}
+
+    def _start_listing(self, project):
+        """List a project on a background thread; the tick or a query applies the result."""
+        if self._listing is not None:
+            return self._listing["project"] == project
+        row = self.db.execute("SELECT root FROM projects WHERE project=?", (project,)).fetchone()
+        if row is None:
+            return False
+        listing = {"project": project, "result": None, "started": self.clock()}
+
+        def run(root=row["root"]):
+            try:
+                listing["result"] = self.scan_files(root)
+            except Exception as exc:  # noqa: BLE001 - reported on the project, never raised into the worker
+                listing["result"] = {"current": {}, "stamp": None, "git": False, "error": str(exc)[:200]}
+        listing["thread"] = threading.Thread(target=run, name="omni-codegraph-list", daemon=True)
+        self._listing = listing
+        listing["thread"].start()
+        return True
+
+    def _finish_listing(self, wait=0.0):
+        """Apply a finished listing; returns the project it was for, or None while it runs."""
+        listing = self._listing
+        if listing is None:
+            return None
+        listing["thread"].join(wait)
+        if listing["thread"].is_alive():
+            return None
+        self._listing = None
+        result = listing["result"]
+        if result["stamp"] is None and result["error"] and not result["current"]:
+            # A listing that failed outright keeps what was indexed and retries on the cold interval.
+            with self.db:
+                self.db.execute("UPDATE projects SET listed_at=?, error=? WHERE project=?",
+                                (listing["started"], result["error"], listing["project"]))
+            return listing["project"]
+        self._apply(listing["project"], result, listing["started"])
+        return listing["project"]
+
+    def relist(self, project, now=None):
+        """List a project now, on this thread, and queue the differences. Returns the count queued."""
+        row = self.db.execute("SELECT root FROM projects WHERE project=?", (project,)).fetchone()
+        if row is None:
+            return 0
+        return self._apply(project, self.scan_files(row["root"]), self.clock() if now is None else now)
+
+    def _apply(self, project, result, now):
+        current = result["current"]
         known = {item["path"]: item for item in self.db.execute(
             "SELECT path, mtime, size FROM files WHERE project=?", (project,))}
         queued = {(item[0], item[1]) for item in self._queue}
@@ -948,8 +999,8 @@ class CodeGraph:
                 added += 1
         with self.db:
             self.db.execute("UPDATE projects SET listed_at=?, stamp=?, files=?, truncated=?, git=?, error=? WHERE project=?",
-                            (now, stamp, len(current), int(len(current) >= MAX_PROJECT_FILES), int(by_git), error,
-                             project))
+                            (now, result["stamp"], len(current), int(len(current) >= MAX_PROJECT_FILES),
+                             int(result["git"]), result["error"], project))
         return added
 
     def _index(self, project, relative, language):
@@ -1027,18 +1078,19 @@ class CodeGraph:
         started = time.monotonic()
         if self._discovered_at is None or now - self._discovered_at >= DISCOVERY_SECONDS:
             self._discover(now)
-        listed = None
-        if not self._queue:
-            listed = self._due(now)
-            if listed is not None:
-                self.relist(listed, now)
+        listed = self._finish_listing()
+        if listed is None and self._listing is None and not self._queue:
+            due = self._due(now)
+            if due is not None:
+                self._start_listing(due)
         remaining = max(0.0, seconds - (time.monotonic() - started))
         processed, consumed = self._drain(max_files, byte_budget, remaining)
         self._stats["last_tick"] = now
-        return {"processed": processed, "bytes": consumed, "pending": len(self._queue), "listed": listed}
+        return {"processed": processed, "bytes": consumed, "pending": len(self._queue), "listed": listed,
+                "listing": self._listing["project"] if self._listing else None}
 
     def pending(self):
-        return self._discovered_at is None or bool(self._queue)
+        return self._discovered_at is None or bool(self._queue) or self._listing is not None
 
     def status(self):
         totals = self.db.execute("SELECT COUNT(*) AS projects, COALESCE(SUM(files), 0) AS files, "
@@ -1080,9 +1132,15 @@ class CodeGraph:
             return
         self._hot.add(project)
         now = self.clock()
+        started = time.monotonic()
         if row["listed_at"] is None or now - row["listed_at"] >= QUERY_RELIST_SECONDS:
-            self.relist(project, now)
-        self._drain(FILES_PER_TICK, BYTES_PER_TICK * 4, QUERY_REFRESH_SECONDS, project=project)
+            if self._listing is not None and self._listing["project"] != project:
+                self._finish_listing(wait=QUERY_LIST_WAIT)  # another project's list: apply it if it is done
+            if self._listing is None or self._listing["project"] == project:
+                self._start_listing(project)
+                self._finish_listing(wait=QUERY_LIST_WAIT)
+        remaining = max(0.0, QUERY_REFRESH_SECONDS - (time.monotonic() - started))
+        self._drain(FILES_PER_TICK, BYTES_PER_TICK * 4, remaining, project=project)
 
     @staticmethod
     def _node(row):

@@ -247,8 +247,10 @@ down; only `@head` where worktrees sit side by side). The knowledge worker keeps
 it current on its own, a bounded step per memory tick: it relists a project's
 files (with `git ls-files`, so `.gitignore` holds) every 30 seconds while a
 session there was active in the last six hours, every 30 minutes otherwise, and
-at once after a commit, checkout or staging. A query about a project first
-brings that project up to date, within a second and a half; an answer given
+at once after a commit, checkout or staging. Listing runs on a background
+thread, so a tick never waits for it. A query about a project first brings that
+project up to date, waiting at most a second for its list and a second and a half
+in all; an answer given
 while files are still queued carries `indexing` (`pending_files`, `partial`).
 
 Python is parsed with `ast`. Ruby, JavaScript/TypeScript, Swift, Objective-C,
