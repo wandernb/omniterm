@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- The Omni Unblocker reaches every waiting goal session again. A few old sessions it had already checked used up every pass, so newer ones were never looked at. Waiting-session lists now keep the newest when they are trimmed.
+
 ## [0.10.0] - 2026-11-27
 
 ### Added

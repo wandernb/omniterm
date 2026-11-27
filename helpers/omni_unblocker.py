@@ -117,6 +117,7 @@ MAX_TURNS = 8
 MAX_ATTEMPTS = 3      # per block, so a block the model keeps failing on stops costing calls
 BACKOFF_SECONDS = 120  # after a provider that cannot be reached or a call that hung
 BLOCKS_PER_PASS = 6
+LIST_LIMIT = 200  # every waiting session, so ones already screened never hide newer ones
 LEGACY_AGENT = "Omni Unblocker"
 LEGACY_MANAGED_ID = "session_unblocker:v1"
 FALLBACK_PATH = ("~/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin")
@@ -397,11 +398,22 @@ def run_pass(request, home=None, environ=None, run=subprocess.run, clock=time.ti
     workspace.mkdir(parents=True, exist_ok=True)
     # The login shell PATH costs a process; it is read only once a model is called.
     env, done, dead = None, set(), set()
+
+    def unchanged(block):
+        # Already screened clear and its last message has not changed since: it
+        # must not take one of the pass's slots, or a few old quiet sessions
+        # starve every newer one.
+        if keyword_verdict(block)[0] == "blocked":
+            return False
+        key = hashlib.sha256((block.get("prompt") or "").encode()).hexdigest()[:16]
+        return screened.get(block.get("block_id"), {}).get("key") == key
+
     for _ in range(BLOCKS_PER_PASS):
         # Listed afresh each time, so a dialog held meanwhile goes next.
         listing = request({"op": "list_blocked", "answerable_only": True, "min_age_seconds": min_age,
-                           "limit": BLOCKS_PER_PASS * 2}) or {}
-        blocks = [block for block in listing.get("blocks") or [] if block.get("block_id") not in done]
+                           "limit": LIST_LIMIT}) or {}
+        blocks = [block for block in listing.get("blocks") or []
+                  if block.get("block_id") not in done and not unchanged(block)]
         if not blocks:
             break
         blocks.sort(key=lambda block: (not block.get("held"), block.get("created") or 0))

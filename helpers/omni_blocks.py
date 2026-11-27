@@ -769,7 +769,8 @@ class BlockStore:
         if arguments.get("answerable_only") is True:
             blocks = [block for block in blocks if block["answerable"]]
         blocks.sort(key=lambda block: block.get("created") or 0)
-        return {"blocks": blocks[:limit]}
+        # Over the limit, the newest are kept: old waits must not hide new ones.
+        return {"blocks": blocks[-limit:]}
 
     def find(self, block_id):
         if not isinstance(block_id, str) or not BLOCK_ID.fullmatch(block_id):

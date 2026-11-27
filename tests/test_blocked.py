@@ -805,6 +805,12 @@ class ListenerPassTests(unittest.TestCase):
         calls, audits = self.pass_with([self.block(prompt)], {"codex/gpt-6-luna": limited})
         self.assertIn("codex/gpt-6-luna hit its usage limit (ERROR: You've hit your usage limit", audits[0]["screen"])
 
+    def test_old_quiet_sessions_do_not_starve_a_newer_one(self):
+        quiet = [self.block("Built and tested. Pushed to master.", created=i) for i in range(UNBLOCKER.BLOCKS_PER_PASS + 1)]
+        asking = self.block("Release ready. Do you want me to push it?", created=100)
+        calls, _ = self.pass_with(quiet + [asking])
+        self.assertEqual(calls, ["decide"])
+
     def test_cheap_calls_name_an_explicit_model(self):
         block = self.block("x")
         for provider, model in UNBLOCKER.CHEAP_MODELS:
