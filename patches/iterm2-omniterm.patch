@@ -1772,10 +1772,10 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..f6f788305f33fdb608e726b7e5d72070ac4a1919
+index 0000000000000000000000000000000000000000..a2b84aea09704aa8c3b3b27be6e368e258acdf80
 --- /dev/null
 +++ b/ModernTests/OmniMemoryTests.swift
-@@ -0,0 +1,1053 @@
+@@ -0,0 +1,1074 @@
 +//
 +//  OmniMemoryTests.swift
 +//  ModernTests
@@ -2094,6 +2094,23 @@ index 0000000000000000000000000000000000000000..f6f788305f33fdb608e726b7e5d72070
 +        toggle.state = .off
 +        toggle.sendAction(toggle.action, to: toggle.target)
 +        wait("the graph reloads without code files") { lastGraph()?["include_code"] == nil }
++
++        // In a narrow window every switch stays on screen and clear of Fit.
++        for width in [1100.0, 760.0, 560.0] {
++            window?.setContentSize(NSSize(width: width, height: 700))
++            pane.frame = window?.contentView?.bounds ?? .zero
++            pane.layoutSubtreeIfNeeded()
++            memory.view.layoutSubtreeIfNeeded()
++            let switches = Self.all(NSButton.self, in: pane).filter {
++                ["Sessions", "Tags", "Lineage", "Similar", "Workspaces", "Concepts", "Code"].contains($0.title)
++            }
++            let fit = try XCTUnwrap(Self.find(NSButton.self, in: pane) { $0.title == "Fit" })
++            XCTAssertEqual(switches.count, 7)
++            for button in switches {
++                XCTAssertLessThanOrEqual(button.frame.maxX, button.superview!.bounds.width, "\(button.title) fits at \(width)")
++                XCTAssertFalse(button.frame.intersects(fit.frame), "\(button.title) clears Fit at \(width)")
++            }
++        }
 +
 +        let box = NSRect(x: 0, y: 0, width: 20, height: 20)
 +        XCTAssertFalse(OmniMemoryGraphView.shape(for: "code", in: box).contains(NSPoint(x: 19, y: 1)),
@@ -2672,6 +2689,10 @@ index 0000000000000000000000000000000000000000..f6f788305f33fdb608e726b7e5d72070
 +        let decoded = OmniMindMapNode(["id": "tag:x", "kind": "tag", "label": "x", "children_count": 2,
 +                                       "children": [["id": "a", "label": "A"], ["id": "b", "label": "B"]]])
 +        XCTAssertEqual(decoded?.node.childrenCount, 2)
++    }
++
++    private static func all<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
++        return ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { all(type, in: $0) }
 +    }
 +
 +    private static func find<T: NSView>(_ type: T.Type, in view: NSView, where test: (T) -> Bool = { _ in true }) -> T? {
@@ -7343,10 +7364,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0bcb60c6db67e092c454ad0acd51ab8a70141288
+index 0000000000000000000000000000000000000000..204da23014ce295976de0e21b52c61de09dd4201
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2131 @@
+@@ -0,0 +1,2238 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8609,10 +8630,10 @@ index 0000000000000000000000000000000000000000..0bcb60c6db67e092c454ad0acd51ab8a
 +        XCTAssertEqual(icon.contentTintColor, OmniAgentColor.color("orange"), "The project's colour")
 +        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))
 +        let buttons = tabs.subviews.compactMap { $0 as? NSButton }
-+        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Files", "Tickets", "Settings"])
++        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Code", "Files", "Tickets", "Settings"])
 +        XCTAssertNotNil(Self.find(OmniExplorerBox.self, in: pane), "The README sits in a file box")
 +
-+        buttons[4].performClick(nil)
++        buttons[5].performClick(nil)
 +        wait("the folder lists") { Self.find(OmniExplorerRow.self, in: pane) != nil }
 +        let names = Self.all(OmniExplorerRow.self, in: pane).map(\.titleText)
 +        XCTAssertEqual(names, ["src", ".env", "b.txt"], "Folders first, then files by name")
@@ -8621,6 +8642,93 @@ index 0000000000000000000000000000000000000000..0bcb60c6db67e092c454ad0acd51ab8a
 +        wait("knowledge lists") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["plans", "MASTER.md"] }
 +        Self.all(OmniExplorerRow.self, in: pane).first?.activate()
 +        wait("a knowledge folder opens") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["..", "one.md", "two.md"] }
++    }
++
++    // The Code tab: the overview, a search, a definition's page, following a caller,
++    // the breadcrumb back, and a memory that names it.
++    func testCodeTabSearchesAndExploresTheCodeGraph() throws {
++        let root = "/tmp/omni-project"
++        fake.handlers["get_project"] = { _ in
++            ["ok": true, "project": ["id": root, "root": root, "name": "omni-project", "forge": true]]
++        }
++        let store: [String: Any] = ["project": root, "path": "lib/store.py", "line": 4, "kind": "class",
++                                    "qualname": "lib.store.Store"]
++        let handle: [String: Any] = ["project": root, "path": "app.py", "line": 3, "kind": "function",
++                                     "qualname": "app.handle"]
++        var codeRequests: [[String: Any]] = []
++        fake.handlers["code_graph"] = { request in
++            codeRequests.append(request)
++            switch request["mode"] as? String {
++            case "overview":
++                return ["ok": true, "files": 2, "file_links": 1, "documents": 0,
++                        "hubs": [store.merging(["files_using": 1]) { $1 }],
++                        "clusters": [["name": "lib/", "files": 2, "top_files": ["lib/store.py", "app.py"],
++                                      "depends_on_files_outside": 0]],
++                        "import_cycles": [["a.py", "b.py"]]]
++            case "query":
++                return ["ok": true, "total": 1, "results": [store]]
++            case "explain" where request["name"] as? String == "app.handle":
++                return ["ok": true, "node": handle, "counts": [:], "callers": [], "callees": [], "memories": []]
++            case "explain":
++                return ["ok": true, "node": store, "link": "omniterm://project/tmp/omni-project?code=lib.store.Store",
++                        "counts": ["callers": 1],
++                        "callers": [["path": "app.py", "line": 4, "from": "app.handle", "kind": "calls",
++                                     "confidence": "inferred", "source": handle]],
++                        "memories": [["id": "m9", "title": "Store writes are idempotent", "memory_type": "declarative",
++                                      "matched": "Store"]]]
++            case "affected":
++                return ["ok": true, "total": 1, "affected": [["node": handle, "depth": 1, "via": "calls",
++                                                              "confidence": "inferred"]]]
++            default:
++                return ["ok": true]
++            }
++        }
++        let actions = RecordingPaneActions()
++        let pane = OmniProjectsPane(projectID: root)
++        pane.actions = actions
++        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1400), styleMask: [.titled],
++                          backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        window.contentView = pane
++        pane.frame = window.contentView?.bounds ?? .zero
++        pane.reload()
++        wait("the page loads") { Self.find(OmniTabBar.self, in: pane) != nil }
++        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)).subviews.compactMap { $0 as? NSButton }
++        try XCTUnwrap(tabs.first { $0.title == "Code" }).performClick(nil)
++        func titles() -> [String] { Self.all(OmniFolderEntryRow.self, in: pane).map(\.titleText) }
++        wait("the overview lists hubs, groups and cycles") { titles() == ["store.Store", "lib/", "a.py ↔ b.py"] }
++
++        pane.codeSearch.stringValue = "Sto"
++        pane.codeSearchChanged(pane.codeSearch)
++        wait("the search asks the graph") { codeRequests.contains { $0["mode"] as? String == "query" && $0["name"] as? String == "Sto" } }
++        wait("its result lists") { titles() == ["store.Store"] }
++        XCTAssertEqual(codeRequests.last { $0["mode"] as? String == "query" }?["project"] as? String, root)
++
++        Self.all(OmniFolderEntryRow.self, in: pane).first?.activate()
++        wait("the definition opens with its caller, what it affects and its memory") {
++            titles() == ["app.handle", "app.handle", "Store writes are idempotent"]
++        }
++        XCTAssertEqual(codeRequests.last { $0["mode"] as? String == "explain" }?["name"] as? String, "lib.store.Store")
++        XCTAssertEqual(codeRequests.last { $0["mode"] as? String == "explain" }?["path"] as? String, "lib/store.py")
++
++        Self.all(OmniFolderEntryRow.self, in: pane).last?.activate()
++        XCTAssertEqual(actions.searchHits.last?.target, .memory("m9"), "A memory row opens that memory")
++
++        Self.all(OmniFolderEntryRow.self, in: pane).first?.activate()
++        wait("following the caller opens it") {
++            codeRequests.last { $0["mode"] as? String == "explain" }?["name"] as? String == "app.handle"
++        }
++        let crumbs = Self.all(OmniLinkButton.self, in: pane)
++        XCTAssertEqual(crumbs.map(\.title).prefix(2), ["Overview", "store.Store"], "The breadcrumb leads back")
++        crumbs[1].performClick(nil)
++        wait("back on the first definition") { titles().last == "Store writes are idempotent" }
++        try XCTUnwrap(Self.all(OmniLinkButton.self, in: pane).first).performClick(nil)
++        pane.codeSearch.stringValue = ""
++        pane.codeSearchChanged(pane.codeSearch)
++        wait("the overview again") { titles() == ["store.Store", "lib/", "a.py ↔ b.py"] }
++        // A page opens on the last tab used: leave it on Home for the tests after this one.
++        try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)?.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Home" })
++            .performClick(nil)
 +    }
 +
 +    private static func all<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
@@ -9477,6 +9585,26 @@ index 0000000000000000000000000000000000000000..0bcb60c6db67e092c454ad0acd51ab8a
 +        XCTAssertGreaterThan(checked, 20, "The sweep found the pages’ controls")
 +        XCTAssertEqual(missing, [], "Controls without the pointing hand")
 +    }
++}
++
++
++// Records what a page asks the window to do.
++final class RecordingPaneActions: OmniPaneActions {
++    var routes: [OmniPaneRoute] = []
++    var searchHits: [OmniSearchHit] = []
++    func paneOpen(_ route: OmniPaneRoute) { routes.append(route) }
++    func paneShowTerminal(forRun runID: String) -> Bool { false }
++    func paneExpectTab(forRun runID: String, showing route: OmniPaneRoute, from: OmniPaneRoute) {}
++    func paneLayoutDidChange() {}
++    func paneFolder(_ action: OmniFolderAction, path: String) {}
++    func paneTogglePanel(_ panel: OmniPanel) {}
++    func paneResumeSession(_ session: [AnyHashable: Any]) -> String? { nil }
++    func paneHasTab(forSession sessionID: String) -> Bool { false }
++    func paneShowTerminal(forSession sessionID: String) -> Bool { false }
++    func paneSearchMemory(_ query: String) {}
++    func paneSessionsChanged() {}
++    func paneProjectsChanged() {}
++    func paneOpenSearchHit(_ hit: OmniSearchHit) { searchHits.append(hit) }
 +}
 diff --git a/ModernTests/OmniTerminalSnapshotTests.swift b/ModernTests/OmniTerminalSnapshotTests.swift
 new file mode 100644
