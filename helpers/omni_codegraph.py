@@ -28,6 +28,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
+from urllib.parse import quote
 
 
 SCHEMA_VERSION = 3
@@ -80,6 +81,13 @@ COMMON_NAMES = frozenset((
     "created_at", "updated_at", "compact", "all", "logger", "New", "String", "Error", "Close", "Run", "Start",
     "Get", "Set", "Len", "Write", "Read", "count", "sum", "min", "max", "keys", "each_with_object", "inject",
 ))
+TEST_PATH = re.compile(r"(^|/)(spec|specs|test|tests|__tests__|e2e)/|(_spec|_test|\.spec|\.test)\.[a-z]+$|(^|/)test_[^/]+\.py$")
+
+
+def is_test(path):
+    return bool(TEST_PATH.search(path or ""))
+
+
 # Languages whose names can meet: a bare name is never matched across these families.
 FAMILY = {"python": "python", "ruby": "ruby", "js": "js", "swift": "apple", "objc": "apple", "go": "go",
           "rust": "rust", "markdown": None}
@@ -1219,6 +1227,10 @@ class CodeGraph:
         return cache[key]
 
     def _same_family(self, project, path, other):
+        """Whether a bare name in `path` can mean a definition in `other`: same language family, and never
+        application code reaching into a test file (a test helper's `name` is not what `user.name` calls)."""
+        if is_test(other) and not is_test(path):
+            return False
         family = self._family(project, path)
         return family is None or family == self._family(project, other)
 
@@ -1282,6 +1294,10 @@ class CodeGraph:
                  "confidence": confidence}
         if node is not None:
             value["to"] = self._node(node)
+        elif "src_id" in ref.keys():
+            source = self.db.execute("SELECT * FROM nodes WHERE id=?", (ref["src_id"],)).fetchone()
+            if source is not None:
+                value["source"] = self._node(source)  # the definition the edge starts in
         return value
 
     @staticmethod
@@ -1320,7 +1336,8 @@ class CodeGraph:
                 (node["project"], node["path"], node["qualname"] + ".%", node["qualname"] + ".%.%"))]
         file_row = self.db.execute("SELECT error FROM files WHERE project=? AND path=?",
                                    (node["project"], node["path"])).fetchone()
-        result = {"node": self._node(node), "counts": {"callers": len(callers), "callees": len(callees),
+        result = {"node": self._node(node), "link": self.link(node),
+                  "counts": {"callers": len(callers), "callees": len(callees),
                                                        "importers": len(importers), "subclasses": len(subclasses),
                                                        "members": len(members), "used_by": len(used_by),
                                                        "documented_in": len(documents)},
@@ -1461,12 +1478,41 @@ class CodeGraph:
         weakest = max((hop["confidence"] for hop in hops), key=CONFIDENCE_RANK.get, default="extracted")
         return {"found": True, "length": len(hops), "confidence": weakest, "hops": hops[:limit]}
 
+    def _forge_roots(self):
+        """Roots of the projects forge lists: only those have a page in OmniTerm to link to."""
+        cached = self.__dict__.get("_forge_roots_cache")
+        if cached is not None and time.monotonic() - cached[0] < 60:
+            return cached[1]
+        try:
+            data = json.loads((self.home / FORGE_CACHE).read_text(encoding="utf-8"))
+            roots = {item["root"] for item in data.get("projects", []) if isinstance(item, dict) and
+                     isinstance(item.get("root"), str)}
+        except (OSError, ValueError, AttributeError, TypeError):
+            roots = set()
+        self._forge_roots_cache = (time.monotonic(), roots)
+        return roots
+
+    def link(self, node):
+        """omniterm://project/<root>?code=<name>&file=<path>: the node on its project's Code tab, for a
+        person to open; None when the project has no page."""
+        project = node["project"]
+        if project not in self._forge_roots():
+            return None
+        name = "" if node["kind"] == "module" else node["qualname"]
+        return ("omniterm://project" + quote(project) + "?code=" + quote(name, safe="") + "&file=" +
+                quote(node["path"], safe="/"))
+
     def query(self, arguments, limit):
         text = (arguments.get("name") or "").strip()
         if not text:
             raise ValueError("name is required")
         project = arguments.get("_project")
         where, params = ("project=? AND ", [project]) if project else ("", [])
+        kind = arguments.get("kind")
+        if kind is not None:
+            if kind not in ("module", "class", "function", "method", "section", "local"):
+                raise ValueError("kind must be module, class, function, method, section or local")
+            where, params = where + "kind=? AND ", params + [kind]
         pattern = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         rows = self.db.execute("SELECT * FROM nodes WHERE " + where + "(name LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\') "
                                "LIMIT 2000", params + [pattern, pattern]).fetchall()
@@ -1510,7 +1556,7 @@ class CodeGraph:
         limit = arguments.get("limit", 30)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
             raise ValueError("limit must be an integer between 1 and 500")
-        for key in ("name", "target", "path", "project", "workspace"):
+        for key in ("name", "target", "path", "project", "workspace", "kind"):
             value = arguments.get(key)
             if value is not None and (not isinstance(value, str) or len(value) > 1000):
                 raise ValueError(key + " must be text, at most 1000 characters")
@@ -1588,7 +1634,8 @@ class CodeGraph:
                 qualnames, paths, _ = unique[ref["target"]]
                 hinted = bool(ref["hint"]) and _hint_matches(ref["hint"], next(iter(qualnames)))
                 family = languages.get(source)
-                if hinted or (not ref["hint"] and all(languages.get(path) == family for path in paths)):
+                if hinted or (not ref["hint"] and all(languages.get(path) == family and
+                                                      (is_test(source) or not is_test(path)) for path in paths)):
                     targets = sorted(paths)
                     fan_in.setdefault(ref["target"], set()).add(source)
             for target in targets[:2]:
@@ -1622,6 +1669,13 @@ class CodeGraph:
             named.append({"name": _cluster_name(members), "files": len(members), "top_files": top[:5],
                           "depends_on_files_outside": len(outside)})
         named.sort(key=lambda cluster: (-cluster["files"], cluster["name"]))
+        # Two groups under one folder are told apart by their central file.
+        counts = {}
+        for cluster in named:
+            counts[cluster["name"]] = counts.get(cluster["name"], 0) + 1
+        for cluster in named:
+            if counts[cluster["name"]] > 1:
+                cluster["name"] += " · " + cluster["top_files"][0].rsplit("/", 1)[-1]
         cycles = [sorted(component) for component in _cycles(imports)][:20]
         total = self.db.execute("SELECT COUNT(*) FROM files WHERE project=?", (project,)).fetchone()[0]
         return {"files": total, "documents": len(documents), "file_links": len(edges), "hubs": hubs,
@@ -1660,7 +1714,7 @@ def _cluster_name(members):
     counts = {}
     for member in members:
         parts = member.split("/")[:-1]
-        for depth in (1, 2):
+        for depth in (1, 2, 3):
             if len(parts) >= depth:
                 prefix = "/".join(parts[:depth])
                 counts[prefix] = counts.get(prefix, 0) + 1

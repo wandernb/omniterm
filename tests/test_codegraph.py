@@ -59,6 +59,16 @@ class CodeGraphTests(unittest.TestCase):
         broken = self.graph(mode="stats")["file_errors"]
         self.assertEqual([(e["path"], e["error"]) for e in broken], [("broken.py", "syntax error at line 1")])
 
+        # Only a project forge lists has a page to link to.
+        self.assertIsNone(explained.get("link"))
+        cache = self.home / "Library/Application Support/OmniTerm/forge-projects.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_text('{"projects": [{"root": "app"}]}')
+        self.store.codegraph.__dict__.pop("_forge_roots_cache", None)
+        self.assertEqual(self.graph(mode="explain", name="Store.save")["link"],
+                         "omniterm://projectapp?code=lib.store.Store.save&file=lib/store.py")
+        self.assertEqual([r["kind"] for r in self.graph(mode="query", name="Store", kind="class")["results"]], ["class"])
+
         # The project a query names is brought up to date before it is answered.
         self.store.codegraph.db.execute("UPDATE projects SET listed_at=listed_at-60")
         self.write("app.py", "from lib.store import Store\n\ndef handle():\n    return Store\n\n\n")

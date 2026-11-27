@@ -836,14 +836,17 @@ def _graph_text(mode, result):
         return "\n".join(lines) or "No match."
     if mode == "explain":
         lines.append(_graph_node(result["node"]))
+        if result.get("link"):
+            lines.append(f"  Open in OmniTerm: {result['link']}")
         if result.get("file_error"):
             lines.append(f"  (file only partly read: {result['file_error']})")
-        for key in ("callers", "callees", "importers", "subclasses", "members", "memories"):
+        for key in ("callers", "callees", "used_by", "importers", "subclasses", "documented_in", "members", "memories"):
             items = result.get(key) or []
             total = result.get("counts", {}).get(key, len(items))
             if not items:
                 continue
-            lines.append(f"{key.capitalize()} ({total}):")
+            title = {"used_by": "Used by", "documented_in": "Mentioned in documents"}.get(key, key.capitalize())
+            lines.append(f"{title} ({total}):")
             for item in items:
                 if key == "members":
                     lines.append("  " + _graph_node(item))
@@ -892,17 +895,28 @@ def _graph_text(mode, result):
 
 
 def graph_from_cli(args):
-    mode = {"status": "stats", "report": "overview"}.get(args.graph_command, args.graph_command)
+    mode = {"status": "stats", "report": "overview", "open": "explain"}.get(args.graph_command, args.graph_command)
     payload = {"op": "code_graph", "mode": mode, "limit": args.limit}
     if getattr(args, "name", None):
         payload["name"] = args.name
     if getattr(args, "target", None):
         payload["target"] = args.target
+    if getattr(args, "kind", None):
+        payload["kind"] = args.kind
     if args.project:
         payload["project"] = os.path.abspath(os.path.expanduser(args.project))
     elif not args.all:
         payload["workspace"] = os.getcwd()
     result = {key: value for key, value in request(payload).items() if key != "ok"}
+    if args.graph_command == "open":
+        if result.get("ambiguous") or not result.get("node"):
+            print(graph_text(mode, result))
+            raise SystemExit(1)
+        if not result.get("link"):
+            raise SystemExit("This project has no page in OmniTerm (only projects forge lists do).")
+        subprocess.run(["/usr/bin/open", result["link"]], check=False)
+        print(f"Opened {result['node']['qualname']} in OmniTerm.")
+        return
     if args.json:
         print(json.dumps(result, ensure_ascii=False))
         return
@@ -3513,7 +3527,8 @@ def cli_parser():
                                  ("affected", "what depends on a symbol or file, up to three hops"),
                                  ("path", "the shortest chain from one symbol to another"),
                                  ("status", "projects, indexing progress and parse errors"),
-                                 ("report", "hubs, clusters and import cycles of a project")):
+                                 ("report", "hubs, clusters and import cycles of a project"),
+                                 ("open", "show a symbol or file on its project's Code tab in OmniTerm")):
         graph_parser = graph_commands.add_parser(command, help=description)
         if command not in ("status", "report"):
             graph_parser.add_argument("name", help="a bare or dotted name (module.Class.method), or a file path")
@@ -3525,6 +3540,8 @@ def cli_parser():
         graph_parser.add_argument("--json", action="store_true")
         if command == "report":
             graph_parser.add_argument("--output", help="write the Markdown report to this file instead of printing it")
+        if command == "query":
+            graph_parser.add_argument("--kind", choices=("module", "class", "function", "method", "section", "local"))
     stop = subs.add_parser("stop", help="stop an active run"); stop.add_argument("run_id")
     settings = subs.add_parser("settings", help="show or change global ~/.omni/settings.json values")
     settings_commands = settings.add_subparsers(dest="settings_command", metavar="ACTION")

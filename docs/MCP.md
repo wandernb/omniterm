@@ -260,12 +260,13 @@ and type references, and Markdown for headings and links to code. Every edge is
 resolved relative path) or `inferred` (matched by a bare name that only one
 definition in the project has, within the same language family). A path is as
 strong as its weakest hop. Bare Ruby calls and nested functions count within
-their own file only.
+their own file only, and application code is never matched by name into a test
+file.
 
 | Mode | Arguments and result |
 |---|---|
-| `query` | `name`: definitions and files whose name or path contains it, exact names first. |
-| `explain` | `name` (bare, dotted `module.Class.method`, or a path) or `path`: the definition, `callers`, `callees`, `importers`, `subclasses`, `used_by` (type references), `documented_in` (Markdown links), `members`, with `counts`, and `memories` whose file or symbol concepts name it in the same project, strongest first. |
+| `query` | `name`: definitions and files whose name or path contains it, exact names first; `kind` (`module`, `class`, `function`, `method`, `section`, `local`) keeps one kind. |
+| `explain` | `name` (bare, dotted `module.Class.method`, or a path) or `path`: the definition, `callers`, `callees`, `importers`, `subclasses`, `used_by` (type references), `documented_in` (Markdown links), `members`, with `counts`, `memories` whose file or symbol concepts name it in the same project, strongest first, and `link`: an `omniterm://project/<root>?code=<name>&file=<path>` URL that opens it on the project's Code tab (null for a project forge does not list). Each incoming edge carries `source`, the definition it starts in. |
 | `neighbors` | `name`: every node one hop away, with direction and edge kind. |
 | `affected` | `name` or `path`: what depends on it through calls, imports, inheritance and type references, up to three hops, with the weakest confidence along the way and the files involved. Documents are not followed. |
 | `path` | `name` and `target`: the shortest chain between two definitions in one project. |
@@ -287,6 +288,15 @@ privacy-guarded folders (Documents, Desktop, Downloads, iCloud, `/Volumes`) are
 never read. A project can add folders the default rules skip, or exclude more,
 in `.omni/graph.json`: `{"include": ["Vendor/x/sources"], "exclude": ["fixtures"]}`.
 
+In the app, each project's page has a **Code** tab with the same graph: a
+search box, the most-used definitions, groups of related files, circular
+imports, and for any definition its callers, callees, users, importers, what a
+change affects and the memories that name it. Every row opens the next
+definition, a breadcrumb leads back, and Copy Link gives the
+`omniterm://project/<root>?code=<name>&file=<path>` link; `?code=` alone opens
+the tab's overview. The Memory graph's **Code** switch draws the indexed files
+on their file hubs; double-clicking one opens it on its project's Code tab.
+
 `memory_graph` with `include_code: true` also attaches the indexed files
 (`kind: code`, with `project` and `path`) to the file concept hubs that name
 them, and turns on concept edges.
@@ -299,6 +309,8 @@ omni graph explain scheduler_request
 omni graph affected helpers/omni_kb.py
 omni graph path call_tool scheduler_request
 omni graph query Pane --limit 10
+omni graph query Store --kind class
+omni graph open KnowledgeStore        # show it on the project's Code tab
 omni graph status
 omni graph report --output /tmp/code-map.md
 ```

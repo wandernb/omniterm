@@ -1772,10 +1772,10 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..5ab0a27ae801e2744221f0e974d6d9ad1cc6a29a
+index 0000000000000000000000000000000000000000..f6f788305f33fdb608e726b7e5d72070ac4a1919
 --- /dev/null
 +++ b/ModernTests/OmniMemoryTests.swift
-@@ -0,0 +1,1028 @@
+@@ -0,0 +1,1053 @@
 +//
 +//  OmniMemoryTests.swift
 +//  ModernTests
@@ -2077,6 +2077,31 @@ index 0000000000000000000000000000000000000000..5ab0a27ae801e2744221f0e974d6d9ad
 +        memory.canvas.openNode?("topic:1:m2")
 +        XCTAssertEqual(memory.tab, .browse, "A topic leaf opens the memory it stands for")
 +        wait("its detail loads") { requests.last { $0["op"] as? String == "get_memory" }?["id"] as? String == "m2" }
++    }
++
++    func testCodeFilesJoinTheGraphAndOpenOnTheirProjectsCodeTab() throws {
++        let pane = makePane()
++        let memory = pane.memory
++        wait("the list loads") { memory.memories.count == 2 }
++        memory.showTab(.graph)
++        wait("the network is laid out") { memory.canvas.positions.count == 2 }
++        func lastGraph() -> [String: Any]? {
++            return requests.last { $0["op"] as? String == "memory_graph" }
++        }
++        XCTAssertEqual(lastGraph()?["include_code"] as? Bool, true, "Code files are on by default")
++        XCTAssertEqual((lastGraph()?["edges"] as? [String])?.contains("code"), false, "Code is not a kind of memory link")
++        let toggle = try XCTUnwrap(Self.find(NSButton.self, in: pane) { $0.title == "Code" })
++        toggle.state = .off
++        toggle.sendAction(toggle.action, to: toggle.target)
++        wait("the graph reloads without code files") { lastGraph()?["include_code"] == nil }
++
++        let box = NSRect(x: 0, y: 0, width: 20, height: 20)
++        XCTAssertFalse(OmniMemoryGraphView.shape(for: "code", in: box).contains(NSPoint(x: 19, y: 1)),
++                       "A source file is a page with a folded corner")
++        XCTAssertEqual(OmniMemoryViewController.codeLink(forGraphNode: "code:/Users/me/app:lib/store.py")?.absoluteString,
++                       "omniterm://project/Users/me/app?code=&file=lib/store.py")
++        XCTAssertNil(OmniMemoryViewController.codeLink(forGraphNode: "concept:file:lib/store.py"))
++        XCTAssertEqual(OmniCodeText.short("helpers.omni_kb.KnowledgeBases.tick"), "KnowledgeBases.tick")
 +    }
 +
 +    func testLinkOpensANamedTabAndTheMindMap() {
@@ -9663,10 +9688,10 @@ index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cc
 +
 +@end
 diff --git a/docs/notes-3.7.txt b/docs/notes-3.7.txt
-index 1dd0d27b74a5d596905254b6705f7b98a751348a..fe2a7f1365e5a50c2b94e5fb114d51c18a7e8dba 100644
+index 1dd0d27b74a5d596905254b6705f7b98a751348a..2432ac93681706bb95fdbd9d8e2926792d5128b8 100644
 --- a/docs/notes-3.7.txt
 +++ b/docs/notes-3.7.txt
-@@ -5,6 +5,67 @@ right-to-left rendering, selection, and copy
+@@ -5,6 +5,73 @@ right-to-left rendering, selection, and copy
  improvements in this release.
  
  Major New Features:
@@ -9678,6 +9703,12 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..fe2a7f1365e5a50c2b94e5fb114d51c1
 +  `omni graph explain NAME`, `affected`, `path`
 +  or `report`. Only names, paths and line numbers
 +  are stored, on this Mac.
++- A project's page has a Code tab: search its
++  definitions and files, see the most-used ones,
++  groups of related files and circular imports,
++  and follow any definition to its callers, what
++  a change affects and the memories that mention
++  it. The Memory graph can show code files too.
 +- OmniTerm has a Projects page in its sidebar
 +  listing every Forge project on your Mac, found
 +  by Forge. A project’s page shows its branches,
@@ -9734,7 +9765,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..fe2a7f1365e5a50c2b94e5fb114d51c1
  - Support for the Program Status Protocol
    (OSC 7501), which lets a program report that it
    is working, waiting on you, done, or failed.
-@@ -45,6 +106,10 @@ Major New Features:
+@@ -45,6 +112,10 @@ Major New Features:
    3.8).
  
  New Features:
@@ -9745,7 +9776,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..fe2a7f1365e5a50c2b94e5fb114d51c1
  - `it2` can now target a session by the tmux pane
    it is showing. From inside a tmux Integration
    pane, pass --tmux "$TMUX" --tmux-pane
-@@ -680,6 +745,10 @@ Improvements:
+@@ -680,6 +751,10 @@ Improvements:
    General > Magic.
  
  Bug Fixes:
@@ -9756,7 +9787,7 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..fe2a7f1365e5a50c2b94e5fb114d51c1
  - Commands saved to Command History no longer
    include a right-hand prompt (such as zsh’s
    RPROMPT) drawn on the same line.
-@@ -2418,3 +2487,197 @@ Bug Fixes:
+@@ -2418,3 +2493,197 @@ Bug Fixes:
    open each time. After many coprocesses,
    iTerm2 could run out of open files and fail
    to create new sessions.
@@ -11168,7 +11199,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3eb1124df 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c8198db1baaf 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -12245,7 +12276,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3310,112 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3310,116 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -12305,12 +12336,16 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
 +            PseudoTerminal *terminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
 +            NSString *root = [url.host isEqualToString:@"project"] && url.path.length > 1 ? url.path : nil;
 +            NSString *file = nil;
++            NSString *code = nil;
 +            for (NSURLQueryItem *item in [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO].queryItems) {
 +                if ([item.name isEqualToString:@"file"] && item.value.length <= 1024) {
 +                    file = item.value;
++                } else if ([item.name isEqualToString:@"code"] && item.value.length <= 1024) {
++                    // The Code tab, on that definition (or its overview when empty).
++                    code = item.value ?: @"";
 +                }
 +            }
-+            [terminal omniShowProjects:root file:file];
++            [terminal omniShowProjects:root file:file code:code];
 +        } else if ([url.host isEqualToString:@"memory"]) {
 +            [[OmniInboxWindowController sharedInstance].window orderOut:nil];
 +            [self openOmniTerm:nil];
@@ -12358,7 +12393,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3544,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3548,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -12381,7 +12416,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3690,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3694,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -12390,7 +12425,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4154,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4158,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -12406,7 +12441,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4920,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4924,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -12427,7 +12462,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..85b0d5113bd893a1a8e0c8d18de236a3
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5166,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5170,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -20617,10 +20652,10 @@ index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d0
 +}
 diff --git a/sources/OmniTerm/OmniMemoryGraphView.swift b/sources/OmniTerm/OmniMemoryGraphView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b98246720
+index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb41b68d99
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryGraphView.swift
-@@ -0,0 +1,1200 @@
+@@ -0,0 +1,1213 @@
 +import AppKit
 +import Foundation
 +import os.signpost
@@ -20631,7 +20666,7 @@ index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b
 +
 +struct OmniMemoryGraphNode: Equatable {
 +    let id: String
-+    let kind: String  // "memory", "workspace", "concept", or a mind-map "root" / "type" / "tag" / "topics" / "topic"
++    let kind: String  // "memory", "workspace", "concept", "code" (a source file), or a mind-map "root" / "type" / "tag" / "topics" / "topic"
 +    let label: String
 +    let memoryType: String?
 +    let weight: Double
@@ -21081,7 +21116,7 @@ index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b
 +    // A hub's label is its last path segment, at most 24 characters; a
 +    // memory's is its title, at most 42.
 +    static func shortLabel(_ node: OmniMemoryGraphNode) -> String {
-+        let hub = node.kind == "workspace" || node.kind == "concept"
++        let hub = node.kind == "workspace" || node.kind == "concept" || node.kind == "code"
 +        var text = node.label
 +        if hub, let last = text.split(separator: "/", omittingEmptySubsequences: true).last {
 +            text = String(last)
@@ -21397,6 +21432,7 @@ index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b
 +        case "topics": return 16
 +        case "workspace": return 11
 +        case "concept": return 8
++        case "code": return 7
 +        default:
 +            let base = 4 + CGFloat(max(0, min(10, node.weight))) * 1.1
 +            guard let focusID else { return base }
@@ -21406,9 +21442,21 @@ index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b
 +    }
 +
 +    // Hubs are told apart by shape as well as colour: a workspace is a rounded
-+    // square, a concept a diamond, everything else a circle.
++    // square, a concept a diamond, a source file a page with a folded corner,
++    // everything else a circle.
 +    static func shape(for kind: String, in rect: NSRect) -> NSBezierPath {
 +        switch kind {
++        case "code":
++            let page = rect.insetBy(dx: rect.width * 0.12, dy: 0)
++            let fold = page.width * 0.35
++            let path = NSBezierPath()
++            path.move(to: NSPoint(x: page.minX, y: page.minY))
++            path.line(to: NSPoint(x: page.maxX - fold, y: page.minY))
++            path.line(to: NSPoint(x: page.maxX, y: page.minY + fold))
++            path.line(to: NSPoint(x: page.maxX, y: page.maxY))
++            path.line(to: NSPoint(x: page.minX, y: page.maxY))
++            path.close()
++            return path
 +        case "workspace":
 +            return NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
 +        case "concept":
@@ -21823,10 +21871,10 @@ index 0000000000000000000000000000000000000000..0061ebd4552b5172570a4f23967b7c7b
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..79d6d5819503037be512c22d34a54a7a38c067e0
+index 0000000000000000000000000000000000000000..4b8fd02fced1e52f73c24339cbe2cc6e8cc0478a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2481 @@
+@@ -0,0 +1,2502 @@
 +import AppKit
 +import Foundation
 +
@@ -22708,10 +22756,12 @@ index 0000000000000000000000000000000000000000..79d6d5819503037be512c22d34a54a7a
 +        graphModeControl.target = self
 +        graphModeControl.action = #selector(graphOptionsChanged(_:))
 +        for (kind, title) in [("session", "Sessions"), ("tag", "Tags"), ("lineage", "Lineage"),
-+                              ("similarity", "Similar"), ("workspace", "Workspaces"), ("concept", "Concepts")] {
++                              ("similarity", "Similar"), ("workspace", "Workspaces"), ("concept", "Concepts"),
++                              ("code", "Code")] {
 +            let button = NSButton(checkboxWithTitle: title, target: self, action: #selector(graphOptionsChanged(_:)))
 +            // Workspace and concept hubs group memories by project and by the
 +            // files, commands and errors they name, so they are on by default.
++            // Code adds the code graph's source files to the file hubs.
 +            button.state = .on
 +            button.contentTintColor = OmniTheme.memoryEdgeColor(kind)
 +            edgeToggles.append((kind, button))
@@ -23182,10 +23232,25 @@ index 0000000000000000000000000000000000000000..79d6d5819503037be512c22d34a54a7a
 +    }
 +
 +    private func openFromGraph(_ id: String) {
++        if let link = Self.codeLink(forGraphNode: id) {
++            NSWorkspace.shared.open(link)
++            return
++        }
 +        let id = Self.memoryID(forGraphNode: id)
 +        guard !id.contains(":") || memories.contains(where: { $0.id == id }) else { return }
 +        showTab(.browse)
 +        selectMemory(id)
++    }
++
++    // A source file is `code:<project root>:<path>`; it opens on its project's Code tab.
++    static func codeLink(forGraphNode id: String) -> URL? {
++        guard id.hasPrefix("code:") else { return nil }
++        let rest = id.dropFirst("code:".count)
++        guard let colon = rest.firstIndex(of: ":") else { return nil }
++        let root = String(rest[..<colon])
++        let path = String(rest[rest.index(after: colon)...])
++        guard root.hasPrefix("/"), !path.isEmpty else { return nil }
++        return URL(string: OmniCodeText.link(root: root, node: OmniCodeNode(name: "", path: path, label: path)))
 +    }
 +
 +    // A mind-map topic leaf is `topic:<n>:<memory id>`, since the memory also
@@ -23651,7 +23716,11 @@ index 0000000000000000000000000000000000000000..79d6d5819503037be512c22d34a54a7a
 +    func graphArguments(now: Date = Date(), focus: String? = nil) -> [String: Any] {
 +        let mindMap = isMindMap
 +        var arguments: [String: Any] = ["op": "memory_graph", "limit": 300, "mindmap": mindMap]
-+        arguments["edges"] = mindMap ? [String]() : edgeKinds
++        // Code is not a kind of link between memories: it asks for the code graph's files on the file hubs.
++        arguments["edges"] = mindMap ? [String]() : edgeKinds.filter { $0 != "code" }
++        if !mindMap, edgeKinds.contains("code") {
++            arguments["include_code"] = true
++        }
 +        if graphTypePopUp.indexOfSelectedItem > 0 {
 +            arguments["memory_type"] = Self.types[graphTypePopUp.indexOfSelectedItem - 1]
 +        }
@@ -25822,10 +25891,10 @@ index 0000000000000000000000000000000000000000..7e3fcf9f82e2462045bcb040d8e5e9e5
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d7fb6cc81
+index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02027370b8
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,1636 @@
+@@ -0,0 +1,2161 @@
 +import AppKit
 +import Foundation
 +
@@ -25837,6 +25906,8 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +    case code
 +    case sessions
 +    case knowledge
++    // The code graph: definitions, the files that depend on each other, imports in a circle.
++    case graph
 +    case files
 +    case tickets
 +    case settings
@@ -25847,6 +25918,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        case .code: return "Worktrees & Branches"
 +        case .sessions: return "Sessions & Agents"
 +        case .knowledge: return "Knowledge"
++        case .graph: return "Code"
 +        case .files: return "Files"
 +        case .tickets: return "Tickets"
 +        case .settings: return "Settings"
@@ -25860,6 +25932,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        case .code: return "Branches"
 +        case .sessions: return "Sessions"
 +        case .knowledge: return "Knowledge"
++        case .graph: return "Code"
 +        case .files: return "Files"
 +        case .tickets: return "Tickets"
 +        case .settings: return "Settings"
@@ -25872,6 +25945,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        case .code: return .arrowTriangleBranch
 +        case .sessions: return .bubbleLeftAndBubbleRight
 +        case .knowledge: return .bookClosed
++        case .graph: return .chevronLeftForwardslashChevronRight
 +        case .files: return .folder
 +        case .tickets: return .checklist
 +        case .settings: return .gearshape
@@ -26020,7 +26094,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +
 +// The Projects pages: every forge project on this Mac (`.projects`), and one
 +// project (`.project(root)`) in tabs: Home, Worktrees & Branches, Sessions &
-+// Agents, Knowledge, Files and Settings. Data comes from forge through the
++// Agents, Knowledge, Code, Files, Tickets and Settings. Data comes from forge through the
 +// knowledge worker (`list_projects`, `get_project`, `list_project_folder`,
 +// `get_project_file`, `list_sessions` with `project`); README and file text
 +// are untrusted and shown through the safe Markdown view, with no clickable
@@ -26055,6 +26129,17 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +    private let fileView = OmniMarkdownView(text: "")
 +    private let readmeView = OmniMarkdownView(text: "")
 +    private var tickets: OmniTicketsController?
++    // The Code tab (OmniProjectCode below).
++    let codeSearch = NSSearchField()
++    var codeOverview: [String: Any]?
++    var codeOverviewAt: Date?
++    var codeQuery = ""
++    var codeResults: [String: Any]?
++    var codeNode: OmniCodeNode?
++    var codeDetail: [String: Any]?
++    var codeAffected: [String: Any]?
++    var codeTrail: [OmniCodeNode] = []
++    var codeSearchTimer: Timer?
 +
 +    override var contentViews: [NSView] {
 +        return [scroll]
@@ -26078,6 +26163,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        // Read as on a repository host: rendered, not styled in place.
 +        fileView.rendersMarkdown = true
 +        readmeView.rendersMarkdown = true
++        setUpCodeSearch()
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -26209,6 +26295,8 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +            if folder == nil {
 +                loadFolder(folderPath)
 +            }
++        case .graph:
++            loadCode(projectID)
 +        case .tickets:
 +            if tickets == nil {
 +                let controller = OmniTicketsController(root: projectID)
@@ -26258,9 +26346,15 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +    private func rebuild() {
 +        // A rebuild takes the ticket editor out of the window for a moment.
 +        let editing = window?.firstResponder as? OmniMarkdownTextView
++        // The Code tab's search field is added again on every rebuild: typing in it carries on.
++        let searching = codeSearch.currentEditor() != nil
 +        defer {
 +            if let editing, editing.window != nil, window?.firstResponder !== editing {
 +                window?.makeFirstResponder(editing)
++            }
++            if searching, codeSearch.window != nil, codeSearch.currentEditor() == nil {
++                window?.makeFirstResponder(codeSearch)
++                codeSearch.currentEditor()?.selectedRange = NSRange(location: codeSearch.stringValue.utf16.count, length: 0)
 +            }
 +        }
 +        preservingZoneFocus {
@@ -26382,6 +26476,7 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        case .code: buildCode(project, previous)
 +        case .sessions: buildSessions(previous)
 +        case .knowledge: buildKnowledge(project, previous)
++        case .graph: buildGraph(previous)
 +        case .files: buildFiles(previous)
 +        case .tickets:
 +            if let tickets {
@@ -26811,6 +26906,21 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +    }
 +
 +    // MARK: Actions
++
++    // A deep link's definition on the Code tab (omniterm://project/<root>?code=<name>&file=<path>); an
++    // empty name opens the tab's overview.
++    func openCode(_ name: String, path: String?) {
++        tab = .graph
++        Self.lastTab = .graph
++        if name.isEmpty && (path ?? "").isEmpty {
++            codeNode = nil
++            codeTrail = []
++        } else {
++            selectCode(OmniCodeNode(name: name, path: path?.isEmpty == false ? path : nil, label: name), push: false)
++        }
++        loadTabData()
++        rebuild()
++    }
 +
 +    // A deep link's file: on Knowledge when it lives there, else on Files.
 +    func openFile(_ path: String) {
@@ -27460,6 +27570,490 @@ index 0000000000000000000000000000000000000000..f5e831766c7185af59dade42be013f9d
 +        let titleWidth = min(ceil(title.attributedStringValue.size().width) + 4, max(0, bounds.width - 140))
 +        title.frame = NSRect(x: 34, y: 14, width: titleWidth, height: 20)
 +        count.frame = NSRect(x: title.frame.maxX + 10, y: 17, width: 120, height: 16)
++    }
++}
++
++// MARK: - Code tab
++
++// One definition or file of the code graph, as the Code tab names it: a dotted name, a file
++// path, or both.
++struct OmniCodeNode: Equatable {
++    let name: String
++    let path: String?
++    let label: String
++
++    init(name: String, path: String?, label: String) {
++        self.name = name
++        self.path = path
++        self.label = label
++    }
++
++    // A node as the graph returns it (`qualname`, `path`, `kind`).
++    init?(graph node: [String: Any]?) {
++        guard let node, let qualname = node["qualname"] as? String else { return nil }
++        let path = node["path"] as? String
++        let isFile = node["kind"] as? String == "module"
++        self.init(name: isFile ? "" : qualname, path: path,
++                  label: isFile ? ((path ?? qualname) as NSString).lastPathComponent : OmniCodeText.short(qualname))
++    }
++
++    var request: [String: Any] {
++        var value: [String: Any] = [:]
++        if !name.isEmpty {
++            value["name"] = name
++        }
++        if let path, !path.isEmpty {
++            value["path"] = path
++        }
++        return value
++    }
++}
++
++// What the Code tab shows. Pure so tests can check it without a window.
++enum OmniCodeText {
++    // The last two parts of a dotted name: `KnowledgeStore.tick`, not the module path.
++    static func short(_ qualname: String) -> String {
++        if qualname.contains("/") {
++            return (qualname as NSString).lastPathComponent
++        }
++        let parts = qualname.split(separator: ".")
++        return parts.suffix(2).joined(separator: ".")
++    }
++
++    static func location(_ node: [String: Any]?) -> String {
++        guard let node else { return "" }
++        let path = node["path"] as? String ?? ""
++        let line = (node["line"] as? NSNumber)?.intValue
++        return line.map { "\(path):\($0)" } ?? path
++    }
++
++    static func symbol(_ kind: String?) -> SFSymbol {
++        switch kind {
++        case "class": return .cubeTransparent
++        case "function", "local": return .function
++        case "method": return .curlybraces
++        case "section": return .textAlignleft
++        default: return .docText
++        }
++    }
++
++    // "inferred" for a link matched by name, nothing for one the source names.
++    static func badge(_ confidence: Any?) -> String {
++        return confidence as? String == "inferred" ? "inferred" : ""
++    }
++
++    static func indexing(_ response: [String: Any]?) -> String? {
++        guard let indexing = response?["indexing"] as? [String: Any] else { return nil }
++        let pending = (indexing["pending_files"] as? NSNumber)?.intValue ?? 0
++        return pending > 0 ? "Still mapping this project: \(pending) files to go. Answers fill in as it goes." :
++            "Still listing this project’s files. Answers fill in as it goes."
++    }
++
++    // The sections of a definition's page, in order: title, response key, and whether a row
++    // names the source of the edge (`from`) or its target (`to`).
++    static let detailSections: [(title: String, key: String, target: Bool)] = [
++        ("Called by", "callers", false), ("Calls", "callees", true), ("Used by", "used_by", false),
++        ("Imported by", "importers", false), ("Subclasses", "subclasses", false),
++        ("Mentioned in documents", "documented_in", false),
++    ]
++}
++
++extension OmniProjectsPane: NSSearchFieldDelegate {
++    func setUpCodeSearch() {
++        codeSearch.placeholderString = "Find a definition or file"
++        codeSearch.font = NSFont.systemFont(ofSize: 14)
++        codeSearch.sendsSearchStringImmediately = true
++        codeSearch.target = self
++        codeSearch.action = #selector(codeSearchChanged(_:))
++    }
++
++    @objc func codeSearchChanged(_ sender: NSSearchField) {
++        codeSearchTimer?.invalidate()
++        let query = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard query != codeQuery else { return }
++        // A pause in typing, not every key, asks the graph.
++        codeSearchTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
++            guard let self else { return }
++            self.codeQuery = query
++            self.codeResults = nil
++            if !query.isEmpty {
++                self.codeNode = nil
++                self.codeTrail = []
++            }
++            self.loadTabData()
++            self.rebuild()
++        }
++    }
++
++    func codeRequest(_ arguments: [String: Any], _ done: @escaping ([String: Any]) -> Void) {
++        guard let projectID else { return }
++        var request = arguments
++        request["op"] = "code_graph"
++        request["project"] = projectID
++        OmniSchedulerClient.request(request) { response in
++            var value: [String: Any] = [:]
++            for (key, item) in response {
++                if let key = key as? String {
++                    value[key] = item
++                }
++            }
++            done(value)
++        }
++    }
++
++    // What the Code tab needs: the overview, a search's results, or a definition's page. The
++    // page reloads every two seconds; while the project is still being mapped, the overview is
++    // asked for again every fifteen.
++    func loadCode(_ projectID: String) {
++        let stale = codeOverviewAt.map { Date().timeIntervalSince($0) > 15 } ?? true
++        let partial = codeOverview?["indexing"] != nil
++        if codeOverview == nil || (partial && stale) {
++            codeOverviewAt = Date()
++            codeRequest(["mode": "overview", "limit": 12]) { [weak self] response in
++                guard let self else { return }
++                self.codeOverview = OmniPane.isOK(response) ? response :
++                    ["error": response["error"] as? String ?? "The code graph could not be read."]
++                self.rebuild()
++            }
++        }
++        if !codeQuery.isEmpty, codeResults == nil {
++            let query = codeQuery
++            codeResults = [:]
++            codeRequest(["mode": "query", "name": query, "limit": 40]) { [weak self] response in
++                guard let self, self.codeQuery == query else { return }
++                self.codeResults = response
++                self.rebuild()
++            }
++        }
++        if let node = codeNode, codeDetail == nil {
++            codeDetail = [:]
++            codeRequest(node.request.merging(["mode": "explain", "limit": 40]) { $1 }) { [weak self] response in
++                guard let self, self.codeNode == node else { return }
++                self.codeDetail = response
++                self.rebuild()
++            }
++            codeRequest(node.request.merging(["mode": "affected", "limit": 40]) { $1 }) { [weak self] response in
++                guard let self, self.codeNode == node else { return }
++                self.codeAffected = response
++                self.rebuild()
++            }
++        }
++    }
++
++    func selectCode(_ node: OmniCodeNode, push: Bool = true) {
++        if push, let current = codeNode, current != node {
++            codeTrail.append(current)
++        }
++        codeNode = node
++        codeDetail = nil
++        codeAffected = nil
++        loadTabData()
++        rebuild()
++        scroll.contentView.scroll(to: .zero)
++        scroll.reflectScrolledClipView(scroll.contentView)
++    }
++
++    func codeBack(to index: Int?) {
++        if let index, index < codeTrail.count {
++            let node = codeTrail[index]
++            codeTrail = Array(codeTrail.prefix(index))
++            selectCode(node, push: false)
++        } else {
++            codeNode = nil
++            codeTrail = []
++            codeDetail = nil
++            codeAffected = nil
++            rebuild()
++        }
++    }
++
++    // A row that opens a definition of the graph on this tab.
++    func codeRow(_ node: [String: Any]?, detail: String, badge: String = "", key: String) -> (key: String, row: OmniZoneItem)? {
++        guard let code = OmniCodeNode(graph: node) else { return nil }
++        let row = OmniFolderEntryRow(icon: .symbol(OmniCodeText.symbol(node?["kind"] as? String).rawValue), iconColor: nil,
++                                     title: code.label, detail: detail, badge: badge, status: nil) { [weak self] in
++            self?.selectCode(code)
++        }
++        row.contextMenu = { [weak self] in self?.codeMenu(code, path: node?["path"] as? String) }
++        return (key: key, row: row)
++    }
++
++    func codeMenu(_ node: OmniCodeNode, path: String?) -> NSMenu {
++        let menu = NSMenu()
++        menu.addAction("Show", symbol: .arrowRightCircle) { [weak self] in self?.selectCode(node) }
++        if let path, !path.isEmpty {
++            menu.addAction("Open File", symbol: .docText) { [weak self] in self?.openFile(path) }
++            let base = project?["main"] as? String ?? project?["root"] as? String ?? ""
++            let absolute = (base as NSString).appendingPathComponent(path)
++            menu.addAction("Reveal in Finder", symbol: .folder) {
++                NSWorkspace.shared.selectFile(absolute, inFileViewerRootedAtPath: "")
++            }
++            menu.addAction("Copy Path", symbol: .docOnDoc) { OmniContextMenus.copy(path) }
++        }
++        if !node.name.isEmpty {
++            menu.addAction("Copy Name", symbol: .docOnDoc) { OmniContextMenus.copy(node.name) }
++        }
++        if let root = project?["root"] as? String {
++            menu.addAction("Copy Link", symbol: .link) {
++                OmniContextMenus.copy(OmniCodeText.link(root: root, node: node))
++            }
++        }
++        return menu
++    }
++
++    func buildGraph(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        column.add(codeSearch, spacing: 4) { _ in 28 }
++        if let error = codeOverview?["error"] as? String {
++            column.addText(OmniTheme.meta(error), spacing: 10)
++            return
++        }
++        if let node = codeNode {
++            buildCodeDetail(node, previous)
++        } else if !codeQuery.isEmpty {
++            buildCodeResults(previous)
++        } else {
++            buildCodeOverview(previous)
++        }
++    }
++
++    private func buildCodeOverview(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        guard let overview = codeOverview else {
++            column.addText(OmniTheme.meta("Loading…"), spacing: 10)
++            return
++        }
++        if let note = OmniCodeText.indexing(overview) {
++            column.addText(OmniTheme.meta(note), spacing: 10)
++        }
++        if overview["found"] as? Bool == false {
++            column.addText(OmniTheme.meta("No source files are mapped for this project yet."), spacing: 10)
++            return
++        }
++        let files = (overview["files"] as? NSNumber)?.intValue ?? 0
++        let links = (overview["file_links"] as? NSNumber)?.intValue ?? 0
++        column.addText(OmniTheme.meta("\(files) files mapped, \(links) links between them. Agents ask the same graph with code_graph; in a terminal, omni graph."), spacing: 10)
++        let hubs = overview["hubs"] as? [[String: Any]] ?? []
++        let hubRows = hubs.enumerated().compactMap { index, hub -> (key: String, row: OmniZoneItem)? in
++            let used = (hub["files_using"] as? NSNumber)?.intValue ?? 0
++            return codeRow(hub, detail: "\(OmniCodeText.location(hub)) · used by \(used) files",
++                           badge: hub["kind"] as? String ?? "", key: "hub:\(index):\(hub["qualname"] as? String ?? "")")
++        }
++        if hubRows.isEmpty {
++            column.addSection("Most-used definitions")
++            column.addText(OmniTheme.meta("Nothing is used across files yet."))
++        } else {
++            section("Most-used definitions", key: "code-hubs", previous: previous, rows: hubRows)
++        }
++        let clusters = overview["clusters"] as? [[String: Any]] ?? []
++        let clusterRows: [(key: String, row: OmniZoneItem)] = clusters.enumerated().compactMap { index, cluster in
++            let top = cluster["top_files"] as? [String] ?? []
++            guard let first = top.first else { return nil }
++            let count = (cluster["files"] as? NSNumber)?.intValue ?? top.count
++            let central = top.prefix(3).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
++            let node = OmniCodeNode(name: "", path: first, label: (first as NSString).lastPathComponent)
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.squareStack3dUp.rawValue), iconColor: nil,
++                                         title: cluster["name"] as? String ?? "Files", detail: "\(count) files · central: \(central)",
++                                         badge: "", status: nil) { [weak self] in
++                self?.selectCode(node)
++            }
++            row.contextMenu = { [weak self] in self?.codeMenu(node, path: first) }
++            return (key: "cluster:\(index):\(first)", row: row)
++        }
++        if !clusterRows.isEmpty {
++            section("Groups of related files", key: "code-clusters", previous: previous, rows: clusterRows)
++        }
++        let cycles = overview["import_cycles"] as? [[String]] ?? []
++        let cycleRows: [(key: String, row: OmniZoneItem)] = cycles.enumerated().compactMap { index, cycle in
++            guard let first = cycle.first else { return nil }
++            let names = cycle.prefix(4).map { ($0 as NSString).lastPathComponent }
++            let node = OmniCodeNode(name: "", path: first, label: (first as NSString).lastPathComponent)
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowTriangle2Circlepath.rawValue), iconColor: nil,
++                                         title: names.joined(separator: " ↔ ") + (cycle.count > 4 ? " …" : ""),
++                                         detail: cycle.count == 2 ? "2 files import each other" : "\(cycle.count) files import each other in a circle",
++                                         badge: "", status: nil) { [weak self] in
++                self?.selectCode(node)
++            }
++            row.contextMenu = { [weak self] in self?.codeMenu(node, path: first) }
++            return (key: "cycle:\(index):\(first)", row: row)
++        }
++        column.addSection("Circular imports")
++        if cycleRows.isEmpty {
++            column.addText(OmniTheme.meta("None found."))
++        } else {
++            section("Circular imports", key: "code-cycles", previous: previous, rows: cycleRows, header: false)
++        }
++    }
++
++    private func buildCodeResults(_ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        guard let response = codeResults, !response.isEmpty else {
++            column.addText(OmniTheme.meta("Searching…"), spacing: 10)
++            return
++        }
++        if let note = OmniCodeText.indexing(response) {
++            column.addText(OmniTheme.meta(note), spacing: 10)
++        }
++        let results = response["results"] as? [[String: Any]] ?? []
++        let total = (response["total"] as? NSNumber)?.intValue ?? results.count
++        let rows = results.enumerated().compactMap { index, node in
++            codeRow(node, detail: OmniCodeText.location(node), badge: node["kind"] as? String ?? "",
++                    key: "result:\(index):\(node["qualname"] as? String ?? "")")
++        }
++        if rows.isEmpty {
++            column.addText(OmniTheme.meta(OmniPane.isOK(response) ? "No definition or file matches “\(codeQuery)”." :
++                                            (response["error"] as? String ?? "The search failed.")), spacing: 10)
++            return
++        }
++        section(total > rows.count ? "\(rows.count) of \(total) matches" : (total == 1 ? "1 match" : "\(total) matches"),
++                key: "code-results", previous: previous, rows: rows)
++    }
++
++    private func buildCodeDetail(_ node: OmniCodeNode, _ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        // Where the exploration came from, to go back.
++        var crumbs: [(label: String, path: String)] = [(label: "Overview", path: "overview")]
++        for (index, step) in codeTrail.enumerated() {
++            crumbs.append((label: step.label, path: "\(index)"))
++        }
++        crumbs.append((label: node.label, path: "current"))
++        let trail = OmniBreadcrumb(crumbs: crumbs, trailing: "", open: { [weak self] path in
++            if path == "overview" {
++                self?.codeBack(to: nil)
++            } else if let index = Int(path) {
++                self?.codeBack(to: index)
++            }
++        })
++        column.add(trail, spacing: 6) { _ in 28 }
++        guard let detail = codeDetail, !detail.isEmpty else {
++            column.addText(OmniTheme.meta("Loading…"), spacing: 10)
++            return
++        }
++        if !OmniPane.isOK(detail) {
++            column.addText(OmniTheme.meta(detail["error"] as? String ?? "This definition could not be read."), spacing: 10)
++            return
++        }
++        if detail["ambiguous"] as? Bool == true {
++            let candidates = detail["candidates"] as? [[String: Any]] ?? []
++            section("Several definitions have this name", key: "code-candidates", previous: previous,
++                    rows: candidates.enumerated().compactMap { index, candidate in
++                        codeRow(candidate, detail: OmniCodeText.location(candidate), badge: candidate["kind"] as? String ?? "",
++                                key: "candidate:\(index)")
++                    })
++            return
++        }
++        guard let found = detail["node"] as? [String: Any] else {
++            column.addText(OmniTheme.meta("Nothing in this project’s code graph has that name."), spacing: 10)
++            return
++        }
++        if let note = OmniCodeText.indexing(detail) {
++            column.addText(OmniTheme.meta(note), spacing: 8)
++        }
++        var facts: [(String, String)] = [("Name", found["qualname"] as? String ?? node.name),
++                                         ("Kind", found["kind"] as? String ?? ""),
++                                         ("Defined in", OmniCodeText.location(found))]
++        if let error = detail["file_error"] as? String {
++            facts.append(("Note", "Only part of this file could be read: \(error)"))
++        }
++        column.addText(OmniPane.facts(facts), spacing: 8)
++        let path = found["path"] as? String
++        var buttons: [NSButton] = []
++        if let path, !path.isEmpty {
++            buttons.append(OmniPaneText.button("Open File", target: self, action: #selector(codeOpenFile(_:))))
++        }
++        buttons.append(OmniPaneText.button("Copy Link", target: self, action: #selector(codeCopyLink(_:))))
++        let row = OmniButtonRow(buttons)
++        buttonsZone = row.zone
++        column.add(row, spacing: 10) { _ in 30 }
++        for item in OmniCodeText.detailSections {
++            let edges = detail[item.key] as? [[String: Any]] ?? []
++            let total = ((detail["counts"] as? [String: Any])?[item.key] as? NSNumber)?.intValue ?? edges.count
++            let rows: [(key: String, row: OmniZoneItem)] = edges.enumerated().compactMap { index, edge in
++                if item.target {
++                    let target = edge["to"] as? [String: Any]
++                    return codeRow(target, detail: OmniCodeText.location(target), badge: OmniCodeText.badge(edge["confidence"]),
++                                   key: "\(item.key):\(index)")
++                }
++                // The definition the edge starts in, at the line where it does.
++                let source = edge["source"] as? [String: Any]
++                let at = [edge["path"] as? String, (edge["line"] as? NSNumber).map { "\($0.intValue)" }].compactMap { $0 }
++                return codeRow(source, detail: at.joined(separator: ":"), badge: OmniCodeText.badge(edge["confidence"]),
++                               key: "\(item.key):\(index)")
++            }
++            if !rows.isEmpty {
++                section(total > rows.count ? "\(item.title) · \(rows.count) of \(total)" : "\(item.title) · \(total)",
++                        key: "code-" + item.key, previous: previous, rows: rows)
++            }
++        }
++        if let affected = codeAffected, let items = affected["affected"] as? [[String: Any]], !items.isEmpty {
++            let total = (affected["total"] as? NSNumber)?.intValue ?? items.count
++            let rows = items.enumerated().compactMap { index, item -> (key: String, row: OmniZoneItem)? in
++                let target = item["node"] as? [String: Any]
++                let depth = (item["depth"] as? NSNumber)?.intValue ?? 1
++                let via = item["via"] as? String ?? ""
++                return codeRow(target, detail: "\(OmniCodeText.location(target)) · \(depth == 1 ? "directly" : "\(depth) steps away"), through \(via)",
++                               badge: OmniCodeText.badge(item["confidence"]), key: "affected:\(index)")
++            }
++            section(affected["truncated"] as? Bool == true ? "A change here affects at least \(total)" : "A change here affects · \(total)",
++                    key: "code-affected", previous: previous, rows: rows)
++        }
++        let memories = detail["memories"] as? [[String: Any]] ?? []
++        let memoryRows: [(key: String, row: OmniZoneItem)] = memories.compactMap { memory in
++            guard let id = memory["id"] as? String else { return nil }
++            let title = memory["title"] as? String ?? id
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.brain.rawValue), iconColor: nil, title: title,
++                                         detail: "Names \(memory["matched"] as? String ?? "it")", badge: memory["memory_type"] as? String ?? "",
++                                         status: nil) { [weak self] in
++                self?.actions?.paneOpenSearchHit(OmniSearchHit(key: id, title: title, detail: "", icon: .symbol(SFSymbol.brain.rawValue),
++                                                               iconColor: nil, target: .memory(id)))
++            }
++            row.contextMenu = {
++                let menu = NSMenu()
++                menu.addAction("Copy Memory ID", symbol: .docOnDoc) { OmniContextMenus.copy(id) }
++                return menu
++            }
++            return (key: "memory:" + id, row: row)
++        }
++        if memoryRows.isEmpty {
++            column.addSection("Memories")
++            column.addText(OmniTheme.meta("No memory names this yet."))
++        } else {
++            section("Memories that mention it · \(memoryRows.count)", key: "code-memories", previous: previous, rows: memoryRows)
++        }
++        let members = detail["members"] as? [[String: Any]] ?? []
++        let memberRows = members.enumerated().compactMap { index, member in
++            codeRow(member, detail: OmniCodeText.location(member), badge: member["kind"] as? String ?? "", key: "member:\(index)")
++        }
++        if !memberRows.isEmpty {
++            section(found["kind"] as? String == "module" ? "Defined in this file · \(memberRows.count)" : "Members · \(memberRows.count)",
++                    key: "code-members", previous: previous, rows: memberRows)
++        }
++    }
++
++    @objc func codeOpenFile(_ sender: Any?) {
++        guard let path = (codeDetail?["node"] as? [String: Any])?["path"] as? String else { return }
++        openFile(path)
++    }
++
++    @objc func codeCopyLink(_ sender: Any?) {
++        guard let root = project?["root"] as? String, let node = codeNode else { return }
++        OmniContextMenus.copy(OmniCodeText.link(root: root, node: node))
++    }
++}
++
++extension OmniCodeText {
++    // omniterm://project/<root>?code=<name>&file=<path>: this page, on that definition.
++    static func link(root: String, node: OmniCodeNode) -> String {
++        var components = URLComponents()
++        components.scheme = "omniterm"
++        components.host = "project"
++        components.path = root
++        var items = [URLQueryItem(name: "code", value: node.name)]
++        if let path = node.path, !path.isEmpty {
++            items.append(URLQueryItem(name: "file", value: path))
++        }
++        components.queryItems = items
++        return components.string ?? "omniterm://project" + root
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniRunReport.swift b/sources/OmniTerm/OmniRunReport.swift
@@ -36863,10 +37457,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..ec1c77404a51af82619c6e908245135c24978672
+index 0000000000000000000000000000000000000000..13bde252916ee8f1105f7a3877cc4b0fe748a700
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5012 @@
+@@ -0,0 +1,5021 @@
 +import AppKit
 +import Foundation
 +import os
@@ -41035,9 +41629,18 @@ index 0000000000000000000000000000000000000000..ec1c77404a51af82619c6e908245135c
 +    // omniterm://project/<root>?file=<path>: the project, on that file.
 +    @objc(showProjects:file:)
 +    func showProjects(_ root: String?, file: String?) {
++        showProjects(root, file: file, code: nil)
++    }
++
++    // omniterm://project/<root>?code=<name>&file=<path>: the project's Code tab, on that definition.
++    @objc(showProjects:file:code:)
++    func showProjects(_ root: String?, file: String?, code: String?) {
 +        if let root, !root.isEmpty {
 +            showPane(.project(root))
-+            if let file, !file.isEmpty, let pane = contentHost.pane as? OmniProjectsPane {
++            guard let pane = contentHost.pane as? OmniProjectsPane else { return }
++            if let code {
++                pane.openCode(code, path: file)
++            } else if let file, !file.isEmpty {
 +                pane.openFile(file)
 +            }
 +        } else {
@@ -42212,10 +42815,10 @@ index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79bea24b304
+index 0000000000000000000000000000000000000000..765f043fe1bb634c8272ff89b7a407d8ecb5de07
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,331 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -42291,6 +42894,7 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +        case "root": return accent
 +        case "workspace": return .systemBrown
 +        case "concept": return .systemCyan
++        case "code": return .systemMint
 +        case "topics", "topic": return .systemIndigo
 +        default: return .systemGray
 +        }
@@ -42305,6 +42909,7 @@ index 0000000000000000000000000000000000000000..26a3332896562327fbb0856e79a7e79b
 +        case "similarity": return .systemPurple
 +        case "workspace": return .systemBrown
 +        case "concept": return .systemCyan
++        case "code": return .systemMint
 +        default: return .tertiaryLabelColor
 +        }
 +    }
@@ -44671,10 +45276,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..c9657b3c859d67eec705df763f1b9871db163dc9 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..44db424041f0b3715fbab4fcfb109adf1cdd23b2 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,51 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,52 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -44699,6 +45304,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..c9657b3c859d67eec705df763f1b9871
 +- (void)omniShowUnblocker;
 +- (void)omniShowUnblockerAuditEntry:(NSInteger)index;
 +- (void)omniShowProjects:(NSString *)root file:(NSString *)file;
++- (void)omniShowProjects:(NSString *)root file:(NSString *)file code:(NSString *)code;
 +- (void)omniShowSearchResults:(NSString *)query;
 +- (void)omniShowQuickNav:(NSString *)query;
 +// Saves the frame of the window if it is on screen (for quitting).
@@ -44727,7 +45333,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..c9657b3c859d67eec705df763f1b9871
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e42b6c76a8 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54eea1cf35 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -44889,7 +45495,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,141 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,145 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -44983,6 +45589,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
 +    [_omniSidebar showProjects:root file:file];
 +}
 +
++- (void)omniShowProjects:(NSString *)root file:(NSString *)file code:(NSString *)code {
++    [_omniSidebar showProjects:root file:file code:code];
++}
++
 +- (void)omniShowSearchResults:(NSString *)query {
 +    [_omniSidebar showSearchResults:query];
 +}
@@ -45032,7 +45642,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7119,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7123,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -45042,7 +45652,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7435,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7439,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -45054,7 +45664,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7645,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7649,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -45062,7 +45672,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7761,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7765,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -45074,7 +45684,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8383,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8387,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -45082,7 +45692,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8392,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8396,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -45095,7 +45705,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8544,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8548,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -45104,7 +45714,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8883,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8887,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -45121,7 +45731,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8921,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8925,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -45130,7 +45740,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9172,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9176,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -45139,7 +45749,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12486,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12490,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -45155,7 +45765,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13446,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13450,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -45171,7 +45781,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..43805f64d5aa2421a3b9f5853b0fb4e4
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14023,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14027,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {

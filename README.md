@@ -396,6 +396,7 @@ omni knowledge status --json
 omni knowledge memory install --provider claude --workspace . --disabled
 omni graph explain SomeClass
 omni graph affected path/to/file.py
+omni graph open SomeClass   # on the project's Code tab
 ```
 
 The installation command above saves the memory agent disabled; omit
