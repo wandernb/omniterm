@@ -276,10 +276,10 @@ index 0000000000000000000000000000000000000000..a562f525b6a19c191c9fccfbdc5dc5fe
 +}
 diff --git a/ModernTests/OmniContextMenusTests.swift b/ModernTests/OmniContextMenusTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b80d196b87e919332410587a6c36d1982099e904
+index 0000000000000000000000000000000000000000..e4350833a1c709f5c40fd2465a02ff9f6ab786a6
 --- /dev/null
 +++ b/ModernTests/OmniContextMenusTests.swift
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,135 @@
 +//
 +//  OmniContextMenusTests.swift
 +//  ModernTests
@@ -294,6 +294,26 @@ index 0000000000000000000000000000000000000000..b80d196b87e919332410587a6c36d198
 +final class OmniContextMenusTests: XCTestCase {
 +    private func titles(_ menu: NSMenu) -> [String] {
 +        return menu.items.filter { !$0.isSeparatorItem }.map(\.title)
++    }
++
++    // A tracking area sends these exact selectors to its owner; OmniPointer is
++    // not a responder, so a missing one is an unrecognized selector and aborts
++    // the app the first time the mouse enters a control (2026-11-27 crash).
++    func testPointerAnswersTheSelectorsTrackingAreasSend() throws {
++        func deliver(_ name: String, _ type: NSEvent.EventType) throws {
++            let selector = NSSelectorFromString(name)
++            XCTAssertTrue(OmniPointer.shared.responds(to: selector), name)
++            let event = try XCTUnwrap(NSEvent.enterExitEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0,
++                                                             windowNumber: 0, context: nil, eventNumber: 0,
++                                                             trackingNumber: 0, userData: nil))
++            // Delivered exactly as NSTrackingArea delivers it; an unknown selector would raise.
++            _ = OmniPointer.shared.perform(selector, with: event)
++        }
++        try deliver("mouseEntered:", .mouseEntered)
++        try deliver("cursorUpdate:", .cursorUpdate)
++        XCTAssertEqual(NSCursor.current, NSCursor.pointingHand, "over a control")
++        try deliver("mouseExited:", .mouseExited)
++        XCTAssertEqual(NSCursor.current, NSCursor.arrow, "leaving it restores the arrow")
 +    }
 +
 +    func testAgentMenuOffersTheAgentCommands() {
@@ -16165,10 +16185,10 @@ index 0000000000000000000000000000000000000000..b6d92fe90f7268c14a9ed634789e41d8
 +}
 diff --git a/sources/OmniTerm/OmniContextMenus.swift b/sources/OmniTerm/OmniContextMenus.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..fed309712b1c186e922d88b6b5f2bbcc4356abad
+index 0000000000000000000000000000000000000000..b2e870713605749ac98fc5845040a3bb7cb2dd45
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContextMenus.swift
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,368 @@
 +import AppKit
 +import Foundation
 +
@@ -16313,15 +16333,18 @@ index 0000000000000000000000000000000000000000..fed309712b1c186e922d88b6b5f2bbcc
 +        return (event.trackingArea?.userInfo?["view"] as? Weak)?.view
 +    }
 +
-+    @objc func cursorUpdate(with event: NSEvent) {
++    // OmniPointer is not a responder, so these need AppKit's selector names
++    // spelled out: plain @objc would export cursorUpdateWith:, and a tracking
++    // area sending cursorUpdate: to it would abort the app.
++    @objc(cursorUpdate:) func cursorUpdate(with event: NSEvent) {
 +        let enabled = (Self.view(event) as? NSControl)?.isEnabled ?? true
 +        (enabled ? NSCursor.pointingHand : NSCursor.arrow).set()
 +    }
 +
-+    @objc func mouseEntered(with event: NSEvent) {
++    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
 +    }
 +
-+    @objc func mouseExited(with event: NSEvent) {
++    @objc(mouseExited:) func mouseExited(with event: NSEvent) {
 +        if NSCursor.current == NSCursor.pointingHand {
 +            NSCursor.arrow.set()
 +        }

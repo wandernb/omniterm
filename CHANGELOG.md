@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-27
+
+### Fixed
+
+- OmniTerm no longer quits when the pointer moves onto a button. The pointing-hand cursor added in 0.8.0 answered AppKit under the wrong method names, so entering a button in the active window crashed the app.
+
 ## [0.8.2] - 2026-11-26
 
 ### Fixed
@@ -990,7 +996,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/wandernb/omniterm/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wandernb/omniterm/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/wandernb/omniterm/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/wandernb/omniterm/compare/v0.7.0...v0.8.0
