@@ -1982,6 +1982,16 @@ class SessionKnowledgeCLITests(unittest.TestCase):
         self.assertEqual(result["next_offset"], 35)
         self.assertEqual(result["messages"][0]["text"], "\x1b[31muntrusted")
 
+    def test_graph_commands_ask_the_code_graph_about_this_folder_or_a_project(self):
+        payload, _ = self.invoke(["graph", "explain", "Store.save", "--json"])
+        self.assertEqual(payload, {"op": "code_graph", "mode": "explain", "name": "Store.save", "limit": 30,
+                                   "workspace": str(Path.cwd())})
+        payload, _ = self.invoke(["graph", "path", "a", "b", "--project", "/tmp/app", "--json"])
+        self.assertEqual(payload, {"op": "code_graph", "mode": "path", "name": "a", "target": "b", "limit": 30,
+                                   "project": "/tmp/app"})
+        self.assertEqual(self.invoke(["graph", "status", "--all", "--json"])[0],
+                         {"op": "code_graph", "mode": "stats", "limit": 30})
+
     def test_knowledge_search_preserves_filters_and_semantic_mode(self):
         payload, _ = self.invoke(["knowledge", "search", "retry behavior", "--mode", "semantic",
                                  "--provider", "claude", "--workspace", "/tmp/project", "--session-id", "claude:s", "--limit", "4"])

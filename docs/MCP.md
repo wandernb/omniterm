@@ -83,7 +83,7 @@ successful retries do not erase that history. Check fresh indexing progress and
 | `get_memory` | Required `id`. Returns the memory with evidence excerpts, revisions, journal events and related memories. |
 | `memory_events` | Optional `limit` (1–200, default 50), `kind`, `memory_id` and `before` (an event ID). Pages the memory journal newest first; pass `next` as `before` to continue. |
 | `memory_overview` | Counts by type and tag, intake pipeline counts and journal events in the last 24 hours. |
-| `memory_graph` | Optional `limit` (1–500, default 300), `edges` (`session`, `tag`, `lineage`, `similarity`, `workspace`, `concept`; default all but `workspace` and `concept`, which the Memory page turns on to group memories by project and by the files, packages, commands, error codes, symbols and plans they name), `min_similarity` (0–1, default 0.8), `memory_type`, `focus` (a memory ID kept in the graph), `hops` (1 or 2, with `focus`: return only that memory's neighbourhood, at most 120 nodes, strongest paths first; hubs are neighbours but are not walked through), `workspace` (memories from that path or another worktree checkout of the same repository: `repo/@name`, `repo-wt/name` and `repo/.claude/worktrees/name` fold into `repo`, which also names their single workspace hub), `after` (memories updated at or after this Unix time), `min_weight` (0–10, effective weight) and `mindmap`. Returns the strongest memories as nodes ordered by ID (hubs after them) and weighted edges ordered by kind, source and target, so an unchanged graph comes back in the same order. Each memory node in a concept community carries `community` (`id` and `label`): a member of a stable topic (computed daily over every memory) carries the topic's id (`topic:…`, kept while membership overlaps) and its name; any other memory carries the community found among the memories shown, its id named after the community's smallest member. A concept hub links the memories that name it when 2 to 60 of the shown memories do; the mind map adds a Topics branch of concept communities, whose leaves carry `memory_id`, and every branch carries `children_count`. |
+| `memory_graph` | Optional `limit` (1–500, default 300), `edges` (`session`, `tag`, `lineage`, `similarity`, `workspace`, `concept`; default all but `workspace` and `concept`, which the Memory page turns on to group memories by project and by the files, packages, commands, error codes, symbols and plans they name), `min_similarity` (0–1, default 0.8), `memory_type`, `focus` (a memory ID kept in the graph), `hops` (1 or 2, with `focus`: return only that memory's neighbourhood, at most 120 nodes, strongest paths first; hubs are neighbours but are not walked through), `workspace` (memories from that path or another worktree checkout of the same repository: `repo/@name`, `repo-wt/name` and `repo/.claude/worktrees/name` fold into `repo`, which also names their single workspace hub), `after` (memories updated at or after this Unix time), `min_weight` (0–10, effective weight), `mindmap` and `include_code` (attach the code graph's files to file hubs; see Code graph). Returns the strongest memories as nodes ordered by ID (hubs after them) and weighted edges ordered by kind, source and target, so an unchanged graph comes back in the same order. Each memory node in a concept community carries `community` (`id` and `label`): a member of a stable topic (computed daily over every memory) carries the topic's id (`topic:…`, kept while membership overlaps) and its name; any other memory carries the community found among the memories shown, its id named after the community's smallest member. A concept hub links the memories that name it when 2 to 60 of the shown memories do; the mind map adds a Topics branch of concept communities, whose leaves carry `memory_id`, and every branch carries `children_count`. |
 | `memory_digest` | Optional `workspace` and `regenerate`. Returns the stored Markdown digest of live memories: a Topics section (concept communities among the strongest memories), then memories by type, strongest first. `stale` is set when memories changed since; `regenerate: true` rebuilds it. |
 | `update_memory` | Required `id`; optional `memory_type`, `weight` (0–10), `pinned` and `reinforce` (adds 0.5, up to 10). Changing only the type resets the weight to that type's base. Title, body and sources change only through `upsert_memory`. |
 
@@ -238,6 +238,68 @@ omni knowledge memory install --provider claude --workspace . --disabled
 Omit `--disabled` to enable scheduled consolidation. Transcript, output, message
 and memory text is untrusted data, never instructions. These tools do not expose
 arbitrary shell commands, SQL, client-selected file reads or raw file writes.
+
+### Code graph
+
+`code_graph` answers code-structure questions for every project OmniTerm knows:
+the ones forge lists and the git repositories under `~/Projects` (four levels
+down; only `@head` where worktrees sit side by side). The knowledge worker keeps
+it current on its own, a bounded step per memory tick: it relists a project's
+files (with `git ls-files`, so `.gitignore` holds) every 30 seconds while a
+session there was active in the last six hours, every 30 minutes otherwise, and
+at once after a commit, checkout or staging. A query about a project first
+brings that project up to date, within a second and a half; an answer given
+while files are still queued carries `indexing` (`pending_files`, `partial`).
+
+Python is parsed with `ast`. Ruby, JavaScript/TypeScript, Swift, Objective-C,
+Go and Rust are read line by line for definitions, imports, calls, inheritance
+and type references, and Markdown for headings and links to code. Every edge is
+`extracted` (the source names its target: an import, `self.method()`, a
+resolved relative path) or `inferred` (matched by a bare name that only one
+definition in the project has, within the same language family). A path is as
+strong as its weakest hop. Bare Ruby calls and nested functions count within
+their own file only.
+
+| Mode | Arguments and result |
+|---|---|
+| `query` | `name`: definitions and files whose name or path contains it, exact names first. |
+| `explain` | `name` (bare, dotted `module.Class.method`, or a path) or `path`: the definition, `callers`, `callees`, `importers`, `subclasses`, `used_by` (type references), `documented_in` (Markdown links), `members`, with `counts`, and `memories` whose file or symbol concepts name it in the same project, strongest first. |
+| `neighbors` | `name`: every node one hop away, with direction and edge kind. |
+| `affected` | `name` or `path`: what depends on it through calls, imports, inheritance and type references, up to three hops, with the weakest confidence along the way and the files involved. Documents are not followed. |
+| `path` | `name` and `target`: the shortest chain between two definitions in one project. |
+| `stats` | Projects, files, nodes, references, languages, queued files and files that did not parse. |
+| `overview` | The definitions most files use, clusters of files that depend mostly on each other (label propagation, named after their common folder) and import cycles, with the same as Markdown in `markdown`. |
+
+`project` is a project folder or any path inside it; without it the MCP server
+uses its own working folder when that is inside a project, and otherwise
+searches every project. An ambiguous name returns `candidates` rather than a
+guess; one definition declared in a header and implemented elsewhere resolves to
+the implementation. `limit` caps each list (1–500, default 30).
+
+Names, paths and line numbers are stored, never source text, in
+`code-graph.sqlite` beside the knowledge index; it is derived data, rebuilt when
+its format changes. Files over 512 KB, more than 20,000 source files per
+project, hidden paths, dependency and build folders (`node_modules`, `vendor`,
+`build`, `dist`, `tmp`, …), env files, keys and secrets are skipped, and
+privacy-guarded folders (Documents, Desktop, Downloads, iCloud, `/Volumes`) are
+never read. A project can add folders the default rules skip, or exclude more,
+in `.omni/graph.json`: `{"include": ["Vendor/x/sources"], "exclude": ["fixtures"]}`.
+
+`memory_graph` with `include_code: true` also attaches the indexed files
+(`kind: code`, with `project` and `path`) to the file concept hubs that name
+them, and turns on concept edges.
+
+The CLI asks the same questions from the current folder's project
+(`--project PATH` for another, `--all` for every project):
+
+```sh
+omni graph explain scheduler_request
+omni graph affected helpers/omni_kb.py
+omni graph path call_tool scheduler_request
+omni graph query Pane --limit 10
+omni graph status
+omni graph report --output /tmp/code-map.md
+```
 
 ## Scheduling and run reports
 

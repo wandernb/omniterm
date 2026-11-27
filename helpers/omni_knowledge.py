@@ -133,7 +133,7 @@ PUBLIC_OPS = frozenset(("list_sessions", "get_session", "search_transcripts", "k
                         "get_unblock", "set_unblock", "rename_session", "get_system_prompt",
                         "consume_grant", "record_unblock_audit", "unblocker_audit", "get_unblocker_policy",
                         "set_unblocker_policy", "list_projects", "get_project", "get_project_file",
-                        "list_project_folder", "project_of", *ACCOUNT_OPS))
+                        "list_project_folder", "project_of", "code_graph", *ACCOUNT_OPS))
 INTERNAL_OPS = frozenset(("restore", "scan", "ack_writes", "drain_writes", "update_live_sessions",
                           "update_memory_sessions", "memory_tick", "embed", "relieve_pressure"))
 
@@ -262,7 +262,7 @@ def normalized_items(provider, event):
 
 class KnowledgeStore:
     def __init__(self, database=":memory:", roots=None, home=None, messenger=None, semantics=None, read_index=None,
-                 kb_roots=None, filter_sidecar=False):
+                 kb_roots=None, filter_sidecar=False, code_roots=None):
         if str(database) != ":memory:":
             raise KnowledgeError("Only the native app may persist knowledge documents")
         self.home = Path(home or Path.home())
@@ -359,6 +359,8 @@ class KnowledgeStore:
         self._hippocampus = None
         self._kb_roots = kb_roots
         self._knowledge_bases = None
+        self._code_roots = code_roots
+        self._code_graph = None
         self._episodes = None
         self._memory_changes = set()
         self._user_walk = {}  # table -> rowid the walk for the person's turns resumes below
@@ -2776,6 +2778,88 @@ class KnowledgeStore:
         return self._knowledge_bases
 
     @property
+    def codegraph(self):
+        """The code graph (helpers/omni_codegraph.py), in its own sidecar beside the index for the app's
+        worker and in memory for every other store."""
+        if self._code_graph is None:
+            module = self._helper_module("omni_codegraph")
+            path = ":memory:"
+            if self.readthrough and self._owns_filter_sidecar:
+                path = str(self._read_index.with_name("code-graph.sqlite"))
+            self._code_graph = module.CodeGraph(path, roots=self._code_roots, home=self.home,
+                                                active=self._recent_workspaces)
+            self._code_graph.memory_lookup = self._code_memories
+        return self._code_graph
+
+    def _recent_workspaces(self):
+        since = time.time() - 6 * 3600
+        return [row[0] for row in self.connection.execute(
+            "SELECT DISTINCT workspace FROM sources WHERE updated>? AND workspace IS NOT NULL LIMIT 500", (since,))]
+
+    def _concept_index(self):
+        """Concept key -> memory ids over the live memory cache, rebuilt when the cache changes."""
+        hippocampus = self.hippocampus
+        memories = hippocampus._all(time.time())
+        stamp = (hippocampus._memory_cache_at, len(memories), sum(hash((m["id"], m.get("revision"))) for m in memories))
+        cached = self.__dict__.get("_concept_index_cache")
+        if cached is not None and cached[0] == stamp:
+            return cached[1], cached[2]
+        index, by_id = {}, {}
+        for memory in memories:
+            if memory.get("archived"):
+                continue
+            by_id[memory["id"]] = memory
+            for key in hippocampus.concepts(memory):
+                index.setdefault(key, []).append(memory["id"])
+        self._concept_index_cache = (stamp, index, by_id)
+        return index, by_id
+
+    def _code_memories(self, node, limit):
+        """Memories whose file or symbol concepts name this code node, strongest first."""
+        index, by_id = self._concept_index()
+        root, path = node["root"].rstrip("/"), node["path"]
+        bases = {root, node["project"].rstrip("/")}
+        if root.endswith("/@head"):
+            bases.add(root[:-len("/@head")])
+        home = str(self.home).rstrip("/")
+        anywhere = {"file:" + base + "/" + path for base in bases}
+        anywhere |= {"file:~" + key[len("file:") + len(home):] for key in anywhere if key.startswith("file:" + home + "/")}
+        local = set()
+        if node["kind"] == "module":
+            local |= {"file:" + path, "file:" + path.rsplit("/", 1)[-1]}
+        else:
+            parts = node["qualname"].split(".")
+            local.add("symbol:" + node["name"])
+            if len(parts) >= 2 and node["kind"] == "method":
+                for separator in (".", "#", "::"):
+                    local.add("symbol:" + parts[-2] + separator + parts[-1])
+
+        def in_project(memory):
+            for workspace in memory.get("workspaces") or ():
+                workspace = workspace.rstrip("/")
+                if any(workspace == base or workspace.startswith(base + "/") or base.startswith(workspace + "/@")
+                       for base in bases):
+                    return True
+            return False
+        matched = {}
+        for key in anywhere | local:
+            for identifier in index.get(key, ()):
+                memory = by_id[identifier]
+                if key in anywhere or in_project(memory):
+                    matched.setdefault(identifier, key.split(":", 1)[1])
+        memories = sorted((by_id[identifier] for identifier in matched),
+                          key=lambda m: (-(m.get("effective_weight") or 0), m["id"]))
+        return [{"id": m["id"], "title": m.get("title"), "memory_type": m.get("memory_type"),
+                 "weight": round(m.get("effective_weight") or 0, 2), "matched": matched[m["id"]]}
+                for m in memories[:limit]]
+
+    def code_graph(self, arguments):
+        try:
+            return self.codegraph.request(arguments)
+        except ValueError as exc:
+            raise KnowledgeError(str(exc))
+
+    @property
     def episodes(self):
         if self._episodes is None:
             specification = importlib.util.spec_from_file_location("omni_episodes_for_knowledge",
@@ -2809,7 +2893,39 @@ class KnowledgeStore:
         return self.hippocampus.overview(arguments)
 
     def memory_graph(self, arguments):
-        return self.hippocampus.graph(arguments)
+        include_code = arguments.get("include_code") is True
+        arguments = {key: value for key, value in arguments.items() if key != "include_code"}
+        if include_code and "concept" not in arguments.get("edges", ["concept"]):
+            arguments["edges"] = list(arguments["edges"]) + ["concept"]  # code attaches to file concepts
+        elif include_code and "edges" not in arguments:
+            arguments["edges"] = list(self.hippocampus_module.GRAPH_DEFAULT_EDGES) + ["concept"]
+        result = self.hippocampus.graph(arguments)
+        if include_code:
+            self._attach_code(result)
+        return result
+
+    def _attach_code(self, result):
+        """Code-file nodes on the graph's file concept hubs, from the code graph."""
+        nodes = {node["id"]: node for node in result["nodes"]}
+        workspaces = {}
+        for memory in self.hippocampus._all(time.time()):
+            workspaces[memory["id"]] = memory.get("workspaces") or []
+        added = 0
+        for hub in [node for node in result["nodes"] if node.get("kind") == "concept" and
+                    node.get("concept_kind") == "file"]:
+            members = [edge["source"] if edge["target"] == hub["id"] else edge["target"] for edge in result["edges"]
+                       if edge["kind"] == "concept" and hub["id"] in (edge["source"], edge["target"])]
+            places = set(path for member in members for path in workspaces.get(member, ()))
+            for project, path in self.codegraph.locate(hub["id"][len("concept:file:"):], places)[:3]:
+                identifier = "code:" + project + ":" + path
+                if identifier not in nodes:
+                    nodes[identifier] = {"id": identifier, "kind": "code", "label": path.rsplit("/", 1)[-1],
+                                         "project": project, "path": path}
+                    result["nodes"].append(nodes[identifier])
+                    added += 1
+                result["edges"].append({"source": hub["id"], "target": identifier, "kind": "code", "strength": 1.0})
+        result["code_nodes"] = added
+
 
     def memory_digest(self, arguments):
         result = self.hippocampus.digest(arguments)
@@ -2994,6 +3110,7 @@ class KnowledgeStore:
                              {"available": False, "model": None, "error": "Inference disabled for this store"},
                 "slow_calls": list(self._slow_calls),
                 "knowledge_bases": self._knowledge_bases.status() if self._knowledge_bases else None,
+                "code_graph": self._code_graph.status() if self._code_graph else None,
                 "episodes": self._episodes.status() if self._episodes else None,
                 "persistence": "native_app", "last_scan_timings": getattr(self, "_last_scan_timings", None),
                 "storage": self.storage.status(),
@@ -4283,6 +4400,14 @@ class KnowledgeStore:
                 knowledge_bases = self.knowledge_bases.tick()
                 episodes = {"written": 0, "pending": 0}
                 busy = knowledge_bases["processed"] > 0
+                code_graph = None
+                if not busy:
+                    # Source files: its own bounded step that never holds back the memory caches.
+                    self._tick_step = "code_graph"
+                    try:
+                        code_graph = self.codegraph.tick()
+                    except Exception as exc:  # noqa: BLE001 - a code graph fault never stops the memory tick
+                        self._errors.append({"source_path": "code graph", "error": str(exc)[:300], "at": time.time()})
                 if not busy:
                     self._tick_step = "episodes"
                     episodes = self.episodes.tick()
@@ -4334,7 +4459,8 @@ class KnowledgeStore:
                 notify = self.storage.tick(semantics=(lambda: self.semantics) if self._semantics is not False else None)
                 self.connection.commit()
                 result = {"snapshot": event is not None, "digest": digest is not None, "warmed": warmed is not None,
-                          "knowledge_bases": knowledge_bases, "episodes": episodes, "archival": archival}
+                          "knowledge_bases": knowledge_bases, "episodes": episodes, "archival": archival,
+                          "code_graph": code_graph}
                 if notify:
                     result["notify"] = notify  # the native tick raises it in the Inbox
             elif op == "update_memory_sessions":

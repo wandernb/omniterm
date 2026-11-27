@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HELPERS = tuple(ROOT / "helpers" / name for name in (
     "omni", "omni-runner", "omni-mcp", "omni-knowledge", "omni_knowledge.py",
     "omni_messages.py", "omni_embeddings.py", "omni_semantics.py", "omni_memory.py", "omni_json_stream.py",
-    "omni_hippocampus.py", "omni_kb.py", "omni_episodes.py", "omni_redact.py", "omni_concepts.py", "omni_vectors.py", "omni_query.py", "omni_topics.py", "omni_storage.py", "omni_explain.py", "omni_summaries.py", "omni_blocks.py", "omni_unblocker.py", "omni_projects.py", "omni_accounts.py"))
+    "omni_hippocampus.py", "omni_kb.py", "omni_episodes.py", "omni_redact.py", "omni_concepts.py", "omni_vectors.py", "omni_query.py", "omni_topics.py", "omni_storage.py", "omni_explain.py", "omni_summaries.py", "omni_blocks.py", "omni_unblocker.py", "omni_projects.py", "omni_accounts.py", "omni_codegraph.py"))
 
 
 class MonitoringUnavailable(RuntimeError):

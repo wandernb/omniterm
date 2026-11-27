@@ -119,7 +119,20 @@ class StorageMonitor:
                 "over_budget": total is not None and total >= budget * GB,
                 "retention": {key: state.get(key) for key in ("retention_running", "retention_dropped",
                                                               "retention_for", "retention_finished_at")},
-                "available": self._path() is not None}
+                "available": self._path() is not None, "code_graph_bytes": self._code_graph_bytes()}
+
+    def _code_graph_bytes(self):
+        """The code graph's sidecar (derived, rebuildable) beside the index, outside the budget."""
+        path = self._path()
+        if path is None:
+            return None
+        total = 0
+        for suffix in ("", "-wal"):
+            try:
+                total += path.with_name("code-graph.sqlite" + suffix).stat().st_size
+            except OSError:
+                pass
+        return total
 
     def _start(self, path):
         def run():

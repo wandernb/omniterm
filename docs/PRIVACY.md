@@ -3,6 +3,11 @@
 The OmniTerm macOS app does not add analytics, telemetry, accounts, or a
 network service.
 Agent definitions, prompts, schedules, and run metadata are stored locally.
+The code graph reads the source files of your projects (forge's projects and
+the git repositories under `~/Projects`) and stores only names, paths and line
+numbers, locally, beside the knowledge index. It never reads env files, keys,
+secrets, dependency folders or privacy-guarded folders such as Documents,
+Desktop and Downloads.
 The MCP adapter uses stdio and a same-user Unix socket.
 
 The documentation website makes one anonymous public request to GitHub’s API

@@ -394,6 +394,8 @@ omni session claude:SESSION-ID --json
 omni knowledge search "earlier design decision" --mode hybrid --json
 omni knowledge status --json
 omni knowledge memory install --provider claude --workspace . --disabled
+omni graph explain SomeClass
+omni graph affected path/to/file.py
 ```
 
 The installation command above saves the memory agent disabled; omit

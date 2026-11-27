@@ -27987,10 +27987,10 @@ index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..d19cecdd8e81d3c0e84c76c48a9f129bab24cf12
+index 0000000000000000000000000000000000000000..1860ee5f71adf8e1764f936bff78ab02df6f7018
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4533 @@
+@@ -0,0 +1,4534 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -28110,7 +28110,7 @@ index 0000000000000000000000000000000000000000..d19cecdd8e81d3c0e84c76c48a9f129b
 +                                                    @"record_unblock_audit", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"set_unblocker_policy",
 +                                                    @"list_projects", @"get_project", @"get_project_file",
-+                                                    @"list_project_folder", @"project_of",
++                                                    @"list_project_folder", @"project_of", @"code_graph",
 +                                                    @"list_accounts", @"add_account", @"login_account", @"remove_account", @"rename_account",
 +                                                    @"set_account_email", @"refresh_accounts", @"install_routers" ]];
 +    });
@@ -28133,6 +28133,7 @@ index 0000000000000000000000000000000000000000..d19cecdd8e81d3c0e84c76c48a9f129b
 +                                                    @"get_unblock", @"get_system_prompt", @"unblocker_audit",
 +                                                    @"get_unblocker_policy", @"list_projects", @"get_project",
 +                                                    @"get_project_file", @"list_project_folder", @"project_of",
++                                                    @"code_graph",
 +                                                    // Account ops never touch the index: no drain.
 +                                                    @"list_accounts", @"add_account", @"login_account", @"remove_account", @"rename_account",
 +                                                    @"set_account_email", @"refresh_accounts", @"install_routers" ]];

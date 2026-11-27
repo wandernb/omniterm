@@ -801,6 +801,119 @@ def path_completion_matches(text):
     return matches
 
 
+def _graph_node(node):
+    return f"{node['path']}:{node['line']}  {node['kind']} {node['qualname']}"
+
+
+def _graph_edge(edge):
+    mark = "" if edge["confidence"] == "extracted" else "  [inferred]"
+    if "to" in edge:
+        return f"{_graph_node(edge['to'])}{mark}"
+    return f"{edge['path']}:{edge['line']}  {edge['from']}{mark}"
+
+
+def graph_text(mode, result):
+    """Short lines for a person; --json keeps the full answer."""
+    text = _graph_text(mode, result)
+    indexing = result.get("indexing")
+    if indexing:
+        text += f"\n(Still indexing this project: {indexing.get('pending_files', 0)} files queued; the answer may be partial.)"
+    return text
+
+
+def _graph_text(mode, result):
+    lines = []
+    if result.get("ambiguous"):
+        lines.append("Several matches; give a dotted name, --project or a path:")
+        lines.extend("  " + _graph_node(node) for node in result["candidates"])
+        return "\n".join(lines)
+    if result.get("found") is False:
+        return "No match" + (f" (searched {result['searched']} nodes)" if "searched" in result else "") + "."
+    if mode == "query":
+        lines.extend(_graph_node(node) for node in result["results"])
+        if result["total"] > len(result["results"]):
+            lines.append(f"... {result['total'] - len(result['results'])} more")
+        return "\n".join(lines) or "No match."
+    if mode == "explain":
+        lines.append(_graph_node(result["node"]))
+        if result.get("file_error"):
+            lines.append(f"  (file only partly read: {result['file_error']})")
+        for key in ("callers", "callees", "importers", "subclasses", "members", "memories"):
+            items = result.get(key) or []
+            total = result.get("counts", {}).get(key, len(items))
+            if not items:
+                continue
+            lines.append(f"{key.capitalize()} ({total}):")
+            for item in items:
+                if key == "members":
+                    lines.append("  " + _graph_node(item))
+                elif key == "memories":
+                    lines.append(f"  {item.get('id')}  {item.get('title')}")
+                else:
+                    lines.append("  " + _graph_edge(item))
+        return "\n".join(lines)
+    if mode == "neighbors":
+        lines.append(_graph_node(result["node"]))
+        for item in result["neighbors"]:
+            arrow = "<-" if item["direction"] == "in" else "->"
+            mark = "" if item["confidence"] == "extracted" else "  [inferred]"
+            lines.append(f"  {arrow} {item['edge']:<8} {_graph_node(item['node'])}{mark}")
+        return "\n".join(lines)
+    if mode == "affected":
+        lines.append(f"{result['total']} dependents of {result['node']['qualname']}"
+                     + (" (stopped at the limit)" if result.get("truncated") else "") + ":")
+        for item in result["affected"]:
+            mark = "" if item["confidence"] == "extracted" else "  [inferred]"
+            lines.append(f"  {item['depth']}  {_graph_node(item['node'])}  via {item['via']}{mark}")
+        if result.get("files"):
+            lines.append("Files: " + ", ".join(result["files"]))
+        return "\n".join(lines)
+    if mode == "path":
+        lines.append(f"{result['length']} hops, {result['confidence']}:")
+        if result["hops"]:
+            lines.append("  " + _graph_node(result["hops"][0]["from"]))
+        for hop in result["hops"]:
+            arrow = "->" if hop["direction"] == "out" else "<-"
+            lines.append(f"  {arrow} {hop['edge']:<8} {_graph_node(hop['to'])}")
+        return "\n".join(lines)
+    if mode == "stats":
+        status = result["status"]
+        lines.append(f"{status['projects']} projects, {status['indexed_files']} of {status['files']} files indexed"
+                     + (f", {status['pending']} queued" if status.get("pending") else ""))
+        for project in result["projects"]:
+            languages = ", ".join(f"{name} {count}" for name, count in sorted(project["languages"].items()))
+            lines.append(f"  {project['label'] or project['project']}: {project['nodes']} nodes, "
+                         f"{project['references']} references ({languages or 'no source files'})"
+                         + (f", {project['pending']} queued" if project["pending"] else ""))
+        for error in result.get("file_errors") or []:
+            lines.append(f"  ! {error['path']}: {error['error']}")
+        return "\n".join(lines)
+    return result.get("markdown") or json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def graph_from_cli(args):
+    mode = {"status": "stats", "report": "overview"}.get(args.graph_command, args.graph_command)
+    payload = {"op": "code_graph", "mode": mode, "limit": args.limit}
+    if getattr(args, "name", None):
+        payload["name"] = args.name
+    if getattr(args, "target", None):
+        payload["target"] = args.target
+    if args.project:
+        payload["project"] = os.path.abspath(os.path.expanduser(args.project))
+    elif not args.all:
+        payload["workspace"] = os.getcwd()
+    result = {key: value for key, value in request(payload).items() if key != "ok"}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+        return
+    text = graph_text(mode, result)
+    if getattr(args, "output", None):
+        Path(args.output).expanduser().write_text(text + "\n", encoding="utf-8")
+        print(f"Wrote {args.output}")
+        return
+    print(text)
+
+
 def request(payload):
     if payload.get("op") in {"save_agent", "create_agent", "update_agent"} and \
             isinstance(payload.get("agent"), dict) and payload["agent"].get("kind") == "loop":
@@ -3392,6 +3505,26 @@ def cli_parser():
             search.add_argument("--provider", choices=("claude", "codex"))
             search.add_argument("--workspace")
             search.add_argument("--session-id")
+    graph = subs.add_parser("graph", help="ask the code graph: definitions, callers, dependents, paths")
+    graph_commands = graph.add_subparsers(dest="graph_command", required=True)
+    for command, description in (("query", "find definitions or files by name"),
+                                 ("explain", "a symbol or file: definition, callers, callees, importers, memories"),
+                                 ("neighbors", "everything one hop from a symbol or file"),
+                                 ("affected", "what depends on a symbol or file, up to three hops"),
+                                 ("path", "the shortest chain from one symbol to another"),
+                                 ("status", "projects, indexing progress and parse errors"),
+                                 ("report", "hubs, clusters and import cycles of a project")):
+        graph_parser = graph_commands.add_parser(command, help=description)
+        if command not in ("status", "report"):
+            graph_parser.add_argument("name", help="a bare or dotted name (module.Class.method), or a file path")
+        if command == "path":
+            graph_parser.add_argument("target")
+        graph_parser.add_argument("--project", help="project folder or any path inside it (default: this folder)")
+        graph_parser.add_argument("--all", action="store_true", help="search every project, not just this folder's")
+        graph_parser.add_argument("--limit", type=int, default=30)
+        graph_parser.add_argument("--json", action="store_true")
+        if command == "report":
+            graph_parser.add_argument("--output", help="write the Markdown report to this file instead of printing it")
     stop = subs.add_parser("stop", help="stop an active run"); stop.add_argument("run_id")
     settings = subs.add_parser("settings", help="show or change global ~/.omni/settings.json values")
     settings_commands = settings.add_subparsers(dest="settings_command", metavar="ACTION")
@@ -4220,6 +4353,8 @@ def main(argv=None):
             raise
         print(json.dumps(response, indent=None if args.json else 2, ensure_ascii=False))
         return
+    if args.command == "graph":
+        return graph_from_cli(args)
     if args.command == "folders":
         try:
             groups = [normalized_group(path) for path in args.paths]
