@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-27
+
+### Fixed
+
+- Indexing a very large project no longer pauses OmniTerm's knowledge worker. Listing a repository with tens of thousands of files took most of a second and held searches and the Memory page back; it now runs in the background, and a question about that project waits at most a second for it.
+- The code graph never opens SSH keys, signing keys or certificates (`id_ed25519`, `.p8`, `.jks`, `~/.ssh`, `.gnupg`), including files without an extension.
+
 ## [0.9.0] - 2026-11-27
 
 ### Added
@@ -1002,7 +1009,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/wandernb/omniterm/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/wandernb/omniterm/compare/v0.8.3...v0.9.0
 [0.8.3]: https://github.com/wandernb/omniterm/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/wandernb/omniterm/compare/v0.8.1...v0.8.2
