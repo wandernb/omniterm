@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-27
+
+### Added
+
+- A Code tab on every project's page. Search the project's definitions and files, see the definitions most files use, the groups of files that depend on each other and any circular imports, then open a definition to follow its callers, what it calls, what a change would affect and the memories that mention it. Each step opens the next, and a breadcrumb leads back.
+- The Memory graph's new Code switch shows the source files your memories name, and double-clicking one opens it on its project's Code tab.
+- Agents get a link with each answer that opens the definition on the Code tab, so they can hand it to you. `omni graph open NAME` does the same from a terminal, and `omni graph query --kind class` keeps one kind of definition.
+
+### Fixed
+
+- The code graph no longer matches names from application code into test files, which made test helpers look like the most-used code. Groups of related files under the same folder now have distinct names.
+
 ## [0.9.1] - 2026-11-27
 
 ### Fixed
@@ -1009,7 +1021,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/wandernb/omniterm/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/wandernb/omniterm/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/wandernb/omniterm/compare/v0.8.3...v0.9.0
 [0.8.3]: https://github.com/wandernb/omniterm/compare/v0.8.2...v0.8.3
