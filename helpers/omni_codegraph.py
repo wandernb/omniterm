@@ -1370,7 +1370,7 @@ class CodeGraph:
                 result.append((target, ref["kind"], "out", confidence))
         return result
 
-    def locate(self, value, workspaces):
+    def locate(self, value, workspaces, code_only=False):
         """Indexed files a memory's file concept names: [(project, path)]. A relative value counts only in the
         projects of the memory's workspaces; an absolute or `~` value names its own project."""
         if value.startswith("~/"):
@@ -1382,7 +1382,8 @@ class CodeGraph:
                 for base in (row["root"], row["project"]):
                     if value.startswith(base.rstrip("/") + "/"):
                         relative = value[len(base.rstrip("/")) + 1:]
-                        if self.db.execute("SELECT 1 FROM files WHERE project=? AND path=?",
+                        if self.db.execute("SELECT 1 FROM files WHERE project=? AND path=?" +
+                                           (" AND lang!='markdown'" if code_only else ""),
                                            (row["project"], relative)).fetchone():
                             found.append((row["project"], relative))
             return list(dict.fromkeys(found))
@@ -1393,7 +1394,8 @@ class CodeGraph:
             except ValueError:
                 continue
         for project in sorted(projects):
-            for row in self.db.execute("SELECT path FROM files WHERE project=? AND (path=? OR path LIKE ?) LIMIT 3",
+            for row in self.db.execute("SELECT path FROM files WHERE project=? AND (path=? OR path LIKE ?)" +
+                                       (" AND lang!='markdown'" if code_only else "") + " LIMIT 3",
                                        (project, value, "%/" + value)):
                 found.append((project, row["path"]))
         return found

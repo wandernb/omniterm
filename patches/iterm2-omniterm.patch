@@ -21871,10 +21871,10 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..4b8fd02fced1e52f73c24339cbe2cc6e8cc0478a
+index 0000000000000000000000000000000000000000..131117b807f7caa01a7d87fc458b5c761e9ccf7e
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2502 @@
+@@ -0,0 +1,2513 @@
 +import AppKit
 +import Foundation
 +
@@ -22930,22 +22930,33 @@ index 0000000000000000000000000000000000000000..4b8fd02fced1e52f73c24339cbe2cc6e
 +        graphModeControl.sizeToFit()
 +        graphModeControl.frame.origin = NSPoint(x: 12, y: rowY)
 +        var x = graphModeControl.frame.maxX + 14
-+        for (_, button) in edgeToggles {
-+            button.sizeToFit()
-+            button.frame.origin = NSPoint(x: x, y: rowY + 2)
-+            x = button.frame.maxX + 8
-+        }
 +        fitButton.sizeToFit()
 +        fitButton.frame.origin = NSPoint(x: width - fitButton.frame.width - 12, y: rowY - 2)
-+        graphSearch.frame = NSRect(x: max(x + 6, fitButton.frame.minX - 190), y: rowY,
-+                                   width: min(180, max(80, fitButton.frame.minX - x - 16)), height: controlHeight)
-+        // The filter bar, then the canvas with the breadcrumb on its top left.
++        // The filter bar below.
 +        var filterX: CGFloat = 12
 +        for (popUp, popUpWidth) in [(graphTypePopUp, 140), (graphWorkspacePopUp, 200), (graphTimePopUp, 120),
 +                                    (graphWeightPopUp, 110)] as [(NSPopUpButton, CGFloat)] {
 +            popUp.frame = NSRect(x: filterX, y: rowY + 30, width: popUpWidth, height: 22)
 +            filterX += popUpWidth + 8
 +        }
++        // Link switches fill the first row up to the search field's room; the rest follow the filters.
++        let firstRowEnd = fitButton.frame.minX - 96
++        var overflowX = filterX + 6
++        for (_, button) in edgeToggles {
++            button.sizeToFit()
++            if x + button.frame.width <= firstRowEnd {
++                button.frame.origin = NSPoint(x: x, y: rowY + 2)
++                x = button.frame.maxX + 8
++            } else {
++                button.frame.origin = NSPoint(x: overflowX, y: rowY + 32)
++                overflowX = button.frame.maxX + 8
++                x = .greatestFiniteMagnitude  // keep the order: once one wraps, the rest do
++            }
++        }
++        let searchStart = x == .greatestFiniteMagnitude ? edgeToggles.filter { $0.button.frame.minY < rowY + 20 }
++            .map(\.button.frame.maxX).max() ?? graphModeControl.frame.maxX : x
++        graphSearch.frame = NSRect(x: max(searchStart + 6, fitButton.frame.minX - 190), y: rowY,
++                                   width: min(180, max(80, fitButton.frame.minX - searchStart - 16)), height: controlHeight)
 +        let canvasTop: CGFloat = 72
 +        canvas.frame = NSRect(x: 0, y: canvasTop, width: width, height: max(0, height - canvasTop - 24))
 +        graphBackButton.sizeToFit()

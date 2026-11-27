@@ -2916,7 +2916,7 @@ class KnowledgeStore:
             members = [edge["source"] if edge["target"] == hub["id"] else edge["target"] for edge in result["edges"]
                        if edge["kind"] == "concept" and hub["id"] in (edge["source"], edge["target"])]
             places = set(path for member in members for path in workspaces.get(member, ()))
-            for project, path in self.codegraph.locate(hub["id"][len("concept:file:"):], places)[:3]:
+            for project, path in self.codegraph.locate(hub["id"][len("concept:file:"):], places, code_only=True)[:3]:
                 identifier = "code:" + project + ":" + path
                 if identifier not in nodes:
                     nodes[identifier] = {"id": identifier, "kind": "code", "label": path.rsplit("/", 1)[-1],
