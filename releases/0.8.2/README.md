@@ -1,6 +1,6 @@
 # OmniTerm 0.8.2
 
-This is the latest OmniTerm distribution.
+This release is superseded by [OmniTerm 0.8.3](../0.8.3/README.md).
 
 - [Download the DMG](https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.dmg)
 - [Download the ZIP](https://github.com/wandernb/omniterm/releases/download/v0.8.2/OmniTerm-0.8.2.zip)
