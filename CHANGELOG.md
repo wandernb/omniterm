@@ -7,8 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- The project page's Code tab opens on what matters: the project's numbers at a glance, Start here questions (what breaks if you change its most-used definition, how two groups connect, what holds the largest group together, why two files import each other), surprising connections between groups of files, and a How do two parts connect? finder that shows the chain of calls, imports and uses step by step. Most-used definitions name the group they belong to.
+- The Memory graph is easier to read: hubs grow with their links and fade when nothing links to them, only the most connected hubs are labelled until you zoom in, and labels no longer sit on nodes and stand out on a backdrop.
+- The Memory graph's controls sit in three tidy rows that adapt to the window: the view switch and highlight field, the filters, then the link legend.
+- Memory Search shows how to search, examples and your recent searches before you type, suggests what to try when nothing matches, and searches as you type.
+- Page tabs (a project's, Settings') scroll sideways when they do not fit, and the chosen tab's bold label no longer shifts the others.
+- The sidebar's top group has room above Dashboard and below Settings, and its trees read more clearly: deeper indentation, bold folders with how many items they hold, and faint guides from each folder to its items.
+
 ### Fixed
 
+- Typing in the Unblocker's policy and in Settings' fields works again. The page refreshed every two seconds and took the keyboard away; it now waits while you type, and Return and the arrow keys stay in the field.
 - An agent run or resumed session starting no longer moves the window to it. It opens in the background and shows in the sidebar; the page you are on stays put.
 - Command-N opens New Agent instead of an arbitrary terminal tab. New Tab and the sidebar's + still open a terminal.
 - The Omni Unblocker reaches every waiting goal session again. A few old sessions it had already checked used up every pass, so newer ones were never looked at. Waiting-session lists now keep the newest when they are trimmed.

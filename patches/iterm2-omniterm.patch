@@ -11052,7 +11052,7 @@ index 523711ff7af3baa9fc76521b5cec79b940659faf..499ea2aa4234300100afff565ad7a4af
  // In big sur, sheets aren't key windows any more. This finds the current sheet for the key window and returns it.
  @property(nonatomic, readonly) NSWindow *it_keyWindow;
 diff --git a/sources/AppKit/iTermApplication.m b/sources/AppKit/iTermApplication.m
-index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4ffabfa08 100644
+index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d26527c3f84f3 100644
 --- a/sources/AppKit/iTermApplication.m
 +++ b/sources/AppKit/iTermApplication.m
 @@ -30,6 +30,17 @@
@@ -11091,7 +11091,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
          NSSetUncaughtExceptionHandler(&iTermUncaughtExceptionHandler);
          [sharedApplication addObserver:sharedApplication
                              forKeyPath:@"modalWindow"
-@@ -864,11 +879,107 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -864,11 +879,111 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
              }
              break;
          }
@@ -11125,9 +11125,13 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
 +                event.keyCode == kVK_UpArrow || event.keyCode == kVK_DownArrow ||
 +                event.keyCode == kVK_LeftArrow || event.keyCode == kVK_RightArrow;
 +            PTYSession *session = nil;
++            // A text field or editor on a page (the Unblocker's policy, a
++            // setting) keeps its own Return and arrows; the dashboard routing
++            // below is only for a terminal that has the keyboard.
++            const BOOL omniEditingText = [self.keyWindow.firstResponder isKindOfClass:[NSTextView class]];
 +            // Only while the terminal window is key: the dashboard must not
 +            // take the arrows of the Inbox or another window.
-+            if (omniDashboardCandidate && (omniFlags & omniActionFlags) == 0 &&
++            if (omniDashboardCandidate && !omniEditingText && (omniFlags & omniActionFlags) == 0 &&
 +                omniTerminal.window != nil && omniTerminal.window == self.keyWindow) {
 +                session = [[[iTermController sharedInstance] currentTerminal] currentSession];
 +                id controlsMarker =
@@ -11159,7 +11163,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
 +                    return;
 +                }
 +            }
-+            if ((event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter) &&
++            if (!omniEditingText && (event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter) &&
 +                (omniFlags & omniNewlineFlags) != 0 &&
 +                (omniFlags & NSEventModifierFlagControl) == 0) {
 +                session = session ?: [[[iTermController sharedInstance] currentTerminal] currentSession];
@@ -11200,7 +11204,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
              event.it_functionModifierPressed = _functionPressed;
              event = [self eventByRemappingForSecureInput:event];
              if (!event) {
-@@ -883,6 +994,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -883,6 +998,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  #endif
              RLog(@"NSKeyDown event taking the regular path");
              break;
@@ -11208,7 +11212,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
          case NSEventTypeKeyUp:
              RLog(@"begin key-up");
  #if DEBUG
-@@ -955,6 +1067,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -955,6 +1071,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      }];
  }
  
@@ -11242,7 +11246,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
  - (void)setIsUIElement:(BOOL)uiElement {
      if (uiElement == _isUIElement) {
          return;
-@@ -978,6 +1117,26 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -978,6 +1121,26 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
                                                          object:self];
  }
  
@@ -11269,7 +11273,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
  - (NSArray<NSWindow *> *)orderedWindowsPlusVisibleHotkeyPanels {
      NSArray<NSWindow *> *panels = [[iTermHotKeyController sharedInstance] visibleFloatingHotkeyWindows] ?: @[];
      return [panels arrayByAddingObjectsFromArray:[self orderedWindows]];
-@@ -990,11 +1149,21 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -990,11 +1153,21 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  
  - (void)activateIgnoringOtherApps:(BOOL)flag {
      RLog(@"activateIgnoringOtherApps flag=%@", @(flag));
@@ -11291,7 +11295,7 @@ index a56037c6cf057bea51441220684b06421d322893..572635b89e01fe527b661bf14fb305a4
      [super activate];
  }
  
-@@ -1282,4 +1451,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
+@@ -1282,4 +1455,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  }
  
  @end
@@ -15538,10 +15542,10 @@ index 0000000000000000000000000000000000000000..276a4470f56b6c012eb2c66fec243294
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b6d92fe90f7268c14a9ed634789e41d8f89a075b
+index 0000000000000000000000000000000000000000..d18db351005cfa329d3a6d44e919f5d6c9865e7a
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,854 @@
+@@ -0,0 +1,863 @@
 +import AppKit
 +import Foundation
 +
@@ -15907,8 +15911,17 @@ index 0000000000000000000000000000000000000000..b6d92fe90f7268c14a9ed634789e41d8
 +        return true
 +    }
 +
++    // The timed refresh rebuilds most pages, which would take the keyboard
++    // out of a field or editor every two seconds; it waits while the person
++    // types on the page. Saving and other explicit changes still rebuild.
 +    func refresh() {
++        guard !isEditingText else { return }
 +        pane?.reload()
++    }
++
++    var isEditingText: Bool {
++        guard let pane, let text = window?.firstResponder as? NSTextView, text.isEditable else { return false }
++        return text.isDescendant(of: pane)
 +    }
 +
 +    func panelLayoutDidChange(_ layout: OmniPanelLayout) {
@@ -16976,10 +16989,10 @@ index 0000000000000000000000000000000000000000..d03f55313be021cde4609317a81ee482
 +}
 diff --git a/sources/OmniTerm/OmniFocusZone.swift b/sources/OmniTerm/OmniFocusZone.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba6d6424be
+index 0000000000000000000000000000000000000000..88d464644a76c5fcbf0d34e384f0369aeb8968b4
 --- /dev/null
 +++ b/sources/OmniTerm/OmniFocusZone.swift
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,355 @@
 +import AppKit
 +import Foundation
 +
@@ -17320,6 +17333,10 @@ index 0000000000000000000000000000000000000000..3d97b562a3f72f6f8a827b74961ba8ba
 +            verticalKey?(1)
 +        default:
 +            return super.zoneHandleKey(event)
++        }
++        // A button in a row that scrolls sideways (the page tabs) is brought into view.
++        if let button = selectedButton {
++            button.scrollToVisible(button.bounds)
 +        }
 +        noteFocusRingMaskChanged()
 +        needsDisplay = true
@@ -20822,10 +20839,10 @@ index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d0
 +}
 diff --git a/sources/OmniTerm/OmniMemoryGraphView.swift b/sources/OmniTerm/OmniMemoryGraphView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb41b68d99
+index 0000000000000000000000000000000000000000..fb377bc0d83733a87fc715c6d5ddbeba1aef7352
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryGraphView.swift
-@@ -0,0 +1,1213 @@
+@@ -0,0 +1,1274 @@
 +import AppKit
 +import Foundation
 +import os.signpost
@@ -21254,8 +21271,9 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +    }
 +
 +    // Greedy label placement: in the order given (most important first), a
-+    // label is drawn only when its rectangle overlaps none already placed.
-+    static func placeLabels(_ candidates: [(id: String, rect: CGRect)]) -> [String] {
++    // label is drawn only when its rectangle overlaps none already placed,
++    // nor any of the `obstacles` (the drawn nodes), so text never covers a node.
++    static func placeLabels(_ candidates: [(id: String, rect: CGRect)], obstacles: [CGRect] = []) -> [String] {
 +        let cell: CGFloat = 64
 +        var grid: [Int: [CGRect]] = [:]
 +        var placed: [String] = []
@@ -21269,6 +21287,11 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +                }
 +            }
 +            return result
++        }
++        for obstacle in obstacles {
++            for key in keys(obstacle) {
++                grid[key, default: []].append(obstacle)
++            }
 +        }
 +        for (id, rect) in candidates {
 +            let cells = keys(rect)
@@ -21461,6 +21484,12 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +    private var selectedAtMouseDown: String?
 +
 +    private var nodeIndex: [String: Int] = [:]
++    // Links per node, and the least a hub needs to be labelled zoomed out:
++    // only the most connected hubs name themselves until the person zooms in.
++    private var degrees: [String: Int] = [:]
++    private var hubLabelDegree = 0
++    private static let labelledHubs = 24
++    private static let allHubLabelsScale: CGFloat = 1.2
 +    private var focusNeighbours: Set<String> = []
 +    private var tagGroups: [String: Int] = [:]
 +    // Communities shown as regions, and the memberships last rendered.
@@ -21502,6 +21531,14 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        self.positions = positions
 +        nodeIndex = Dictionary(nodes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
 +        tagGroups = OmniMemoryGraphLayout.tagGroupSizes(edges)
++        var degrees: [String: Int] = [:]
++        for edge in edges {
++            degrees[edge.source, default: 0] += 1
++            degrees[edge.target, default: 0] += 1
++        }
++        self.degrees = degrees
++        let hubDegrees = nodes.filter { Self.isHub($0) }.map { degrees[$0.id] ?? 0 }.sorted(by: >)
++        hubLabelDegree = hubDegrees.count > Self.labelledHubs ? max(1, hubDegrees[Self.labelledHubs - 1]) : 0
 +        if let selectedID, nodeIndex[selectedID] == nil {
 +            self.selectedID = nil
 +        }
@@ -21594,15 +21631,22 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        return CGPoint(x: bounds.midX + (point.x + offset.x) * scale, y: bounds.midY + (point.y + offset.y) * scale)
 +    }
 +
++    // The network's hubs; the mind map's branches are not.
++    static func isHub(_ node: OmniMemoryGraphNode) -> Bool {
++        return ["workspace", "concept", "code"].contains(node.kind)
++    }
++
 +    func radius(_ node: OmniMemoryGraphNode) -> CGFloat {
++        // A hub grows with its links, so the ones that hold the graph together stand out.
++        let links = CGFloat(degrees[node.id] ?? 0).squareRoot()
 +        switch node.kind {
 +        case "root": return 22
 +        case "type": return 16
 +        case "tag", "topic": return 9
 +        case "topics": return 16
-+        case "workspace": return 11
-+        case "concept": return 8
-+        case "code": return 7
++        case "workspace": return 7 + min(7, links * 0.9)
++        case "concept": return 5 + min(6, links * 0.8)
++        case "code": return 5 + min(5, links * 0.7)
 +        default:
 +            let base = 4 + CGFloat(max(0, min(10, node.weight))) * 1.1
 +            guard let focusID else { return base }
@@ -21758,9 +21802,7 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        OmniTheme.contentBackground.setFill()
 +        bounds.intersection(dirtyRect).fill()
 +        let searching = !highlightQuery.trimmingCharacters(in: .whitespaces).isEmpty
-+        if showsCommunityRegions {
-+            drawRegions()
-+        }
++        let regionNames = showsCommunityRegions ? drawRegions() : []
 +        let emphasised = self.emphasised
 +        let key = EdgeCacheKey(generation: layoutGeneration, lowZoom: scale < OmniMemoryGraphLayout.lowZoom,
 +                               hidden: hiddenEdgeKinds, searching: searching)
@@ -21782,6 +21824,7 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +            }
 +        }
 +        var labels: [(node: OmniMemoryGraphNode, center: CGPoint, r: CGFloat, priority: Int)] = []
++        var discs: [CGRect] = []
 +        for node in nodes {
 +            guard let position = positions[node.id] else { continue }
 +            let center = viewPoint(position)
@@ -21797,7 +21840,11 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +            }
 +            if dimmed {
 +                color = color.withAlphaComponent(0.2)
++            } else if Self.isHub(node), (degrees[node.id] ?? 0) == 0 {
++                // A hub linked to nothing shown is context, not structure.
++                color = color.withAlphaComponent(0.4)
 +            }
++            discs.append(rect.insetBy(dx: -1, dy: -1))
 +            if rect.insetBy(dx: -6, dy: -6).intersects(dirtyRect) {
 +                if recentlyTouched.contains(node.id) {
 +                    OmniTheme.accent.withAlphaComponent(0.45).setFill()
@@ -21825,7 +21872,14 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +                labels.append((node, center, r, priority))
 +            }
 +        }
-+        drawLabels(labels)
++        // Region names over the nodes, on a backdrop; node labels keep clear of them.
++        let regionBackdrop = OmniTheme.contentBackground.withAlphaComponent(0.82)
++        for name in regionNames {
++            regionBackdrop.setFill()
++            NSBezierPath(roundedRect: name.rect.insetBy(dx: -5, dy: -2), xRadius: 4, yRadius: 4).fill()
++            name.text.draw(at: name.rect.origin, withAttributes: name.attributes)
++        }
++        drawLabels(labels, discs: discs + regionNames.map { $0.rect.insetBy(dx: -5, dy: -2) })
 +        if nodes.isEmpty {
 +            let message = "No memories to draw yet." as NSString
 +            let attributes: [NSAttributedString.Key: Any] = [.font: OmniTheme.Font.placeholder,
@@ -21841,6 +21895,10 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        if node.id == hoveredID { return 1 }
 +        if node.id == focusID { return 2 }
 +        if matches(node) { return 3 }
++        if Self.isHub(node) {
++            let linked = (degrees[node.id] ?? 0) >= hubLabelDegree && (degrees[node.id] ?? 0) > 0
++            return linked || scale >= Self.allHubLabelsScale ? 4 : nil
++        }
 +        if node.kind != "memory" { return 4 }
 +        if focusID != nil {
 +            // In focus, neighbours are labelled; the second ring only on hover.
@@ -21849,7 +21907,8 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        return scale >= 0.7 || nodes.count <= 40 ? 6 : nil
 +    }
 +
-+    private func drawLabels(_ labels: [(node: OmniMemoryGraphNode, center: CGPoint, r: CGFloat, priority: Int)]) {
++    private func drawLabels(_ labels: [(node: OmniMemoryGraphNode, center: CGPoint, r: CGFloat, priority: Int)],
++                            discs: [CGRect]) {
 +        let regular: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10.5),
 +                                                      .foregroundColor: NSColor.labelColor]
 +        let strong: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold),
@@ -21865,8 +21924,20 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +            texts[label.node.id] = (text, origin, attributes)
 +            candidates.append((label.node.id, CGRect(origin: origin, size: size)))
 +        }
-+        for id in OmniMemoryGraphLayout.placeLabels(candidates) {
++        // The selected and hovered labels always show; the rest keep off the
++        // nodes and off them.
++        let forced = ordered.prefix { $0.priority <= 1 }.count
++        let forcedIDs = OmniMemoryGraphLayout.placeLabels(Array(candidates.prefix(forced)))
++        let forcedRects = candidates.prefix(forced).filter { forcedIDs.contains($0.id) }.map(\.rect)
++        let restIDs = OmniMemoryGraphLayout.placeLabels(Array(candidates.dropFirst(forced)),
++                                                        obstacles: discs + forcedRects)
++        let backdrop = OmniTheme.contentBackground.withAlphaComponent(0.78)
++        for id in forcedIDs + restIDs {
 +            guard let label = texts[id] else { continue }
++            let size = label.0.size(withAttributes: label.2)
++            backdrop.setFill()
++            NSBezierPath(roundedRect: NSRect(origin: label.1, size: size).insetBy(dx: -3, dy: -1),
++                         xRadius: 3, yRadius: 3).fill()
 +            label.0.draw(at: label.1, withAttributes: label.2)
 +        }
 +    }
@@ -21883,9 +21954,10 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +        text.draw(at: CGPoint(x: rect.midX - size.width / 2, y: rect.minY + 1), withAttributes: attributes)
 +    }
 +
-+    private func drawRegions() {
-+        let labelAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-+                                                              .foregroundColor: OmniTheme.secondaryText]
++    // Draws the regions and returns their names, placed so none overlaps
++    // another (the largest community first), to draw over the nodes.
++    private func drawRegions() -> [(text: NSString, rect: CGRect, attributes: [NSAttributedString.Key: Any])] {
++        var names: [(text: NSString, rect: CGRect, attributes: [NSAttributedString.Key: Any], size: Int)] = []
 +        for community in regionCommunities {
 +            let points = community.members.compactMap { positions[$0] }.map { viewPoint($0) }
 +            let hull = OmniMemoryGraphLayout.convexHull(points)
@@ -21905,12 +21977,18 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +            path.fill()
 +            path.stroke()
 +            guard !community.label.isEmpty else { continue }
++            let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
++                                                             .foregroundColor: tint.blended(withFraction: 0.35, of: .white) ?? tint]
 +            let text = (community.label.count > 32 ? String(community.label.prefix(31)) + "…" : community.label) as NSString
-+            let size = text.size(withAttributes: labelAttributes)
++            let size = text.size(withAttributes: attributes)
 +            let top = hull.map { $0.y }.min() ?? 0
 +            let midX = hull.map { $0.x }.reduce(0, +) / CGFloat(hull.count)
-+            text.draw(at: CGPoint(x: midX - size.width / 2, y: top - 14 - size.height), withAttributes: labelAttributes)
++            names.append((text, CGRect(x: midX - size.width / 2, y: top - 14 - size.height, width: size.width, height: size.height),
++                          attributes, community.members.count))
 +        }
++        names.sort { $0.size > $1.size }
++        let placed = Set(OmniMemoryGraphLayout.placeLabels(names.enumerated().map { (id: "\($0.offset)", rect: $0.element.rect.insetBy(dx: -4, dy: -2)) }))
++        return names.enumerated().filter { placed.contains("\($0.offset)") }.map { ($0.element.text, $0.element.rect, $0.element.attributes) }
 +    }
 +
 +    // MARK: - Mouse
@@ -22041,10 +22119,10 @@ index 0000000000000000000000000000000000000000..08b86fe6e954241ae45f9a5b3e12a1bb
 +}
 diff --git a/sources/OmniTerm/OmniMemoryPane.swift b/sources/OmniTerm/OmniMemoryPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81ecd644d3
+index 0000000000000000000000000000000000000000..61a60b8d639449af446f0f05860a96db1242de54
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryPane.swift
-@@ -0,0 +1,2519 @@
+@@ -0,0 +1,2736 @@
 +import AppKit
 +import Foundation
 +
@@ -22583,6 +22661,10 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +    private(set) var searchLike: String?
 +    var recentSearchDefaults: UserDefaults = iTermUserDefaults.userDefaults()
 +    private var searchListTop: CGFloat { searchTokens.isEmpty ? 62 : 90 }
++    // What shows instead of an empty list: how to search, examples and recent
++    // searches, or what to try when nothing matched.
++    private let searchEmptyState = OmniSearchEmptyState()
++    private var searchedQuery = ""
 +
 +    // Process
 +    private let processView = OmniResizingView()
@@ -22626,6 +22708,7 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +    private let graphModeControl = NSSegmentedControl(labels: ["Network", "Mind Map"], trackingMode: .selectOne,
 +                                                      target: nil, action: nil)
 +    private var edgeToggles: [(kind: String, button: NSButton)] = []
++    private let graphLegendLabel = OmniTheme.meta("Show")
 +    private let graphSearch = NSSearchField()
 +    private let fitButton = OmniTheme.button("Fit", target: nil, action: nil)
 +    let canvas = OmniMemoryGraphView()
@@ -22805,7 +22888,9 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +
 +    private func setUpSearch() {
 +        searchField.placeholderString = "Search memories and transcripts"
-+        searchField.sendsWholeSearchString = true
++        // Results follow the typing after a short pause; Return records the search.
++        searchField.sendsWholeSearchString = false
++        searchField.sendsSearchStringImmediately = false
 +        searchField.target = self
 +        searchField.action = #selector(runSearch(_:))
 +        modeControl.selectedSegment = 2
@@ -22814,6 +22899,26 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        corpusControl.selectedSegment = 0
 +        corpusControl.target = self
 +        corpusControl.action = #selector(runSearch(_:))
++        modeControl.setToolTip("Exact words, filters and phrases", forSegment: 0)
++        modeControl.setToolTip("Related ideas, even in other words", forSegment: 1)
++        modeControl.setToolTip("Both: exact words ranked with meaning", forSegment: 2)
++        searchEmptyState.pick = { [weak self] query in
++            guard let self else { return }
++            self.searchField.stringValue = query
++            self.view.window?.makeFirstResponder(self.searchField)
++            self.searchField.currentEditor()?.selectedRange = NSRange(location: (query as NSString).length, length: 0)
++            self.runSearch(nil)
++        }
++        searchEmptyState.action = { [weak self] action in
++            guard let self else { return }
++            switch action {
++            case .semantic: self.modeControl.selectedSegment = 1
++            case .hybrid: self.modeControl.selectedSegment = 2
++            case .transcripts: self.corpusControl.selectedSegment = 1
++            case .memories: self.corpusControl.selectedSegment = 0
++            }
++            self.runSearch(nil)
++        }
 +        configureTable(searchTable, in: searchScroll, label: "Search results")
 +        searchTable.keyHandler = { [weak self] event in self?.searchZone.zoneHandleKey(event) ?? false }
 +        searchTable.doubleAction = #selector(searchDoubleClick(_:))
@@ -22831,9 +22936,10 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        searchField.searchMenuTemplate = Self.recentSearchesMenu()
 +        searchField.maximumRecents = OmniRecentSearches.limit
 +        for view in [searchListPane, searchField, modeControl, corpusControl, searchStatus, searchChips, searchScroll,
-+                     searchDetailScroll] as [NSView] {
++                     searchDetailScroll, searchEmptyState] as [NSView] {
 +            searchView.addSubview(view)
 +        }
++        updateSearchEmptyState()
 +    }
 +
 +    private func setUpProcess() {
@@ -22937,6 +23043,7 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +            edgeToggles.append((kind, button))
 +            graphView.addSubview(button)
 +        }
++        graphView.addSubview(graphLegendLabel)
 +        // Typing highlights; return focuses the best match.
 +        graphSearch.placeholderString = "Highlight, return to focus"
 +        graphSearch.target = self
@@ -23058,6 +23165,7 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        searchScroll.frame = NSRect(x: 0, y: searchTop, width: list, height: max(0, height - searchTop))
 +        searchDetailScroll.frame = NSRect(x: list, y: searchTop, width: max(0, width - list),
 +                                          height: max(0, height - searchTop))
++        searchEmptyState.frame = NSRect(x: 0, y: searchTop, width: width, height: max(0, height - searchTop))
 +
 +        // Process
 +        let pipelineHeight: CGFloat = 112
@@ -23096,44 +23204,49 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +                                    width: max(0, width - regenerateButton.frame.maxX - 24), height: 16)
 +        digestScroll.frame = NSRect(x: 0, y: 44, width: width, height: max(0, height - 44)).insetBy(dx: 12, dy: 0)
 +
-+        // Graph
++        // Graph: the view switch, the highlight field and Fit on the first
++        // row; the filters on the second, sharing its width; the link legend
++        // (each kind a switch in its colour) on its own row below, wrapping
++        // as the window narrows.
 +        graphModeControl.sizeToFit()
 +        graphModeControl.frame.origin = NSPoint(x: 12, y: rowY)
-+        var x = graphModeControl.frame.maxX + 14
 +        fitButton.sizeToFit()
 +        fitButton.frame.origin = NSPoint(x: width - fitButton.frame.width - 12, y: rowY - 2)
-+        // The filter bar below.
++        let searchRoom = fitButton.frame.minX - 10 - (graphModeControl.frame.maxX + 12)
++        let searchWidth = max(90, min(320, searchRoom))
++        graphSearch.frame = NSRect(x: fitButton.frame.minX - 10 - searchWidth, y: rowY, width: searchWidth,
++                                   height: controlHeight)
++        let filters: [(NSPopUpButton, CGFloat, CGFloat)] = [(graphTypePopUp, 150, 110), (graphWorkspacePopUp, 240, 130),
++                                                            (graphTimePopUp, 130, 100), (graphWeightPopUp, 120, 100)]
++        let filterGap: CGFloat = 8
++        let filterRoom = width - 24 - filterGap * CGFloat(filters.count - 1)
++        let scale = min(1, filterRoom / filters.reduce(0) { $0 + $1.1 })
 +        var filterX: CGFloat = 12
-+        for (popUp, popUpWidth) in [(graphTypePopUp, 140), (graphWorkspacePopUp, 200), (graphTimePopUp, 120),
-+                                    (graphWeightPopUp, 110)] as [(NSPopUpButton, CGFloat)] {
-+            popUp.frame = NSRect(x: filterX, y: rowY + 30, width: popUpWidth, height: 22)
-+            filterX += popUpWidth + 8
++        var filterY = rowY + 32
++        for (popUp, preferred, least) in filters {
++            let popUpWidth = max(least, (preferred * scale).rounded(.down))
++            if filterX > 12, filterX + popUpWidth > width - 12 {
++                filterX = 12
++                filterY += 28
++            }
++            popUp.frame = NSRect(x: filterX, y: filterY, width: popUpWidth, height: 22)
++            filterX += popUpWidth + filterGap
 +        }
-+        // Link switches fill the first row up to the search field's room; the rest follow the filters.
-+        let firstRowEnd = fitButton.frame.minX - 96
-+        var overflowX = filterX + 6
-+        var overflowY = rowY + 32
++        graphLegendLabel.sizeToFit()
++        let legendY = filterY + 30
++        graphLegendLabel.frame.origin = NSPoint(x: 14, y: legendY + 3)
++        var legendX = graphLegendLabel.frame.maxX + 10
++        var legendRowY = legendY
 +        for (_, button) in edgeToggles {
 +            button.sizeToFit()
-+            if x + button.frame.width <= firstRowEnd {
-+                button.frame.origin = NSPoint(x: x, y: rowY + 2)
-+                x = button.frame.maxX + 8
-+            } else {
-+                if overflowX + button.frame.width > width - 12 {
-+                    // No room beside the filters either: a row of its own.
-+                    overflowX = 12
-+                    overflowY += 28
-+                }
-+                button.frame.origin = NSPoint(x: overflowX, y: overflowY)
-+                overflowX = button.frame.maxX + 8
-+                x = .greatestFiniteMagnitude  // keep the order: once one wraps, the rest do
++            if legendX + button.frame.width > width - 12, legendX > graphLegendLabel.frame.maxX + 10 {
++                legendX = graphLegendLabel.frame.maxX + 10
++                legendRowY += 24
 +            }
++            button.frame.origin = NSPoint(x: legendX, y: legendRowY)
++            legendX = button.frame.maxX + 14
 +        }
-+        let searchStart = x == .greatestFiniteMagnitude ? edgeToggles.filter { $0.button.frame.minY < rowY + 20 }
-+            .map(\.button.frame.maxX).max() ?? graphModeControl.frame.maxX : x
-+        graphSearch.frame = NSRect(x: max(searchStart + 6, fitButton.frame.minX - 190), y: rowY,
-+                                   width: min(180, max(80, fitButton.frame.minX - searchStart - 16)), height: controlHeight)
-+        let canvasTop: CGFloat = 72 + (overflowY - (rowY + 32))
++        let canvasTop: CGFloat = legendRowY + 30
 +        canvas.frame = NSRect(x: 0, y: canvasTop, width: width, height: max(0, height - canvasTop - 24))
 +        graphBackButton.sizeToFit()
 +        graphOverviewButton.sizeToFit()
@@ -23456,11 +23569,19 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        guard !query.isEmpty else {
 +            searchLike = nil
 +            searchResults = []
++            searchedQuery = ""
 +            searchTable.reloadData()
 +            searchStatus.stringValue = ""
++            updateSearchEmptyState()
 +            return
 +        }
-+        searchField.recentSearches = OmniRecentSearches.record(query, in: recentSearchDefaults)
++        // Only a search the person committed (Return, a pick) is remembered,
++        // not each pause while typing.
++        let typing = sender as AnyObject? === searchField && NSApp.currentEvent?.type == .keyDown &&
++            NSApp.currentEvent?.keyCode != 36 && NSApp.currentEvent?.keyCode != 76
++        if !typing {
++            searchField.recentSearches = OmniRecentSearches.record(query, in: recentSearchDefaults)
++        }
 +        performSearch(["query": query])
 +    }
 +
@@ -23495,14 +23616,17 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        request.merge(arguments) { _, new in new }
 +        OmniSchedulerClient.request(request) { [weak self] response in
 +            guard let self else { return }
++            self.searchedQuery = (arguments["query"] as? String) ?? self.searchLike ?? ""
 +            guard OmniPane.isOK(response) else {
 +                self.searchResults = []
 +                self.searchTable.reloadData()
 +                self.searchStatus.stringValue = response["error"] as? String ?? "Search failed."
++                self.updateSearchEmptyState()
 +                return
 +            }
 +            self.searchResults = (response[memoriesCorpus ? "memories" : "matches"] as? [[AnyHashable: Any]]) ?? []
 +            self.searchTable.reloadData()
++            self.updateSearchEmptyState()
 +            var status = self.searchResults.count == 1 ? "1 result" : "\(self.searchResults.count) results"
 +            if let like = self.searchLike {
 +                status = "More like “\(like)” · " + status
@@ -23514,6 +23638,24 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +            if !self.searchResults.isEmpty {
 +                self.searchTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
 +            }
++        }
++    }
++
++    private func updateSearchEmptyState() {
++        let empty = searchResults.isEmpty
++        for view in [searchListPane, searchScroll, searchDetailScroll] as [NSView] {
++            view.isHidden = empty
++        }
++        searchEmptyState.isHidden = !empty
++        guard empty else { return }
++        if searchedQuery.isEmpty {
++            searchEmptyState.showIdle(recents: OmniRecentSearches.load(from: recentSearchDefaults))
++        } else {
++            searchEmptyState.showNoResults(for: searchedQuery,
++                                           semantic: modeControl.selectedSegment == 1,
++                                           lexical: modeControl.selectedSegment == 0,
++                                           transcripts: corpusControl.selectedSegment == 1,
++                                           filtered: !searchTokens.isEmpty)
 +        }
 +    }
 +
@@ -24564,6 +24706,159 @@ index 0000000000000000000000000000000000000000..771eba624dbfe750d896fc2b9786df81
 +        return recent
 +    }
 +}
++
++
++// The Search tab before a search, and after one that found nothing: what to
++// type, examples and recent searches to start from, or what to try next.
++final class OmniSearchEmptyState: NSView {
++    enum Action { case semantic, hybrid, transcripts, memories }
++    var pick: ((String) -> Void)?
++    var action: ((Action) -> Void)?
++    private let icon = NSImageView()
++    private let title = OmniPaneText.label("", size: 17, weight: .semibold)
++    private let detail = OmniPaneText.label("", size: 12.5, color: OmniTheme.secondaryText)
++    private var groups: [(header: NSTextField, buttons: [NSButton])] = []
++    private var actions: [Action] = []
++    private static let maxWidth: CGFloat = 560
++
++    override var isFlipped: Bool { true }
++
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        icon.imageScaling = .scaleProportionallyUpOrDown
++        icon.contentTintColor = OmniTheme.secondaryText
++        title.isSelectable = false
++        detail.isSelectable = false
++        for view in [icon, title, detail] as [NSView] {
++            addSubview(view)
++        }
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    func showIdle(recents: [String]) {
++        icon.image = NSImage(systemSymbolName: SFSymbol.magnifyingglass.rawValue, accessibilityDescription: nil)
++        title.stringValue = "Search what your agents remember"
++        detail.stringValue = "Type to search memories, or switch to Transcripts for everything said in your sessions. " +
++            "Hybrid ranks exact words with meaning; Semantic also finds the same idea in other words. " +
++            "Narrow it with filters such as type:, ws:, since: or a \u{201C}quoted phrase\u{201D}, and -word to exclude."
++        var groups: [(String, [(String, String)])] = []
++        if !recents.isEmpty {
++            groups.append(("Recent", recents.prefix(8).map { ($0, $0) }))
++        }
++        groups.append(("Try", [("since:7d", "since:7d "), ("type:procedural", "type:procedural "),
++                               ("ws:OmniTerm", "ws:OmniTerm "), ("\u{201C}exact phrase\u{201D}", "\"\"")]))
++        setGroups(groups, actions: [])
++    }
++
++    func showNoResults(for query: String, semantic: Bool, lexical: Bool, transcripts: Bool, filtered: Bool) {
++        icon.image = NSImage(systemSymbolName: SFSymbol.questionmarkCircle.rawValue, accessibilityDescription: nil)
++        title.stringValue = "Nothing matches \u{201C}\(query)\u{201D}"
++        var tips: [String] = []
++        var actions: [Action] = []
++        if lexical {
++            tips.append("Lexical needs the exact words; Hybrid or Semantic also find related ideas.")
++            actions.append(.hybrid)
++        } else if !semantic {
++            actions.append(.semantic)
++        }
++        if filtered {
++            tips.append("A filter may be too narrow: remove one with its chip above.")
++        }
++        tips.append(transcripts ? "Memories hold what was kept from sessions; search them too."
++                                : "It may only be in a session transcript, not yet a memory.")
++        actions.append(transcripts ? .memories : .transcripts)
++        detail.stringValue = tips.joined(separator: " ")
++        setGroups([], actions: actions)
++    }
++
++    private func setGroups(_ groups: [(String, [(String, String)])], actions: [Action]) {
++        for group in self.groups {
++            group.header.removeFromSuperview()
++            group.buttons.forEach { $0.removeFromSuperview() }
++        }
++        self.groups = groups.map { name, items in
++            let header = OmniTheme.meta(name.uppercased())
++            header.font = NSFont.systemFont(ofSize: 10.5, weight: .semibold)
++            addSubview(header)
++            let buttons = items.map { label, query -> NSButton in
++                let button = OmniTheme.button(label, target: self, action: #selector(pickQuery(_:)))
++                button.identifier = NSUserInterfaceItemIdentifier(query)
++                button.controlSize = .small
++                button.toolTip = "Search for \(label)"
++                addSubview(button)
++                return button
++            }
++            return (header, buttons)
++        }
++        self.actions = actions
++        if !actions.isEmpty {
++            let buttons = actions.enumerated().map { index, action -> NSButton in
++                let title: String
++                switch action {
++                case .semantic: title = "Search by meaning"
++                case .hybrid: title = "Use Hybrid"
++                case .transcripts: title = "Search transcripts"
++                case .memories: title = "Search memories"
++                }
++                let button = OmniTheme.button(title, target: self, action: #selector(runAction(_:)))
++                button.tag = index
++                addSubview(button)
++                return button
++            }
++            let header = OmniTheme.meta("")
++            addSubview(header)
++            self.groups.append((header, buttons))
++        }
++        needsLayout = true
++    }
++
++    @objc private func pickQuery(_ sender: NSButton) {
++        guard let query = sender.identifier?.rawValue else { return }
++        pick?(query)
++    }
++
++    @objc private func runAction(_ sender: NSButton) {
++        guard actions.indices.contains(sender.tag) else { return }
++        action?(actions[sender.tag])
++    }
++
++    override func layout() {
++        super.layout()
++        let width = min(Self.maxWidth, bounds.width - 48)
++        let x = ((bounds.width - width) / 2).rounded()
++        var y: CGFloat = min(90, max(28, bounds.height * 0.12))
++        icon.frame = NSRect(x: x, y: y, width: 28, height: 28)
++        y += 40
++        title.frame = NSRect(x: x, y: y, width: width, height: ceil(title.sizeThatFits(NSSize(width: width, height: 200)).height))
++        y = title.frame.maxY + 6
++        let detailHeight = ceil(detail.sizeThatFits(NSSize(width: width, height: 400)).height)
++        detail.frame = NSRect(x: x, y: y, width: width, height: detailHeight)
++        y = detail.frame.maxY + 18
++        for group in groups {
++            if !group.header.stringValue.isEmpty {
++                group.header.sizeToFit()
++                group.header.frame.origin = NSPoint(x: x, y: y)
++                y = group.header.frame.maxY + 6
++            }
++            var rowX = x
++            for button in group.buttons {
++                button.sizeToFit()
++                if rowX > x, rowX + button.frame.width > x + width {
++                    rowX = x
++                    y += button.frame.height + 6
++                }
++                button.frame.origin = NSPoint(x: rowX, y: y)
++                rowX = button.frame.maxX + 6
++            }
++            if let last = group.buttons.last {
++                y = last.frame.maxY + 16
++            }
++        }
++    }
++}
 diff --git a/sources/OmniTerm/OmniPanelLayout.swift b/sources/OmniTerm/OmniPanelLayout.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc02a314e8
@@ -24833,7 +25128,7 @@ index 0000000000000000000000000000000000000000..b04e33c36a193ddd3388a43a49c0f7bc
 +}
 diff --git a/sources/OmniTerm/OmniPanes.swift b/sources/OmniTerm/OmniPanes.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7e3fcf9f82e2462045bcb040d8e5e9e541cb5fa1
+index 0000000000000000000000000000000000000000..a49b6b28f2bd9595deadf98c6c5ae600e50d5a8f
 --- /dev/null
 +++ b/sources/OmniTerm/OmniPanes.swift
 @@ -0,0 +1,1239 @@
@@ -25609,7 +25904,7 @@ index 0000000000000000000000000000000000000000..7e3fcf9f82e2462045bcb040d8e5e9e5
 +}
 +
 +// Big numbers with captions, side by side.
-+private final class OmniStatsView: NSView {
++final class OmniStatsView: NSView {
 +    private let fields: [(NSTextField, NSTextField)]
 +
 +    override var isFlipped: Bool { true }
@@ -26078,10 +26373,10 @@ index 0000000000000000000000000000000000000000..7e3fcf9f82e2462045bcb040d8e5e9e5
 +}
 diff --git a/sources/OmniTerm/OmniProjectsPane.swift b/sources/OmniTerm/OmniProjectsPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02027370b8
+index 0000000000000000000000000000000000000000..41dc08c443b7d56ab6ea0b4619b71a455c8fd658
 --- /dev/null
 +++ b/sources/OmniTerm/OmniProjectsPane.swift
-@@ -0,0 +1,2161 @@
+@@ -0,0 +1,2436 @@
 +import AppKit
 +import Foundation
 +
@@ -26327,6 +26622,11 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +    var codeAffected: [String: Any]?
 +    var codeTrail: [OmniCodeNode] = []
 +    var codeSearchTimer: Timer?
++    // “How do two parts connect?”: its two fields, and the path shown.
++    let codePathFrom = NSTextField()
++    let codePathTo = NSTextField()
++    var codePath: (from: OmniCodeNode, to: OmniCodeNode)?
++    var codePathResult: [String: Any]?
 +
 +    override var contentViews: [NSView] {
 +        return [scroll]
@@ -27099,6 +27399,7 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +    func openCode(_ name: String, path: String?) {
 +        tab = .graph
 +        Self.lastTab = .graph
++        codePath = nil
 +        if name.isEmpty && (path ?? "").isEmpty {
 +            codeNode = nil
 +            codeTrail = []
@@ -27384,37 +27685,52 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +}
 +
 +// Tabs as on a repository host: icon and label, the chosen one underlined,
-+// a hairline under them all. Buttons, so they join the keyboard.
++// a hairline under them all. Buttons, so they join the keyboard. Each tab is
++// as wide as its bold label, so choosing one never shifts the others, and a
++// row wider than the page scrolls sideways (trackpad, Shift-wheel), with the
++// chosen tab kept in view.
 +final class OmniTabBar: NSView {
 +    static let height: CGFloat = 38
++    private static let padding: CGFloat = 20
 +    let zone = OmniButtonZone()
 +    private let buttons: [NSButton]
 +    private let selected: Int
++    private let scroll = OmniHorizontalScrollView()
++    private let strip = OmniTabStrip()
++    private var widths: [CGFloat] = []
++    private var revealedSelection = false
 +
 +    override var isFlipped: Bool { true }
 +
 +    init(tabs: [(title: String, symbol: SFSymbol)], selected: Int, target: AnyObject, action: Selector) {
 +        self.selected = selected
++        var widths: [CGFloat] = []
 +        buttons = tabs.enumerated().map { index, tab in
 +            let button = NSButton(title: tab.title, target: target, action: action)
 +            button.isBordered = false
 +            button.bezelStyle = .inline
 +            button.tag = index
-+            button.image = NSImage(systemSymbolName: tab.symbol.rawValue, accessibilityDescription: nil)?
-+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: index == selected ? .semibold : .regular))
 +            button.imagePosition = .imageLeading
 +            button.imageHugsTitle = true
-+            let color = index == selected ? NSColor.labelColor : OmniTheme.secondaryText
-+            button.contentTintColor = color
-+            button.attributedTitle = NSAttributedString(string: tab.title, attributes: [
-+                .font: index == selected ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle,
-+                .foregroundColor: color])
++            // Measured with the chosen tab's weight whatever this one shows.
++            Self.style(button, title: tab.title, symbol: tab.symbol, chosen: true)
++            button.sizeToFit()
++            widths.append(ceil(button.frame.width) + Self.padding)
++            Self.style(button, title: tab.title, symbol: tab.symbol, chosen: index == selected)
 +            button.setAccessibilityValue(index == selected ? "selected" : nil)
 +            return button
 +        }
++        self.widths = widths
 +        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: Self.height))
++        scroll.drawsBackground = false
++        scroll.hasHorizontalScroller = false
++        scroll.hasVerticalScroller = false
++        scroll.horizontalScrollElasticity = .allowed
++        scroll.verticalScrollElasticity = .none
++        scroll.documentView = strip
++        addSubview(scroll)
 +        for button in buttons {
-+            addSubview(button)
++            strip.addSubview(button)
 +        }
 +        zone.buttons = { [weak self] in self?.buttons ?? [] }
 +        addSubview(zone)
@@ -27424,26 +27740,69 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        it_fatalError("init(coder:) is not supported")
 +    }
 +
++    private static func style(_ button: NSButton, title: String, symbol: SFSymbol, chosen: Bool) {
++        let color = chosen ? NSColor.labelColor : OmniTheme.secondaryText
++        button.image = NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)?
++            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: chosen ? .semibold : .regular))
++        button.contentTintColor = color
++        button.attributedTitle = NSAttributedString(string: title, attributes: [
++            .font: chosen ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle,
++            .foregroundColor: color])
++    }
++
 +    override func resizeSubviews(withOldSize oldSize: NSSize) {
 +        super.resizeSubviews(withOldSize: oldSize)
++        scroll.frame = bounds
 +        var x: CGFloat = 0
-+        for button in buttons {
-+            button.sizeToFit()
-+            button.frame = NSRect(x: x, y: 4, width: button.frame.width + 20, height: 28)
-+            x = button.frame.maxX + 2
++        for (button, width) in zip(buttons, widths) {
++            button.frame = NSRect(x: x, y: 4, width: width, height: 28)
++            x += width + 2
 +        }
++        strip.frame = NSRect(x: 0, y: 0, width: max(bounds.width, x), height: bounds.height)
++        strip.chosen = buttons.indices.contains(selected) ? buttons[selected].frame : nil
++        strip.needsDisplay = true
 +        zone.frame = bounds
++        // The chosen tab is brought into view once, when the bar first has a width.
++        if !revealedSelection, bounds.width > 0, let chosen = strip.chosen {
++            revealedSelection = true
++            if chosen.maxX > bounds.width {
++                scroll.contentView.scroll(to: NSPoint(x: min(chosen.maxX + 24, x) - bounds.width, y: 0))
++                scroll.reflectScrolledClipView(scroll.contentView)
++            }
++        }
 +        needsDisplay = true
 +    }
 +
 +    override func draw(_ dirtyRect: NSRect) {
 +        OmniTheme.titlebarSeparator.setFill()
 +        NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
-+        guard buttons.indices.contains(selected) else { return }
-+        let chosen = buttons[selected].frame
++    }
++}
++
++// The tabs themselves, wider than the bar when they do not fit; the chosen
++// one's underline scrolls with it.
++private final class OmniTabStrip: NSView {
++    var chosen: NSRect?
++
++    override var isFlipped: Bool { true }
++
++    override func draw(_ dirtyRect: NSRect) {
++        guard let chosen else { return }
 +        NSColor.controlAccentColor.setFill()
 +        NSBezierPath(roundedRect: NSRect(x: chosen.minX + 4, y: bounds.height - 2.5, width: chosen.width - 8, height: 2.5),
 +                     xRadius: 1.25, yRadius: 1.25).fill()
++    }
++}
++
++// Scrolls sideways only. A mostly vertical wheel or swipe goes on to the page
++// around it, so the bar never traps the page's scrolling.
++final class OmniHorizontalScrollView: NSScrollView {
++    override func scrollWheel(with event: NSEvent) {
++        if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
++            nextResponder?.scrollWheel(with: event)
++        } else {
++            super.scrollWheel(with: event)
++        }
 +    }
 +}
 +
@@ -27852,6 +28211,52 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        codeSearch.sendsSearchStringImmediately = true
 +        codeSearch.target = self
 +        codeSearch.action = #selector(codeSearchChanged(_:))
++        for (field, placeholder) in [(codePathFrom, "From: a definition or file"), (codePathTo, "To: a definition or file")] {
++            field.placeholderString = placeholder
++            field.font = OmniTheme.Font.rowTitle
++            field.target = self
++            field.action = #selector(codeFindPath(_:))
++        }
++    }
++
++    @objc func codeFindPath(_ sender: Any?) {
++        let from = codePathFrom.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        let to = codePathTo.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !from.isEmpty, !to.isEmpty else {
++            window?.makeFirstResponder(from.isEmpty ? codePathFrom : codePathTo)
++            return
++        }
++        showCodePath(from: Self.codeNode(typed: from), to: Self.codeNode(typed: to))
++    }
++
++    // What a person types: a path when it has a slash or a file extension, else a name.
++    static func codeNode(typed text: String) -> OmniCodeNode {
++        let isFile = text.contains("/") || !(text as NSString).pathExtension.isEmpty && !text.contains(" ")
++            && text.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) == nil
++        return isFile ? OmniCodeNode(name: "", path: text, label: (text as NSString).lastPathComponent)
++                      : OmniCodeNode(name: text, path: nil, label: OmniCodeText.short(text))
++    }
++
++    func showCodePath(from: OmniCodeNode, to: OmniCodeNode) {
++        codePath = (from, to)
++        codePathResult = nil
++        codeNode = nil
++        codeTrail = []
++        let side: (OmniCodeNode) -> String = { $0.name.isEmpty ? ($0.path ?? "") : $0.name }
++        codePathFrom.stringValue = side(from)
++        codePathTo.stringValue = side(to)
++        var request: [String: Any] = ["mode": "path", "limit": 20, "name": side(from), "target": side(to)]
++        if !from.name.isEmpty, let path = from.path {
++            request["path"] = path
++        }
++        codeRequest(request) { [weak self] response in
++            guard let self, let shown = self.codePath, shown.from == from, shown.to == to else { return }
++            self.codePathResult = response
++            self.rebuild()
++        }
++        rebuild()
++        scroll.contentView.scroll(to: .zero)
++        scroll.reflectScrolledClipView(scroll.contentView)
 +    }
 +
 +    @objc func codeSearchChanged(_ sender: NSSearchField) {
@@ -27928,6 +28333,7 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +    }
 +
 +    func selectCode(_ node: OmniCodeNode, push: Bool = true) {
++        codePath = nil
 +        if push, let current = codeNode, current != node {
 +            codeTrail.append(current)
 +        }
@@ -27950,6 +28356,7 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +            codeTrail = []
 +            codeDetail = nil
 +            codeAffected = nil
++            codePath = nil
 +            rebuild()
 +        }
 +    }
@@ -27997,6 +28404,8 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        }
 +        if let node = codeNode {
 +            buildCodeDetail(node, previous)
++        } else if let path = codePath {
++            buildCodePath(path.from, path.to, previous)
 +        } else if !codeQuery.isEmpty {
 +            buildCodeResults(previous)
 +        } else {
@@ -28019,11 +28428,74 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        }
 +        let files = (overview["files"] as? NSNumber)?.intValue ?? 0
 +        let links = (overview["file_links"] as? NSNumber)?.intValue ?? 0
-+        column.addText(OmniTheme.meta("\(files) files mapped, \(links) links between them. Agents ask the same graph with code_graph; in a terminal, omni graph."), spacing: 10)
 +        let hubs = overview["hubs"] as? [[String: Any]] ?? []
++        let clusters = overview["clusters"] as? [[String: Any]] ?? []
++        let cycles = overview["import_cycles"] as? [[String]] ?? []
++        let bridges = overview["bridges"] as? [[String: Any]] ?? []
++        let stats = OmniStatsView([("\(files)", files == 1 ? "file" : "files"), ("\(links)", "links between files"),
++                                   ("\(clusters.count)", "groups"), ("\(cycles.count)", "circular imports")])
++        column.add(stats, spacing: 4) { _ in 56 }
++        column.addText(OmniTheme.meta("Agents ask the same graph with code_graph; in a terminal, omni graph."), spacing: 12)
++
++        // Where to begin: questions the graph can answer about this project.
++        var questions: [(key: String, row: OmniZoneItem)] = []
++        func question(_ key: String, _ symbol: SFSymbol, _ title: String, _ detail: String, _ open: @escaping () -> Void) {
++            let row = OmniFolderEntryRow(icon: .symbol(symbol.rawValue), iconColor: OmniTheme.accent, title: title,
++                                         detail: detail, badge: "", status: nil, action: open)
++            questions.append((key: "question:" + key, row: row))
++        }
++        for hub in hubs.prefix(2) {
++            guard let node = OmniCodeNode(graph: hub) else { continue }
++            let used = (hub["files_using"] as? NSNumber)?.intValue ?? 0
++            question("hub:" + node.name, .exclamationmarkTriangle, "What breaks if I change \(node.label)?",
++                     "Used by \(used) files: see what depends on it.") { [weak self] in self?.selectCode(node) }
++        }
++        if let bridge = bridges.first, let from = bridge["from"] as? String, let to = bridge["to"] as? String {
++            let a = OmniCodeNode(name: "", path: from, label: (from as NSString).lastPathComponent)
++            let b = OmniCodeNode(name: "", path: to, label: (to as NSString).lastPathComponent)
++            question("bridge:" + from, .arrowTriangleBranch, "How does \(a.label) reach \(b.label)?",
++                     "The strongest link between two groups.") { [weak self] in self?.showCodePath(from: a, to: b) }
++        }
++        if let cluster = clusters.first, let first = (cluster["top_files"] as? [String])?.first {
++            let node = OmniCodeNode(name: "", path: first, label: (first as NSString).lastPathComponent)
++            question("group:" + first, .squareStack3dUp, "What holds \(cluster["name"] as? String ?? "the largest group") together?",
++                     "Its central file, \(node.label), and what it defines.") { [weak self] in self?.selectCode(node) }
++        }
++        if let cycle = cycles.first, cycle.count >= 2 {
++            let node = OmniCodeNode(name: "", path: cycle[0], label: (cycle[0] as NSString).lastPathComponent)
++            question("cycle:" + cycle[0], .arrowTriangle2Circlepath,
++                     "Why do \(node.label) and \((cycle[1] as NSString).lastPathComponent) import each other?",
++                     "A circular import is a place to untangle.") { [weak self] in self?.selectCode(node) }
++        }
++        section("Start here", key: "code-questions", previous: previous, rows: questions)
++
++        // Ask the graph how two parts connect.
++        column.addSection("How do two parts connect?")
++        let find = OmniTheme.button("Find Path", target: self, action: #selector(codeFindPath(_:)))
++        let form = OmniCodePathForm(from: codePathFrom, to: codePathTo, button: find)
++        column.add(form, spacing: 14) { _ in 28 }
++
++        let bridgeRows: [(key: String, row: OmniZoneItem)] = bridges.enumerated().compactMap { index, bridge in
++            guard let from = bridge["from"] as? String, let to = bridge["to"] as? String else { return nil }
++            let a = OmniCodeNode(name: "", path: from, label: (from as NSString).lastPathComponent)
++            let b = OmniCodeNode(name: "", path: to, label: (to as NSString).lastPathComponent)
++            let count = (bridge["references"] as? NSNumber)?.intValue ?? 1
++            let groups = [bridge["from_group"] as? String, bridge["to_group"] as? String].compactMap { $0 }
++            let row = OmniFolderEntryRow(icon: .symbol(SFSymbol.arrowLeftArrowRight.rawValue), iconColor: nil,
++                                         title: "\(a.label) ↔ \(b.label)",
++                                         detail: "Links \(groups.joined(separator: " and ")) · \(count == 1 ? "1 reference" : "\(count) references")",
++                                         badge: "", status: nil) { [weak self] in
++                self?.showCodePath(from: a, to: b)
++            }
++            row.contextMenu = { [weak self] in self?.codeMenu(a, path: from) }
++            return (key: "bridge:\(index):\(from):\(to)", row: row)
++        }
++        section("Surprising connections", key: "code-bridges", previous: previous, rows: bridgeRows)
++
 +        let hubRows = hubs.enumerated().compactMap { index, hub -> (key: String, row: OmniZoneItem)? in
 +            let used = (hub["files_using"] as? NSNumber)?.intValue ?? 0
-+            return codeRow(hub, detail: "\(OmniCodeText.location(hub)) · used by \(used) files",
++            let group = (hub["cluster"] as? String).map { " · in \($0)" } ?? ""
++            return codeRow(hub, detail: "\(OmniCodeText.location(hub)) · used by \(used) files\(group)",
 +                           badge: hub["kind"] as? String ?? "", key: "hub:\(index):\(hub["qualname"] as? String ?? "")")
 +        }
 +        if hubRows.isEmpty {
@@ -28032,7 +28504,6 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        } else {
 +            section("Most-used definitions", key: "code-hubs", previous: previous, rows: hubRows)
 +        }
-+        let clusters = overview["clusters"] as? [[String: Any]] ?? []
 +        let clusterRows: [(key: String, row: OmniZoneItem)] = clusters.enumerated().compactMap { index, cluster in
 +            let top = cluster["top_files"] as? [String] ?? []
 +            guard let first = top.first else { return nil }
@@ -28050,7 +28521,6 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        if !clusterRows.isEmpty {
 +            section("Groups of related files", key: "code-clusters", previous: previous, rows: clusterRows)
 +        }
-+        let cycles = overview["import_cycles"] as? [[String]] ?? []
 +        let cycleRows: [(key: String, row: OmniZoneItem)] = cycles.enumerated().compactMap { index, cycle in
 +            guard let first = cycle.first else { return nil }
 +            let names = cycle.prefix(4).map { ($0 as NSString).lastPathComponent }
@@ -28070,6 +28540,67 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        } else {
 +            section("Circular imports", key: "code-cycles", previous: previous, rows: cycleRows, header: false)
 +        }
++    }
++
++    // The chain of links from one definition or file to another, each step openable.
++    private func buildCodePath(_ from: OmniCodeNode, _ to: OmniCodeNode, _ previous: [(title: String, zone: OmniListZone)]) {
++        let column = scroll.column
++        let trail = OmniBreadcrumb(crumbs: [(label: "Overview", path: "overview"), (label: "\(from.label) → \(to.label)", path: "current")],
++                                   trailing: "", open: { [weak self] path in
++            if path == "overview" {
++                self?.codeBack(to: nil)
++            }
++        })
++        column.add(trail, spacing: 6) { _ in 28 }
++        let find = OmniTheme.button("Find Path", target: self, action: #selector(codeFindPath(_:)))
++        column.add(OmniCodePathForm(from: codePathFrom, to: codePathTo, button: find), spacing: 12) { _ in 28 }
++        guard let result = codePathResult else {
++            column.addText(OmniTheme.meta("Looking for a path…"), spacing: 10)
++            return
++        }
++        if !OmniPane.isOK(result) {
++            column.addText(OmniTheme.meta(result["error"] as? String ?? "The path could not be found."), spacing: 10)
++            return
++        }
++        if result["ambiguous"] as? Bool == true {
++            let candidates = result["candidates"] as? [[String: Any]] ?? []
++            column.addText(OmniTheme.meta("Several definitions have that name. Pick one to see its page, or type its full name."), spacing: 8)
++            section("Did you mean", key: "code-path-candidates", previous: previous,
++                    rows: candidates.enumerated().compactMap { index, candidate in
++                        codeRow(candidate, detail: OmniCodeText.location(candidate), badge: candidate["kind"] as? String ?? "",
++                                key: "path-candidate:\(index)")
++                    })
++            return
++        }
++        guard result["found"] as? Bool == true, let hops = result["hops"] as? [[String: Any]], let first = hops.first else {
++            let missing = result["missing"] as? String
++            let text = missing == "name" ? "Nothing in this project’s code graph is called “\(from.label)”." :
++                missing == "target" ? "Nothing in this project’s code graph is called “\(to.label)”." :
++                (result["reason"] as? String).map { "No path: \($0)." } ??
++                "No chain of calls, imports or uses links them within six steps."
++            column.addText(OmniTheme.meta(text), spacing: 10)
++            return
++        }
++        let length = (result["length"] as? NSNumber)?.intValue ?? hops.count
++        let weakest = result["confidence"] as? String == "inferred" ? " · some links are matched by name only" : ""
++        column.addText(OmniTheme.meta("\(length == 1 ? "1 step" : "\(length) steps")\(weakest)"), spacing: 8)
++        var rows: [(key: String, row: OmniZoneItem)] = []
++        if let start = codeRow(first["from"] as? [String: Any], detail: "Start · " + OmniCodeText.location(first["from"] as? [String: Any]),
++                               key: "path:start") {
++            rows.append(start)
++        }
++        for (index, hop) in hops.enumerated() {
++            let target = hop["to"] as? [String: Any]
++            let edge = (hop["edge"] as? String ?? "links").replacingOccurrences(of: "_", with: " ")
++            // “A calls it” when the step before reaches this one; “calls A” when this one reaches back.
++            let previousLabel = OmniCodeNode(graph: hop["from"] as? [String: Any])?.label ?? "the step before"
++            let link = hop["direction"] as? String == "in" ? "\(edge) \(previousLabel)" : "\(previousLabel) \(edge) it"
++            if let row = codeRow(target, detail: "\(index + 1). \(link) · \(OmniCodeText.location(target))",
++                                 badge: OmniCodeText.badge(hop["confidence"]), key: "path:\(index)") {
++                rows.append(row)
++            }
++        }
++        section("The path", key: "code-path", previous: previous, rows: rows)
 +    }
 +
 +    private func buildCodeResults(_ previous: [(title: String, zone: OmniListZone)]) {
@@ -28241,6 +28772,45 @@ index 0000000000000000000000000000000000000000..6e454ed0e492eef2c6a414b94f226d02
 +        }
 +        components.queryItems = items
 +        return components.string ?? "omniterm://project" + root
++    }
++}
++
++
++// Two fields and a button on one row: “How do two parts connect?”.
++final class OmniCodePathForm: NSView {
++    private let from: NSTextField
++    private let to: NSTextField
++    private let button: NSButton
++    private let arrow = NSImageView()
++
++    override var isFlipped: Bool { true }
++
++    init(from: NSTextField, to: NSTextField, button: NSButton) {
++        self.from = from
++        self.to = to
++        self.button = button
++        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 28))
++        arrow.image = NSImage(systemSymbolName: SFSymbol.arrowRight.rawValue, accessibilityDescription: "to")
++        arrow.contentTintColor = OmniTheme.secondaryText
++        for view in [from, arrow, to, button] as [NSView] {
++            view.removeFromSuperview()
++            addSubview(view)
++        }
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) is not supported")
++    }
++
++    override func resizeSubviews(withOldSize oldSize: NSSize) {
++        super.resizeSubviews(withOldSize: oldSize)
++        button.sizeToFit()
++        let buttonWidth = button.frame.width
++        let field = max(80, (bounds.width - buttonWidth - 8 - 28) / 2)
++        from.frame = NSRect(x: 0, y: 2, width: field, height: 24)
++        arrow.frame = NSRect(x: from.frame.maxX + 4, y: 6, width: 16, height: 16)
++        to.frame = NSRect(x: arrow.frame.maxX + 4, y: 2, width: field, height: 24)
++        button.frame.origin = NSPoint(x: to.frame.maxX + 8, y: 0)
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniRunReport.swift b/sources/OmniTerm/OmniRunReport.swift
@@ -37644,10 +38214,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db921387ee3
+index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdcd037942d
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5031 @@
+@@ -0,0 +1,5101 @@
 +import AppKit
 +import Foundation
 +import os
@@ -38100,7 +38670,7 @@ index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db9
 +        outlineView.target = self
 +        outlineView.doubleAction = #selector(doubleClicked(_:))
 +        outlineView.autoresizesOutlineColumn = false
-+        outlineView.indentationPerLevel = 12
++        outlineView.indentationPerLevel = OmniTheme.Sidebar.indent
 +        outlineView.registerForDraggedTypes([Self.agentDragType, Self.groupDragType, Self.terminalDragType, Self.sessionDragType,
 +                                             Self.projectDragType, Self.projectFolderDragType])
 +        outlineView.draggingDestinationFeedbackStyle = .sourceList
@@ -41629,7 +42199,8 @@ index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db9
 +    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
 +        guard let item = item as? OmniSidebarItem else { return 24 }
 +        if item.isTopGroup {
-+            return OmniTheme.Sidebar.topRowHeight
++            let edge = item === overviewItem || item === settingsItem
++            return OmniTheme.Sidebar.topRowHeight + (edge ? OmniTheme.Sidebar.panelPadY : 0)
 +        }
 +        if item.kind == .divider {
 +            return OmniTheme.Sidebar.groupGap + 1
@@ -41745,7 +42316,15 @@ index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db9
 +                           status: nil, pulses: false)
 +        }
 +        cell.isTopRow = item.isTopGroup
-+        cell.setCount(item.count, needsAttention: item.countNeedsAttention)
++        // A folder reads as a heading of what it holds: bold, with how many
++        // items it has, unless it already shows a count of its own.
++        let isFolder = [.group, .projectFolder, .viewGroup, .sessionFolder].contains(item.kind)
++        cell.titleField.font = isFolder ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
++        if isFolder, item.count.isEmpty, !item.children.isEmpty {
++            cell.setCount("\(item.children.count)", needsAttention: false)
++        } else {
++            cell.setCount(item.count, needsAttention: item.countNeedsAttention)
++        }
 +        cell.setAccessibilityLabel(item.count.isEmpty ? item.title : "\(item.title), \(item.count) unread")
 +        return cell
 +    }
@@ -42460,8 +43039,69 @@ index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db9
 +    // A session row's project colour, as a short bar in the leading margin.
 +    var accent: NSColor?
 +
++    // The panel's first and last rows are taller by its padding; their
++    // content, selection and hover keep to the rest.
++    private var contentRect: NSRect {
++        let pad = OmniTheme.Sidebar.panelPadY
++        var rect = bounds
++        switch panelEdge {
++        case .top?:
++            rect.size.height -= pad
++            if isFlipped { rect.origin.y += pad }
++        case .bottom?:
++            rect.size.height -= pad
++            if !isFlipped { rect.origin.y += pad }
++        default:
++            break
++        }
++        return rect
++    }
++
++    override func layout() {
++        super.layout()
++        guard panelEdge != nil else { return }
++        let content = contentRect
++        for case let cell as NSTableCellView in subviews {
++            cell.frame = NSRect(x: cell.frame.minX, y: content.minY, width: cell.frame.width, height: content.height)
++        }
++    }
++
++    override func drawSelection(in dirtyRect: NSRect) {
++        guard panelEdge != nil else {
++            super.drawSelection(in: dirtyRect)
++            return
++        }
++        let sidebar = OmniTheme.Sidebar.self
++        (isEmphasized ? NSColor.selectedContentBackgroundColor : NSColor.unemphasizedSelectedContentBackgroundColor).setFill()
++        NSBezierPath(roundedRect: contentRect.insetBy(dx: sidebar.rowInsetX, dy: 0), xRadius: sidebar.rowCornerRadius,
++                     yRadius: sidebar.rowCornerRadius).fill()
++    }
++
++    // A faint line down from each enclosing folder's icon, so a nested row
++    // shows which folder it belongs to.
++    private func drawIndentGuides() {
++        guard let outline = superview as? NSOutlineView else { return }
++        let row = outline.row(for: self)
++        guard row >= 0 else { return }
++        let level = outline.level(forRow: row)
++        guard level > 0, let cell = subviews.first(where: { $0 is NSTableCellView }) else { return }
++        let indent = outline.indentationPerLevel
++        let base = cell.frame.minX - CGFloat(level) * indent
++        OmniTheme.Sidebar.indentGuide.setFill()
++        // Sections are parents too, but only folders draw a guide.
++        var ancestor = outline.parent(forItem: outline.item(atRow: row))
++        while let folder = ancestor as? OmniSidebarItem {
++            if folder.kind != .section {
++                let depth = outline.level(forItem: folder)
++                NSRect(x: (base + CGFloat(depth) * indent + 10).rounded(), y: bounds.minY, width: 1, height: bounds.height).fill()
++            }
++            ancestor = outline.parent(forItem: folder)
++        }
++    }
++
 +    override func drawBackground(in dirtyRect: NSRect) {
 +        super.drawBackground(in: dirtyRect)
++        drawIndentGuides()
 +        if let accent {
 +            accent.setFill()
 +            NSBezierPath(roundedRect: NSRect(x: bounds.minX + 4, y: bounds.minY + 7, width: 3, height: max(0, bounds.height - 14)),
@@ -42488,7 +43128,7 @@ index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db9
 +        guard isHovered, !isSelected else { return }
 +        let sidebar = OmniTheme.Sidebar.self
 +        OmniTheme.Sidebar.hover.setFill()
-+        NSBezierPath(roundedRect: bounds.insetBy(dx: sidebar.rowInsetX, dy: 0), xRadius: sidebar.rowCornerRadius,
++        NSBezierPath(roundedRect: contentRect.insetBy(dx: sidebar.rowInsetX, dy: 0), xRadius: sidebar.rowCornerRadius,
 +                     yRadius: sidebar.rowCornerRadius).fill()
 +    }
 +}
@@ -43012,10 +43652,10 @@ index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..765f043fe1bb634c8272ff89b7a407d8ecb5de07
+index 0000000000000000000000000000000000000000..c41f003c59a83316ac346e6e75b70a8c73afc3f3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,331 @@
+@@ -0,0 +1,337 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -43180,6 +43820,12 @@ index 0000000000000000000000000000000000000000..765f043fe1bb634c8272ff89b7a407d8
 +        // The top group sits on a slightly lighter rounded panel.
 +        static let panelInsetX: CGFloat = 6
 +        static let panelCornerRadius: CGFloat = 8
++        // Each tree level's step, and the faint guide under a folder's items.
++        static let indent: CGFloat = 16
++        static let indentGuide = NSColor.labelColor.withAlphaComponent(0.09)
++
++        // Room inside the panel above its first row and below its last.
++        static let panelPadY: CGFloat = 5
 +        static let panelFill = NSColor(name: nil) { appearance in
 +            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 +                ? NSColor.white.withAlphaComponent(0.06)
@@ -44640,7 +45286,7 @@ index 0000000000000000000000000000000000000000..a728f25ff229d3f55ae7a0cc310f928c
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b66e5c07214687fa79cca1503f7a719bc3bf4df5
+index 0000000000000000000000000000000000000000..c2a623cf5f2d4343054ffecdf1827c9b3853212c
 --- /dev/null
 +++ b/sources/OmniTerm/OmniUnblockerPane.swift
 @@ -0,0 +1,535 @@
@@ -44893,7 +45539,7 @@ index 0000000000000000000000000000000000000000..b66e5c07214687fa79cca1503f7a719b
 +        let policyHint = OmniTheme.meta("Your standing rules: which projects are live products and what waits for you. " +
 +                                        (policyPath.isEmpty ? "" : "Stored in \(policyPath)."))
 +        column.addText(policyHint, spacing: 4)
-+        if !knowledgeLoading && (!policyLoaded || policyEditor.text.isEmpty) {
++        if !knowledgeLoading && !policyLoaded {
 +            policyEditor.text = policy
 +            policyLoaded = true
 +        }

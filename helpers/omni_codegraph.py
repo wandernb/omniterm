@@ -1679,9 +1679,49 @@ class CodeGraph:
             if counts[cluster["name"]] > 1:
                 cluster["name"] += " · " + cluster["top_files"][0].rsplit("/", 1)[-1]
         cycles = [sorted(component) for component in _cycles(imports)][:20]
+        # A group holding most of the project (a catch-all `src/`) tells nothing: it names no hub and
+        # starts no surprising connection.
+        group_of = {}
+        grouped = sum(len(members) for members in clusters if len(members) >= 2)
+        for members in clusters:
+            if len(members) < 2 or len(members) > max(8, grouped * 0.3):
+                continue
+            name = next((cluster["name"] for cluster in named
+                         if cluster["top_files"] and cluster["top_files"][0] in members), None)
+            for member in members:
+                group_of[member] = name
+        for hub in hubs:
+            hub["cluster"] = group_of.get(hub["path"])
+        bridges = _bridges(edges, group_of)
         total = self.db.execute("SELECT COUNT(*) FROM files WHERE project=?", (project,)).fetchone()[0]
         return {"files": total, "documents": len(documents), "file_links": len(edges), "hubs": hubs,
-                "clusters": named, "import_cycles": cycles}
+                "clusters": named, "import_cycles": cycles, "bridges": bridges}
+
+
+def _bridges(edges, group_of, limit=8):
+    """Surprising connections: links between files of two different groups, the strongest first and those
+    across top-level folders ahead of neighbours, at most one per pair of groups so one seam does not fill
+    the list."""
+    def top(path):
+        return path.split("/", 1)[0] if "/" in path else ""
+    scored = []
+    for (a, b), weight in edges.items():
+        group_a, group_b = group_of.get(a), group_of.get(b)
+        if not group_a or not group_b or group_a == group_b:
+            continue
+        score = weight * (2 if top(a) != top(b) else 1)
+        scored.append((-score, a, b, weight, group_a, group_b))
+    scored.sort()
+    seen, bridges = set(), []
+    for _, a, b, weight, group_a, group_b in scored:
+        pair = tuple(sorted((group_a, group_b)))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        bridges.append({"from": a, "to": b, "references": weight, "from_group": group_a, "to_group": group_b})
+        if len(bridges) >= limit:
+            break
+    return bridges
 
 
 def _label_clusters(edges, rounds=20):
