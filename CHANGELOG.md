@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-28
+
 ### Changed
 
 - Unselected tabs are solid, a shade off the bar, so where two tabs overlap the front one hides the other's edge.
@@ -1089,7 +1091,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/wandernb/omniterm/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/wandernb/omniterm/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/wandernb/omniterm/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/wandernb/omniterm/compare/v0.10.0...v0.11.0
