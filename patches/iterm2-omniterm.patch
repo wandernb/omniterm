@@ -7373,10 +7373,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..412fc5bdc9fff41f8d6a6c575312393edcd95529
+index 0000000000000000000000000000000000000000..7882148e293ef1fd004c7da40d40e0f018cab76e
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2332 @@
+@@ -0,0 +1,2355 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8003,6 +8003,29 @@ index 0000000000000000000000000000000000000000..412fc5bdc9fff41f8d6a6c575312393e
 +        NotificationCenter.default.post(name: .OmniNotificationsDidChange, object: nil)
 +        wait("the page reloads") { fake.requests("get_unblocker_policy").count > reloads }
 +        XCTAssertTrue(editor.text.contains("first second"), "An unsaved edit is not replaced by the saved policy")
++    }
++
++    // The same for a Settings field: typing keeps the keyboard through a refresh.
++    func testTypingInASettingsFieldSurvivesThePageRefresh() throws {
++        showSidebarWithPages()
++        sidebar.showSettings()
++        let root = try XCTUnwrap(window.contentView)
++        wait("the page loads") { Self.find(OmniSettingsPane.self, in: root)?.zones.isEmpty == false }
++        let pane = try XCTUnwrap(Self.find(OmniSettingsPane.self, in: root))
++        pane.show(tab: .general)
++        let editable: (NSTextField) -> Bool = { $0.isEditable && !($0 is NSSearchField) && !$0.isHiddenOrHasHiddenAncestor }
++        wait("a field shows") { Self.find(NSTextField.self, in: pane, where: editable) != nil }
++        let field = try XCTUnwrap(Self.find(NSTextField.self, in: pane, where: editable))
++        XCTAssertTrue(window.makeFirstResponder(field))
++        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
++        editor.selectAll(nil)
++        editor.insertText("Europe/Par", replacementRange: NSRange(location: NSNotFound, length: 0))
++        NotificationCenter.default.post(name: .OmniNotificationsDidChange, object: nil)
++        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
++        XCTAssertTrue(window.firstResponder === editor, "The field keeps the keyboard through a refresh")
++        XCTAssertTrue(field.currentEditor() === editor)
++        editor.insertText("is", replacementRange: NSRange(location: NSNotFound, length: 0))
++        XCTAssertEqual(editor.string, "Europe/Paris")
 +    }
 +
 +    // Each page tab is as wide as its bold label whichever tab is chosen, and
@@ -38337,10 +38360,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..3b6d78de97727c33d2a9f9e96d934341f16be185
+index 0000000000000000000000000000000000000000..e6703e852a073a7654e4e58ccbeec1827332c72d
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5116 @@
+@@ -0,0 +1,5123 @@
 +import AppKit
 +import Foundation
 +import os
@@ -41002,9 +41025,9 @@ index 0000000000000000000000000000000000000000..3b6d78de97727c33d2a9f9e96d934341
 +        collapsedGroups = groups
 +    }
 +
-+    // A tab selected some other way (keyboard, a new run, restoration) takes
-+    // over from the pane, unless it is the card's own live tab; a tab that
-+    // closed under a pane does not. The dashboard tab is never shown:
++    // A terminal tab selected some other way (the keyboard) takes over from
++    // the pane, unless it is the card's own live tab; a run tab selected
++    // incidentally and a tab that closed under a pane do not. The dashboard tab is never shown:
 +    // Overview stands in for it.
 +    private func followCurrentTab(tabs: [PTYTab], dashboardTabIDs: Set<Int32>, backgroundAgents: Set<String>) {
 +        if let pendingRunID {
@@ -41026,9 +41049,16 @@ index 0000000000000000000000000000000000000000..3b6d78de97727c33d2a9f9e96d934341
 +            Self.isBackgroundRunTab($0, backgroundAgents: backgroundAgents) &&
 +                $0.uniqueId != tabFollowing.explicitTerminalTabID
 +        } ?? false
++        // Any run tab selected without the person asking (a relaunch adopting
++        // its job, a run starting, a neighbour closing) leaves the page they
++        // are on alone; its row or Open Terminal shows it.
++        let incidentalRun = current.map {
++            Self.runRoute(forSessionEnvironments: ($0.sessions() ?? []).map { $0.environment }) != nil &&
++                $0.uniqueId != tabFollowing.explicitTerminalTabID
++        } ?? false
 +        if contentHost.isShowingPane, let last = lastCurrentTabID, currentID != last,
 +           tabs.contains(where: { $0.uniqueId == last }),
-+           current == nil || current !== cardTab(), !incidentalBackground {
++           current == nil || current !== cardTab(), !incidentalBackground, !incidentalRun {
 +            contentHost.hide()
 +        }
 +        lastCurrentTabID = currentID
