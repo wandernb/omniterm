@@ -317,6 +317,66 @@ class StoreTests(unittest.TestCase):
                                              goal={**GOAL, "objective": "Ship the import page"}))["block"]
             self.assertEqual(fresh["state"], "open")
 
+    def test_three_skips_end_the_goal_and_its_stop_hook_ends_each_turn_until_the_person_types(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.store.home = home
+            transcript = write_transcript(home, [command("/goal", GOAL["objective"]),
+                                                 reply({"type": "text", "text": "Blocked on option 3"})])
+            stop = {"session_id": SESSION, "hook_event_name": "Stop", "transcript_path": transcript}
+            for round_ in range(BLOCKS.RELEASE_ROUNDS):
+                self.assertIsNone(BLOCKS.stop_output(stop, home))
+                self.clock.now += 700
+                block = self.store.record(claude("Stop", self.clock.now, transcript_path=transcript))["block"]
+                result = self.store.skip({"block_id": block["block_id"], "reason": "owner's option 3"})["block"]
+            self.assertEqual(result["state"], "released")
+            ended = BLOCKS.stop_output(stop, home)
+            self.assertIs(ended["continue"], False)
+            self.assertIn("owner's option 3", ended["stopReason"])
+            # Claude's idle notification after the turn does not reopen it.
+            self.store.record(claude("Notification", self.clock.now + 60, notification_type="idle_prompt",
+                                     message="Claude is waiting for your input"))
+            self.assertEqual(self.store.list({"state": "open"})["blocks"], [])
+            # The person typing resumes the goal: the hook lets turns go on again.
+            stamp = datetime.datetime.fromtimestamp(self.clock.now + 100, datetime.timezone.utc).isoformat()
+            with open(transcript, "a") as handle:
+                handle.write(json.dumps({**person("go on"), "origin": {"kind": "human"}, "timestamp": stamp}) + "\n")
+            self.assertIsNone(BLOCKS.stop_output(stop, home))
+            reopened = self.store.record(claude("Stop", self.clock.now + 200, transcript_path=transcript))["block"]
+            self.assertEqual(reopened["state"], "open")
+            self.assertEqual(self.store.skip({"block_id": reopened["block_id"], "reason": "x"})["block"]["state"], "skipped")
+
+    def test_answers_that_move_nothing_end_the_goal_on_the_third_round_but_work_resets_the_count(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.store.home = home
+            transcript = write_transcript(home, [command("/goal", GOAL["objective"]),
+                                                 reply({"type": "text", "text": "Only hand checks are left"})])
+            block = self.store.record(claude("Stop", 1000, transcript_path=transcript))["block"]
+            self.assertFalse(self.store.stalled(block))
+            self.store.record_answer(block, {"message": "Report it complete."}, "sent")
+            self.clock.now = 1700
+            block = self.store.record(claude("Stop", 1700, transcript_path=transcript))["block"]
+            self.store.record_answer(block, {"message": "Report it complete."}, "sent")
+            self.clock.now = 2400
+            block = self.store.record(claude("Stop", 2400, transcript_path=transcript))["block"]
+            self.assertTrue(self.store.stalled(block))
+            # A tool call since the last round is progress: the count starts over.
+            stamp = datetime.datetime.fromtimestamp(2300, datetime.timezone.utc).isoformat()
+            with open(transcript, "a") as handle:
+                handle.write(json.dumps({**reply({"type": "tool_use", "id": "t", "name": "Bash", "input": {}}),
+                                         "timestamp": stamp}) + "\n")
+            self.assertFalse(self.store.stalled(block))
+
+    def test_a_goal_released_before_the_stop_hook_learned_to_end_turns_gets_its_marker(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.store.home = home
+            transcript = write_transcript(home, [command("/goal", GOAL["objective"])])
+            block = self.store.record(claude("Stop", 1000, transcript_path=transcript))["block"]
+            self.store.skip({"block_id": block["block_id"], "reason": "owner's call", "release": True})
+            BLOCKS.clear_release_marker("claude:" + SESSION, home)
+            self.store.record(claude("Stop", 1300, transcript_path=transcript))
+            stop = {"session_id": SESSION, "hook_event_name": "Stop", "transcript_path": transcript}
+            self.assertIs(BLOCKS.stop_output(stop, home)["continue"], False)
+
     def test_release_needs_an_active_goal(self):
         block = self.store.record(claude("Stop", 1000, goal=None))["block"]
         result = self.store.skip({"block_id": block["block_id"], "reason": "done", "release": True})["block"]

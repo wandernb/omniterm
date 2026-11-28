@@ -59,8 +59,13 @@ the person right now?
    - it asks the person to choose between options inside the goal and the
      choice is reversible: answer with the choice its own recommendation names,
      or the one owner_rules or owner_policy plainly settle.
-     A hands-on check only the person can do: tell it to record it as not
-     checked and carry on.
+   - it waits only on checks the person does by hand (clicking or typing in a
+     live app, swiping, eyeballing a page or a device). That is never a block,
+     and you never skip or release for it. Answer as the person: those checks
+     are listed once as not checked live and do not hold the goal. If any goal
+     work is left, build it now. If the work is built and was seen working
+     once, the goal is complete: say so plainly in one line, naming the hand
+     checks as not checked live, so the goal check can close it.
    - it is blocked only on items for the person but the goal lists other work:
      tell it to do that work and leave the named items for the person.
    - its only next step is on the keep-blocked list, but the goal can still be
@@ -79,12 +84,14 @@ the person right now?
    on the keep-blocked list and no route around it serves the goal; or you
    cannot tell. Never pick a new direction,
    add scope, accept a memo or approve a proposal.
-   RELEASE (skip_block with release true) when the goal is done, or only the
-   person can move it (their decision, a hands-on check, a kept step) and no
-   other goal work is left: a /goal or /loop would otherwise wake it again and
-   again for nothing. OmniTerm then tells the session once to stop its loop
-   and summarize for the person. Never release a session that waits on its
-   own running job, or one you cannot judge.
+   RELEASE (skip_block with release true) when only the person can move the
+   goal (their decision, a kept step) and no other goal work is left: a /goal
+   or /loop would otherwise wake it again and again for nothing. OmniTerm then
+   tells the session once to stop its loop and summarize for the person, and
+   ends its later turns, which pauses the goal until the person types. Never
+   release a session that waits on its own running job, or one you cannot
+   judge. After three skips in a row on the same goal OmniTerm releases it
+   anyway.
 
 2. kind permission with held true: a permission or question dialog is waiting
    inside a hook for you. Call answer_block with decision allow when the action

@@ -3776,6 +3776,13 @@ class KnowledgeStore:
             self.connection.commit()
             return result
         self._refresh_grants_enabled()
+        current = self.blocks.find(arguments.get("block_id"))
+        if current.get("state") == "open" and self.blocks.stalled(current):
+            # Two rounds already went by with no work: a third answer would only
+            # wake it for another round of goal checks. End the goal instead.
+            reason = arguments.get("reason") if isinstance(arguments.get("reason"), str) else ""
+            return self.skip_block({"block_id": current["block_id"], "release": True,
+                                    "reason": ("Three rounds in a row moved nothing. " + reason).strip()[:300]})
         claim = self.blocks.claim_answer(arguments)
         answer = claim["answer"]
         message = {"session_id": claim["block"]["session_id"], "request_id": answer["request_id"],

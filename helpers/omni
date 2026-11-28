@@ -4212,6 +4212,14 @@ def blocks_command(args):
             if output:
                 print(json.dumps(output))
             return
+        if args.provider == "claude" and '"Stop"' in payload:
+            # A goal OmniTerm released: end the turn here, which pauses the goal.
+            try:
+                output = blocks.stop_output(json.loads(payload))
+            except Exception:  # noqa: BLE001 - a hook that raises would surface in the provider's TUI
+                output = None
+            if output:
+                print(json.dumps(output), flush=True)
         if args.provider == "claude" and '"SessionStart"' in payload:
             try:
                 if json.loads(payload).get("hook_event_name") == "SessionStart":

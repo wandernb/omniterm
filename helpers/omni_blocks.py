@@ -626,10 +626,95 @@ def person_spoke_since(path, since, home=None, max_bytes=1048576):
     return False
 
 
+def worked_since(path, since, home=None, max_bytes=1048576):
+    """Whether a Claude session called any tool after `since`: a round of the
+    unblocker that was followed by work counts as progress."""
+    if not isinstance(path, str) or not path:
+        return False
+    root = (Path(home) if home else Path.home()) / ".claude/projects"
+    try:
+        candidate = Path(path).resolve()
+        if root.resolve() not in candidate.parents or not candidate.is_file():
+            return False
+        with open(candidate, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - max_bytes))
+            data = handle.read()
+    except OSError:
+        return False
+    for line in reversed(data.decode("utf-8", "replace").splitlines()):
+        if '"tool_use"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+            at = datetime.datetime.fromisoformat(str(entry.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        except (ValueError, AttributeError):
+            continue
+        if entry.get("type") != "assistant":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, list) and any(isinstance(part, dict) and part.get("type") == "tool_use" for part in content):
+            return at > since
+    return False
+
+
+RELEASE_ROUNDS = 3  # rounds in a row the unblocker could not move a goal before it ends it
+RELEASED_DIR = "Library/Application Support/OmniTerm/released-goals"
+
+
+def _release_marker(session, home=None):
+    return (Path(home) if home else Path.home()) / RELEASED_DIR / (session.replace(":", "-") + ".json")
+
+
+def write_release_marker(session, goal, at, reason, home=None):
+    """Tell the session's own Stop hook that OmniTerm ended this goal."""
+    path = _release_marker(session, home)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"goal": goal, "at": at, "reason": reason}))
+        os.replace(temporary, path)
+    except OSError:
+        pass
+
+
+def clear_release_marker(session, home=None):
+    try:
+        _release_marker(session, home).unlink()
+    except OSError:
+        pass
+
+
+def stop_output(payload, home=None):
+    """Stop hook reply for a goal OmniTerm released: end the turn. Claude Code
+    then pauses the goal ("a hook ended the turn"), and only the person typing
+    resumes it; loop prompts and relayed messages do not. None otherwise."""
+    if not isinstance(payload, dict) or payload.get("hook_event_name") != "Stop":
+        return None
+    session = _session("claude", payload.get("session_id"))
+    if not session:
+        return None
+    path = _release_marker(session, home)
+    try:
+        marker = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(marker, dict):
+        return None
+    transcript = clean_text(payload.get("transcript_path"), 1024)
+    goal = session_goal(transcript, home, goal_commands(owner_policy(home)))
+    if goal_key(goal) != marker.get("goal") or person_spoke_since(transcript, marker.get("at", 0), home):
+        clear_release_marker(session, home)
+        return None
+    reason = clean_text(marker.get("reason"), 300)
+    return {"continue": False,
+            "stopReason": f"OmniTerm ended this goal: {reason} Type a message to resume it, or /goal clear."}
+
+
 RELEASE_NOTE = """OmniTerm is releasing this goal: it cannot move on without the owner, so nobody will push it further.
 Why: {reason}
 
-Stop working toward it now. Cancel any /loop or scheduled wake-up you set for it (CronList, then CronDelete; or ScheduleWakeup with stop), and when a goal check fires again with nothing changed, answer in one line without doing anything. Reply once, for the owner: what is done, what is blocked and why, and the exact command or decision that would unblock it. Then end your turn. The owner ends a /goal with /goal clear."""
+Stop working toward it now. Cancel any /loop or scheduled wake-up you set for it (CronList, then CronDelete; or ScheduleWakeup with stop), and when a goal check fires again with nothing changed, answer in one line without doing anything. Reply once, for the owner: what is done, what is blocked and why, and the exact command or decision that would unblock it. Then end your turn. From now on OmniTerm ends this session's turns, which pauses the goal until the owner types; /goal clear ends it."""
 
 
 def permission_output(decision, tool_input=None):
@@ -709,9 +794,11 @@ class BlockStore:
             self.write(key, block)
             return {"block": block, "escalate": False}
         released = block.get("released") if isinstance(block.get("released"), dict) else None
-        if released and name == "stop" and kind == IDLE:
-            goal = event.get("goal") if isinstance(event.get("goal"), dict) else None
-            if block.get("provider", session.split(":")[0]) != "claude":
+        if released and kind == IDLE and name in ("stop", "notification"):
+            # A notification carries no goal: Claude's "waiting for input" after a
+            # released turn is the same goal and must not reopen it.
+            goal = event.get("goal") if name == "stop" and isinstance(event.get("goal"), dict) else None
+            if name != "stop" or block.get("provider", session.split(":")[0]) != "claude":
                 goal = goal or (None if event.get("goal_end") else block.get("goal"))
             path = clean_text(event.get("transcript_path"), 1024) or block.get("transcript_path", "")
             if goal_key(goal) == released.get("goal") and not person_spoke_since(path, released.get("at", 0), self.home):
@@ -719,8 +806,13 @@ class BlockStore:
                 # nothing for anyone until the person speaks or the goal changes.
                 block = {**block, "state": "released", "updated": ts}
                 self.write(key, block)
+                if block.get("provider", session.split(":")[0]) == "claude" and \
+                        not _release_marker(session, self.home).exists():
+                    write_release_marker(session, released.get("goal"), released.get("at", ts),
+                                         block.get("skip_reason") or "only the owner can move it.", self.home)
                 return {"block": block, "escalate": False}
-            block = {key_: value for key_, value in block.items() if key_ != "released"}
+            block = {key_: value for key_, value in block.items() if key_ not in ("released", "skip_streak")}
+            clear_release_marker(session, self.home)
         # Every Stop is a new turn: a /goal hook or a queued message may have
         # continued the session without a UserPromptSubmit.
         # A /goal or /loop hook that keeps the session going ends a turn every
@@ -957,9 +1049,26 @@ class BlockStore:
             chosen[question["question"]] = ", ".join(picked)
         return chosen
 
+    def next_streak(self, block):
+        """Rounds in a row the unblocker looked at this goal and the session did
+        no work in between, answers and skips alike. Work, the person typing or
+        a new goal starts the count over."""
+        key = goal_key(block.get("goal"))
+        streak = block.get("skip_streak") if isinstance(block.get("skip_streak"), dict) else {}
+        path = block.get("transcript_path", "")
+        since = streak.get("at", 0)
+        same = streak.get("goal") == key and not worked_since(path, since, self.home) and \
+            not person_spoke_since(path, since, self.home)
+        return {"goal": key, "count": streak.get("count", 0) + 1 if same else 1, "at": self.clock()}
+
+    def stalled(self, block):
+        """This round would be the last the goal gets: release instead of answering."""
+        return block.get("kind") in ANSWERABLE_KINDS and goal_active(block) and \
+            self.next_streak(block)["count"] >= RELEASE_ROUNDS
+
     def record_answer(self, block, answer, receipt_state):
         now = self.clock()
-        updated = {**block, "state": "answered", "updated": now,
+        updated = {**block, "skip_streak": self.next_streak(block), "state": "answered", "updated": now,
                    "answers": (block.get("answers", []) + [{**answer, "delivery": receipt_state}])[-20:],
                    "grants": (live_grants(block, now) + answer.get("grants", []))[-5:]}
         self.write(KEY_PREFIX + block["session_id"], updated)
@@ -1011,12 +1120,19 @@ class BlockStore:
             raise BlockError(f"reason must be 1 to {MAX_REASON} characters")
         if block.get("state") != "open" or block.get("block_id") != arguments["block_id"]:
             raise BlockError("This block is no longer open", "block_closed")
-        updated = {**block, "state": "skipped", "updated": self.clock(), "skip_reason": reason,
-                   "skipped_at": self.clock()}
-        if arguments.get("release") is True and block.get("kind") in ANSWERABLE_KINDS and goal_active(block):
-            # Nothing anyone but the person can do moves this goal: end the wait
-            # for good rather than looking at it again every loop tick.
-            updated.update(state="released", released={"goal": goal_key(block.get("goal")), "at": self.clock()})
+        now = self.clock()
+        updated = {**block, "state": "skipped", "updated": now, "skip_reason": reason, "skipped_at": now}
+        key = goal_key(block.get("goal"))
+        updated["skip_streak"] = self.next_streak(block)
+        count = updated["skip_streak"]["count"]
+        if (arguments.get("release") is True or count >= RELEASE_ROUNDS) and \
+                block.get("kind") in ANSWERABLE_KINDS and goal_active(block):
+            # Nothing anyone but the person can do moves this goal, or three rounds
+            # in a row found nothing to send: end it rather than look again every
+            # loop tick. The session's Stop hook then ends its turns, which pauses
+            # the goal until the person types.
+            updated.update(state="released", released={"goal": key, "at": now})
+            write_release_marker(block["session_id"], key, now, reason, self.home)
         self.write(KEY_PREFIX + block["session_id"], updated)
         return {"block": self.public(updated)}
 
