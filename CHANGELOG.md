@@ -17,6 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Fixed
 
 - Command-D into a new group now puts its new terminal there; the group stayed empty.
+- A click on a tab right after the tabs changed no longer misses it.
 - Moving focus between groups of the same size is instant: it no longer refits every terminal tab, which also made every running agent's screen redraw. Even splits are exactly even.
 - Every tab and group key can be rebound in Settings › Shortcuts (Sublime Text's keymap format, `keymap` in settings), and the View menus show your keys. View › Tabs can hide the tab bar and the status bar.
 - A status bar along the bottom of the window. It shows the sidebar toggle and, for the selected tab, the git branch with staged and unstaged counts, the folder, a run's agent and state, and on the right the branch with its change count, the project, the provider and model (⚠ for dangerous permissions), the terminal size, how many agents run and Inbox unread. The branch and project open the project, the run count opens the Dashboard and the unread count opens the Inbox.

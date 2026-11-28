@@ -9936,10 +9936,10 @@ index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c0
 +}
 diff --git a/ModernTests/OmniWindowTabsTests.swift b/ModernTests/OmniWindowTabsTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..c3da72d99e9271fd4e2908978e691a285c32d177
+index 0000000000000000000000000000000000000000..ec609fa108ae671d83b0c077e96193c31f5b4696
 --- /dev/null
 +++ b/ModernTests/OmniWindowTabsTests.swift
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,336 @@
 +//
 +//  OmniWindowTabsTests.swift
 +//  ModernTests
@@ -10142,6 +10142,137 @@ index 0000000000000000000000000000000000000000..c3da72d99e9271fd4e2908978e691a28
 +        XCTAssertNil(OmniWindowKeymap(entries: unbound).action(for: OmniKeyChord("ctrl+2")!))
 +        let reset = OmniWindowKeymap.entries(unbound, setting: action, to: nil, reset: true)
 +        XCTAssertEqual(OmniWindowKeymap(entries: reset).action(for: OmniKeyChord("ctrl+2")!), action)
++    }
++
++    // MARK: - Real events
++
++    private func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags, _ characters: String) -> NSEvent {
++        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
++                                context: nil, characters: characters, charactersIgnoringModifiers: characters,
++                                isARepeat: false, keyCode: code)!
++    }
++
++    func testKeyEventsReachTheirCommands() {
++        let keymap = OmniWindowKeymap()
++        XCTAssertEqual(keymap.action(for: key(19, [.command, .option], "™")), OmniKeyAction("set_layout", "columns_2"))
++        XCTAssertEqual(keymap.action(for: key(19, [.command, .option, .shift], "€")), OmniKeyAction("set_layout", "rows_2"))
++        XCTAssertEqual(keymap.action(for: key(48, [.control], "\t")), OmniKeyAction("next_view_in_stack"))
++        XCTAssertEqual(keymap.action(for: key(30, [.command, .shift], "}")), OmniKeyAction("next_view"))
++        XCTAssertEqual(keymap.action(for: key(18, [.control, .shift], "!")), OmniKeyAction("move_to_group", "1"))
++        XCTAssertEqual(keymap.action(for: key(2, [.command], "d")), OmniKeyAction("new_pane", "columns"))
++        XCTAssertEqual(keymap.action(for: key(45, [.command], "n")), OmniKeyAction("new_file"))
++        // Caps Lock and the function key do not change the command.
++        XCTAssertEqual(keymap.action(for: key(13, [.command, .capsLock], "w")), OmniKeyAction("close"))
++        XCTAssertNil(keymap.action(for: key(0, [], "a")), "plain typing is never taken")
++    }
++
++    private func window(with view: NSView) -> NSWindow {
++        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        window.contentView?.addSubview(view)
++        view.display()
++        return window
++    }
++
++    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, in window: NSWindow, clicks: Int = 1,
++                       button: Int = 0) -> NSEvent {
++        if type == .otherMouseUp || type == .otherMouseDown {
++            let cg = CGEvent(mouseEventSource: nil, mouseType: type == .otherMouseUp ? .otherMouseUp : .otherMouseDown,
++                             mouseCursorPosition: .zero, mouseButton: .center)!
++            cg.location = window.convertPoint(toScreen: point)
++            let event = NSEvent(cgEvent: cg)!
++            return NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
++                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0,
++                                      clickCount: 1, pressure: 1) ?? event
++        }
++        return NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
++                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
++                                  clickCount: clicks, pressure: 1)!
++    }
++
++    // The strip's tabs, left to right, from what it reports under a sweep.
++    private func strip(_ ids: [Int], selected: Int) -> (OmniWindowTabStrip, NSWindow) {
++        let strip = OmniWindowTabStrip(frame: NSRect(x: 0, y: 0, width: 900, height: OmniWindowTabStrip.height))
++        strip.items = ids.map { OmniTabStripItem(id: $0, title: "Tab \($0)", preview: false, selected: $0 == selected, busy: false) }
++        return (strip, window(with: strip))
++    }
++
++    func testClickingATabSelectsItAndDraggingItReordersTheStrip() {
++        let (strip, window) = strip([1, 2, 3], selected: 1)
++        var selected: [Int] = []
++        var moves: [(Int, Int)] = []
++        strip.onSelect = { selected.append($0) }
++        strip.onMove = { id, index in
++            moves.append((id, index))
++            var ids = strip.items.map(\.id)
++            ids.removeAll { $0 == id }
++            ids.insert(id, at: index)
++            strip.items = ids.map { OmniTabStripItem(id: $0, title: "Tab \($0)", preview: false, selected: $0 == 1, busy: false) }
++            strip.display()
++        }
++        let y = OmniWindowTabStrip.height / 2
++        let first = NSPoint(x: 70, y: y)
++        strip.mouseDown(with: mouse(.leftMouseDown, first, in: window))
++        XCTAssertEqual(selected, [1])
++        strip.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 880, y: y), in: window))
++        strip.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 880, y: y), in: window))
++        XCTAssertEqual(moves.last?.0, 1)
++        XCTAssertEqual(strip.items.map(\.id).last, 1, "the dragged tab ends up last")
++    }
++
++    func testTheCloseButtonClosesAndADoubleClickPins() {
++        let (strip, window) = strip([1, 2], selected: 1)
++        var closed: [Int] = []
++        var pinned: [Int] = []
++        strip.onClose = { closed.append($0) }
++        strip.onPin = { pinned.append($0) }
++        let y = OmniWindowTabStrip.height / 2
++        // Sweep left to right: the first close button met is the first tab's.
++        var closeX: CGFloat?
++        for x in stride(from: CGFloat(30), through: 400, by: 1) {
++            strip.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: x, y: y), in: window))
++            strip.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: x, y: y), in: window))
++            if !closed.isEmpty {
++                closeX = x
++                break
++            }
++        }
++        XCTAssertEqual(closed, [1], "a tab's close button closes that tab")
++        XCTAssertNotNil(closeX)
++        strip.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 60, y: y), in: window, clicks: 2))
++        XCTAssertEqual(pinned, [1])
++    }
++
++    func testDraggingADividerResizesTheGroups() {
++        let view = OmniWindowGroupsView(frame: NSRect(x: 0, y: 0, width: 1000, height: 400))
++        view.isHidden = false
++        view.groupLayout = .columns(2)
++        view.ensureGroups(2)
++        let window = window(with: view)
++        var layouts: [OmniGroupLayout] = []
++        view.onDividerMoved = { layouts.append($0) }
++        let divider = OmniGroupLayout.columns(2).dividers(in: view.bounds)[0].rect
++        view.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: divider.midX, y: 200), in: window))
++        view.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 300, y: 200), in: window))
++        view.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 300, y: 200), in: window))
++        let cells = try? XCTUnwrap(layouts.last).cells(in: view.bounds)
++        XCTAssertEqual(cells?[0].maxX ?? 0, 300 - OmniGroupLayout.gap, accuracy: 2, "the left group ends where the divider was let go")
++    }
++
++    // Control-Tab walks back without reordering; letting go of Control
++    // makes the tab it stopped on the most recent.
++    func testAControlTabWalkOnlyReordersWhenItEnds() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .pin, live: false)
++        tabs.open(inbox, intent: .pin, live: false)
++        tabs.open(settings, intent: .pin, live: false)
++        let order = tabs.recent
++        tabs.select(order[1], remember: false)
++        tabs.select(order[2], remember: false)
++        XCTAssertEqual(tabs.recent, order, "walking does not reorder")
++        XCTAssertEqual(tabs.selected?.target, memory)
++        tabs.select(order[2])
++        XCTAssertEqual(tabs.recentTab(depth: 1)?.target, settings, "Control-Tab now goes back to where the walk began")
 +    }
 +}
 +
@@ -48741,10 +48872,10 @@ index 0000000000000000000000000000000000000000..cd85cf40cd0b609c48bc6d2c84068582
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabStrip.swift b/sources/OmniTerm/OmniWindowTabStrip.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..b35ab0a81c6b4960edaccddff3b985a7c83ad248
+index 0000000000000000000000000000000000000000..c3efb4b86ad3c4fc6c38344c7c90b3f4548051c8
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowTabStrip.swift
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,393 @@
 +//
 +//  OmniWindowTabStrip.swift
 +//  iTerm2SharedARC
@@ -49006,6 +49137,10 @@ index 0000000000000000000000000000000000000000..b35ab0a81c6b4960edaccddff3b985a7
 +    // MARK: - Hit testing
 +
 +    private func tabID(at point: NSPoint) -> Int? {
++        // Where the tabs are now, even before the strip has drawn them.
++        if frames.map(\.id) != items.map(\.id) {
++            layoutTabs()
++        }
 +        // The selected tab is drawn on top, so it wins where tabs overlap.
 +        if let selected = items.first(where: \.selected), let frame = frames.first(where: { $0.id == selected.id }),
 +           frame.rect.insetBy(dx: -Self.slant / 2, dy: 0).contains(point) {
@@ -49051,6 +49186,7 @@ index 0000000000000000000000000000000000000000..b35ab0a81c6b4960edaccddff3b985a7
 +    }
 +
 +    override func mouseDown(with event: NSEvent) {
++        layoutTabs()
 +        let point = convert(event.locationInWindow, from: nil)
 +        if newTabRect.contains(point) {
 +            onNewTab?()
