@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-28
+
 ### Added
 
 - Tabs, Sublime Text style, above the window's content. Projects, folders, agents, runs, sessions, Inbox, Memory, Settings, Unblocker, search results and terminals all open as tabs. A plain click shows a page in an italic preview tab that changes in place until you click, scroll or type in it. Terminals and double-clicks open permanent tabs, and Command-click (or Command-Return) opens a tab in the background, wherever you click. Command-N opens a new empty terminal tab (New Agent moves to Option-Command-N). Command-W closes the tab: an agent's run tab only leaves the bar and the run keeps going. Shift-Command-T reopens the last closed tab. Command-1 to 9, Option-Command-Left/Right, Shift-Command-[ ] and Control-Tab (most recently used) switch tabs, Command-P opens the navigator, and tabs drag to reorder. Two tabs with the same name show where each comes from.
@@ -1054,7 +1056,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/wandernb/omniterm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/wandernb/omniterm/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/wandernb/omniterm/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/wandernb/omniterm/compare/v0.8.3...v0.9.0
