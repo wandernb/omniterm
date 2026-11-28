@@ -7401,10 +7401,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..6033208432ad0fb551562fafac962486b2176825
+index 0000000000000000000000000000000000000000..6c7250594f9c45abbd58d19db484a22167e3ba53
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2373 @@
+@@ -0,0 +1,2361 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8953,18 +8953,6 @@ index 0000000000000000000000000000000000000000..6033208432ad0fb551562fafac962486
 +        search("")
 +    }
 +
-+    func testAHairlineSeparatesTheTitleBarFromTheSidebarAndTheContent() throws {
-+        showSidebarWithPages()
-+        let line = try XCTUnwrap(sidebar.titlebarSeparatorFrame)
-+        XCTAssertEqual(line.height, 1)
-+        XCTAssertLessThanOrEqual(line.minX, 0)
-+        XCTAssertGreaterThanOrEqual(line.maxX, window.frame.width, "Across the sidebar and the content")
-+        XCTAssertEqual(line.maxY, sidebar.view.convert(sidebar.view.bounds, to: nil).maxY, accuracy: 0.5,
-+                       "At the top of the content")
-+        let first = outlineView.convert(outlineView.rect(ofRow: 0), to: nil)
-+        XCTAssertLessThanOrEqual(first.maxY, line.minY + 0.5, "It never covers the first row")
-+    }
-+
 +    func testTheWindowsSizeIsSavedAndComesBack() throws {
 +        showSidebarWithPages()
 +        window.setFrame(NSRect(x: 100, y: 120, width: 1000, height: 640), display: false)
@@ -9947,10 +9935,10 @@ index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c0
 +}
 diff --git a/ModernTests/OmniWindowTabsTests.swift b/ModernTests/OmniWindowTabsTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..52edee2824567a7d961a67072fbc9603abd32068
+index 0000000000000000000000000000000000000000..61253b4a9355217daa009703784b80066317c391
 --- /dev/null
 +++ b/ModernTests/OmniWindowTabsTests.swift
-@@ -0,0 +1,358 @@
+@@ -0,0 +1,391 @@
 +//
 +//  OmniWindowTabsTests.swift
 +//  ModernTests
@@ -10296,6 +10284,39 @@ index 0000000000000000000000000000000000000000..52edee2824567a7d961a67072fbc9603
 +        strip.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 400, y: y - 200), in: window))
 +        XCTAssertEqual(handed.map(\.0), [1])
 +        XCTAssertEqual(strip.items.map(\.id), [1, 2], "leaving the strip does not reorder it")
++    }
++
++    // Side by side, the next group's strip is level with this one: a tab
++    // dragged past the strip's end is on its way there, not reordering.
++    func testATabDraggedSidewaysOffTheStripIsOfferedToTheNextGroup() {
++        let (strip, window) = strip([1, 2], selected: 1)
++        strip.frame.size.width = 400
++        var moves: [(Int, Int)] = []
++        var over: [NSPoint?] = []
++        var handed: [Int] = []
++        strip.onMove = { moves.append(($0, $1)) }
++        strip.onDragOver = { over.append($1) }
++        strip.onDragOut = { id, _ in handed.append(id) }
++        let y = OmniWindowTabStrip.height / 2
++        strip.mouseDown(with: mouse(.leftMouseDown, NSPoint(x: 70, y: y), in: window))
++        strip.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: 600, y: y), in: window))
++        strip.mouseUp(with: mouse(.leftMouseUp, NSPoint(x: 600, y: y), in: window))
++        XCTAssertTrue(moves.isEmpty, "past the strip's end the tab does not reorder")
++        XCTAssertEqual(over.first??.x, 600, "the window hears where the tab is")
++        XCTAssertEqual(over.last, Optional<NSPoint?>.some(nil), "letting go clears the drop target")
++        XCTAssertEqual(handed, [1])
++        XCTAssertEqual(strip.insertionIndex(atWindowPoint: NSPoint(x: 0, y: y)), 0)
++        XCTAssertEqual(strip.insertionIndex(atWindowPoint: NSPoint(x: 399, y: y)), 2)
++    }
++
++    func testADropOnAGroupsContentFindsThatGroup() {
++        let view = OmniWindowGroupsView(frame: NSRect(x: 0, y: 0, width: 1000, height: 400))
++        view.isHidden = false
++        _ = window(with: view)
++        view.groupLayout = .columns(2)
++        view.ensureGroups(2)
++        XCTAssertEqual(view.group(atWindowPoint: NSPoint(x: 800, y: 100)), 1)
++        XCTAssertEqual(view.group(atWindowPoint: NSPoint(x: 100, y: 100)), 0)
 +    }
 +
 +    func testHiddenTabsGiveTheirRoomToTheGroups() {
@@ -16111,10 +16132,10 @@ index 0000000000000000000000000000000000000000..276a4470f56b6c012eb2c66fec243294
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0dc5a0e0767f1088614aec9582c05e6dfe85b069
+index 0000000000000000000000000000000000000000..6fd4d6d11ccc3a72696b45c9c31ee9a47d0c2309
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,934 @@
+@@ -0,0 +1,937 @@
 +import AppKit
 +import Foundation
 +
@@ -16242,6 +16263,9 @@ index 0000000000000000000000000000000000000000..0dc5a0e0767f1088614aec9582c05e6d
 +        // Layer-backed like its siblings: a view that draws without a layer
 +        // beside the tab view has kept the terminal's Metal view off screen.
 +        wantsLayer = true
++        // A page wider or taller inside than the room it is given (Inbox in
++        // a narrow group) must not paint over the tab bars or the next group.
++        clipsToBounds = true
 +        isHidden = true
 +        autoresizesSubviews = false
 +    }
@@ -17990,10 +18014,10 @@ index 0000000000000000000000000000000000000000..88d464644a76c5fcbf0d34e384f0369a
 +}
 diff --git a/sources/OmniTerm/OmniInboxWindowController.swift b/sources/OmniTerm/OmniInboxWindowController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..ab21fe8d4672b1a514aa5550d5173ffdfff99be3
+index 0000000000000000000000000000000000000000..52ff7581c175fb625f161e96e29727079e9724c3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniInboxWindowController.swift
-@@ -0,0 +1,1272 @@
+@@ -0,0 +1,1275 @@
 +import AppKit
 +import Foundation
 +
@@ -18686,6 +18710,9 @@ index 0000000000000000000000000000000000000000..ab21fe8d4672b1a514aa5550d5173ffd
 +        let markAllWidth = markAllButton.frame.width + 8
 +        markAllButton.frame = NSRect(x: size.width - markAllWidth - inset, y: (barHeight - OmniTheme.Metrics.buttonHeight) / 2,
 +                                     width: markAllWidth, height: OmniTheme.Metrics.buttonHeight)
++        // In a narrow group even the button has no room beside the
++        // severity filter: it gives way rather than run over it.
++        markAllButton.isHidden = markAllButton.frame.minX < severityControl.frame.maxX + 12
 +        // Narrow windows: the pop-ups shrink, then Unread only goes, then
 +        // the kind filter, so nothing runs under Mark All as Read.
 +        unreadOnlyButton.sizeToFit()
@@ -39096,10 +39123,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad385a0ffd53
+index 0000000000000000000000000000000000000000..a9addee589dd50e42cd7c80c8b5a78c74b7d4d26
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,6649 @@
+@@ -0,0 +1,6680 @@
 +import AppKit
 +import Foundation
 +import os
@@ -39372,7 +39399,7 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +    // The search's options, right of the field: what each mode offers.
 +    private let optionsButton = NSButton()
 +    // The hairline under the title bar, across the sidebar and the content.
-+    private let titlebarLine = OmniTheme.titlebarSeparatorLine()
++    private let titlebarMaterial = NSVisualEffectView()
 +    private let agentsSection = OmniSidebarItem(kind: .section, key: "agents", title: "Agents")
 +    private let runsSection = OmniSidebarItem(kind: .section, key: "runs", title: "Runs")
 +    private let terminalsSection = OmniSidebarItem(kind: .section, key: "terminals", title: "Terminals")
@@ -39667,7 +39694,10 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +        sessionSearchField.delegate = self
 +        updateSearchFieldForMode()
 +        root.addSubview(sessionSearchField)
++        // As in Sublime, no line parts the sidebar from the tabs and the
++        // content; their colours do.
 +        separator.boxType = .separator
++        separator.isHidden = true
 +        root.addSubview(separator)
 +
 +        newTerminalButton.bezelStyle = .inline
@@ -39817,7 +39847,7 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +                                                                height: size.height)
 +        // The rows start under the title bar and its hairline.
 +        let titleTop = titleBarOverlap + 1
-+        layoutTitlebarLine(overlap: titleTop - 1)
++        installTitlebarMaterial()
 +        // The search bar (and the pin) sit on top; the mode switch is a row
 +        // of the list, under the shared pages.
 +        let headerHidden = scrollView.isHidden
@@ -39848,21 +39878,22 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +        outlineView.sizeLastColumnToFit()
 +    }
 +
-+    // In the window's root view, beside the content, the line spans both;
-+    // when the sidebar is the whole window (tests), it spans the sidebar.
-+    private func layoutTitlebarLine(overlap: CGFloat) {
-+        guard let window = view.window else { return }
-+        let host: NSView = view.superview != nil && view.superview === window.contentView ? view.superview! : view
-+        if titlebarLine.superview !== host || host.subviews.last !== titlebarLine {
-+            host.addSubview(titlebarLine)
++    // The window's title bar shows the sidebar's material, without the
++    // hairline under it, so title bar, sidebar and tabs read as one surface,
++    // as in Sublime. It goes over the title bar's own background and under
++    // its buttons and title.
++    private func installTitlebarMaterial() {
++        guard let window = view.window, view.superview === window.contentView,
++              let titlebar = window.standardWindowButton(.closeButton)?.superview,
++              titlebarMaterial.superview !== titlebar else { return }
++        OmniTheme.configureSidebar(titlebarMaterial)
++        titlebarMaterial.frame = titlebar.bounds
++        titlebarMaterial.autoresizingMask = [.width, .height]
++        let background = titlebar.subviews.last { subview in
++            subview is NSVisualEffectView || String(describing: type(of: subview)).contains("Background")
 +        }
-+        let y = host === view ? overlap : view.frame.maxY - overlap - 1
-+        titlebarLine.frame = NSRect(x: 0, y: y, width: max(host.bounds.width, 20000), height: 1)
-+    }
-+
-+    var titlebarSeparatorFrame: NSRect? {
-+        guard titlebarLine.superview != nil else { return nil }
-+        return titlebarLine.convert(titlebarLine.bounds, to: nil)
++        titlebar.addSubview(titlebarMaterial, positioned: background == nil ? .below : .above, relativeTo: background)
++        omniWindowTabsLog.notice("title bar material over \(background.map { String(describing: type(of: $0)) } ?? "nothing", privacy: .public) in \(titlebar.subviews.map { String(describing: type(of: $0)) }.joined(separator: ","), privacy: .public)")
 +    }
 +
 +    // How far the sidebar reaches up under the window's title bar. The rows
@@ -44402,10 +44433,29 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +            self.newTerminalTab()
 +        }
 +        strip.menuForTab = { [weak self] id in self?.windowTabMenu(id) }
-+        strip.onDragOut = { [weak self] id, point in
-+            guard let self, let to = self.groupsView.stripGroup(atWindowPoint: point) else { return }
-+            self.moveTab(id, toGroup: to)
++        strip.onDragOver = { [weak self] id, point in
++            guard let self else { return }
++            self.groupsView.dropTarget = point.flatMap { self.dropGroup(for: id, at: $0) }
 +        }
++        strip.onDragOut = { [weak self] id, point in
++            guard let self, let to = self.dropGroup(for: id, at: point) else { return }
++            // On the other strip it goes where it was let go; on the content,
++            // right of that group's selected tab.
++            let at = self.groupsView.stripGroup(atWindowPoint: point) == to
++                ? self.groupsView.strips[to].insertionIndex(atWindowPoint: point) : nil
++            self.moveTab(id, toGroup: to)
++            if let at {
++                self.tabGroups[to].move(id, to: at)
++                self.refreshTabStrip()
++            }
++        }
++    }
++
++    // The other group, strip or content, a tab dragged out of its strip is
++    // over.
++    private func dropGroup(for id: Int, at point: NSPoint) -> Int? {
++        guard hasGroups, let to = groupsView.group(atWindowPoint: point), to != groupIndex(ofTab: id) else { return nil }
++        return to
 +    }
 +
 +    // A tab dragged onto another group's strip moves there and is selected;
@@ -45147,7 +45197,15 @@ index 0000000000000000000000000000000000000000..0100a3222044eaebb0a29bc4e0f0ad38
 +            }
 +            return "\(index == focusedGroup ? ">" : "")group\(index + 1){\(tabs.joined(separator: " "))}"
 +        }
-+        return "layout=\(groupLayout.storage["arrangement"] ?? "")x\(tabGroups.count) " + groups.joined(separator: " ")
++        func box(_ view: NSView?) -> String {
++            guard let view, view.window != nil else { return "none" }
++            let r = view.convert(view.bounds, to: nil)
++            return "\(view.isHiddenOrHasHiddenAncestor ? "hidden:" : "")\(Int(r.minX)),\(Int(r.minY)),\(Int(r.width))x\(Int(r.height))"
++        }
++        let views = "groupsView=\(box(groupsView)) strips=\(groupsView.strips.map { box($0) }.joined(separator: "|"))"
++            + " strip=\(box(tabStripView)) tabView=\(box(terminal?.tabView())) host=\(box(contentHost)) page=\(box(contentHost.pane))"
++            + " inset=\(appliedInset) tabsHidden=\(tabsHidden)"
++        return "layout=\(groupLayout.storage["arrangement"] ?? "")x\(tabGroups.count) " + groups.joined(separator: " ") + " " + views
 +    }
 +
 +    // MARK: Several rows at once
@@ -46082,10 +46140,10 @@ index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..748bb263291d3882e43d814d59dccff7ea14a817
+index 0000000000000000000000000000000000000000..23c906b15520633149c8ddd2237fbad0059cb4c0
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,370 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -46132,15 +46190,20 @@ index 0000000000000000000000000000000000000000..748bb263291d3882e43d814d59dccff7
 +
 +    // MARK: - Window tabs and status bar
 +
-+    // The Sublime-style strip and status bar use the colours above, by role:
-+    // the strip sits on the well, unselected tabs on the bar's colour, and
-+    // the selected tab takes the colour of what it shows.
++    // As in Sublime, the title bar, the side bar and the tab strip are one
++    // colour: the sidebar's material. Unselected tabs are open on it, with
++    // a line under them; the selected tab takes the colour of what it shows.
 +    static let tabStripBackground: NSColor = wellBackground
-+    static let tabInactiveBackground: NSColor = barBackground
++    static let tabInactiveBackground: NSColor = .clear
 +    static let tabHoverBackground = NSColor(name: nil) { appearance in
 +        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-+            ? NSColor.windowBackgroundColor.blended(withFraction: 0.06, of: .white) ?? .windowBackgroundColor
-+            : NSColor.windowBackgroundColor.blended(withFraction: 0.03, of: .black) ?? .windowBackgroundColor
++            ? NSColor.white.withAlphaComponent(0.05)
++            : NSColor.black.withAlphaComponent(0.04)
++    }
++    static let tabBottomBorder = NSColor(name: nil) { appearance in
++        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++            ? NSColor.white.withAlphaComponent(0.16)
++            : NSColor.black.withAlphaComponent(0.16)
 +    }
 +    static let statusBarBackground: NSColor = barBackground
 +
@@ -48286,10 +48349,10 @@ index 0000000000000000000000000000000000000000..e845eed2c9df7e41aaaaaaf4083a1c27
 +}
 diff --git a/sources/OmniTerm/OmniWindowGroupsView.swift b/sources/OmniTerm/OmniWindowGroupsView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..53def9251126276e378d5e0553c126e8e4f504f0
+index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e77241983407
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowGroupsView.swift
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,261 @@
 +//
 +//  OmniWindowGroupsView.swift
 +//  iTerm2SharedARC
@@ -48383,6 +48446,7 @@ index 0000000000000000000000000000000000000000..53def9251126276e378d5e0553c126e8
 +            strips.append(strip)
 +            let container = NSView()
 +            container.wantsLayer = true
++            container.clipsToBounds = true
 +            addSubview(container)
 +            containers.append(container)
 +            let label = NSTextField(labelWithString: "Command-N opens a new tab here")
@@ -48423,6 +48487,31 @@ index 0000000000000000000000000000000000000000..53def9251126276e378d5e0553c126e8
 +        return groupLayout.cells(in: bounds).firstIndex { $0.contains(point) }
 +    }
 +
++    // Which group's cell, strip or content, holds a point in window
++    // coordinates.
++    func group(atWindowPoint point: NSPoint) -> Int? {
++        guard !isHidden else { return nil }
++        return group(at: convert(point, from: nil))
++    }
++
++    // The group a dragged tab would land in, outlined over everything in
++    // the window (the focused group's terminal sits above this view).
++    var dropTarget: Int? {
++        didSet {
++            guard dropTarget != oldValue else { return }
++            guard let dropTarget, let host = superview, groupLayout.cells(in: bounds).indices.contains(dropTarget) else {
++                dropHighlight.removeFromSuperview()
++                return
++            }
++            if dropHighlight.superview !== host {
++                host.addSubview(dropHighlight, positioned: .above, relativeTo: nil)
++            }
++            dropHighlight.frame = convert(cell(dropTarget), to: host)
++        }
++    }
++
++    private lazy var dropHighlight = OmniGroupDropHighlight(frame: .zero)
++
 +    override func layout() {
 +        super.layout()
 +        for index in strips.indices {
@@ -48441,7 +48530,7 @@ index 0000000000000000000000000000000000000000..53def9251126276e378d5e0553c126e8
 +
 +    private func applyFocus() {
 +        for (index, strip) in strips.enumerated() {
-+            strip.alphaValue = index == focusedGroup ? 1 : 0.72
++            strip.dimmed = index != focusedGroup
 +            containers[index].isHidden = index == focusedGroup
 +            emptyLabels[index].isHidden = !emptyGroups.contains(index)
 +        }
@@ -48502,6 +48591,27 @@ index 0000000000000000000000000000000000000000..53def9251126276e378d5e0553c126e8
 +
 +    override func mouseUp(with event: NSEvent) {
 +        dragging = nil
++    }
++}
++
++// The outline over a group a dragged tab is about to land in. It never takes
++// the mouse: the drag stays with the strip it started in.
++final class OmniGroupDropHighlight: NSView {
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        wantsLayer = true
++        layer?.backgroundColor = OmniTheme.accent.withAlphaComponent(0.14).cgColor
++        layer?.borderColor = OmniTheme.accent.withAlphaComponent(0.8).cgColor
++        layer?.borderWidth = 2
++        layer?.cornerRadius = 4
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) has not been implemented")
++    }
++
++    override func hitTest(_ point: NSPoint) -> NSView? {
++        return nil
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniWindowKeymap.swift b/sources/OmniTerm/OmniWindowKeymap.swift
@@ -48987,19 +49097,20 @@ index 0000000000000000000000000000000000000000..cd85cf40cd0b609c48bc6d2c84068582
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabStrip.swift b/sources/OmniTerm/OmniWindowTabStrip.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc6563932906f40eab
+index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adff12019fd
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowTabStrip.swift
-@@ -0,0 +1,401 @@
+@@ -0,0 +1,472 @@
 +//
 +//  OmniWindowTabStrip.swift
 +//  iTerm2SharedARC
 +//
 +//  The Sublime-style tab strip above the window's content: soft slanted
-+//  tabs, the selected one filled with the content's colour so tab and page
-+//  read as one container, a close button on each, italic preview titles, and
-+//  a new-tab button at the end. It only draws and reports; the sidebar owns
-+//  the tabs.
++//  tabs on the sidebar's material, the selected one filled with the
++//  content's colour so tab and page read as one container, the others
++//  outlined over a line that closes them off from the content, a close
++//  button on each, italic preview titles, and a new-tab button at the end.
++//  It only draws and reports; the sidebar owns the tabs.
 +//
 +
 +import AppKit
@@ -49033,20 +49144,43 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +        didSet { needsDisplay = true }
 +    }
 +
++    // A group without focus: its titles are quieter.
++    var dimmed = false {
++        didSet {
++            if dimmed != oldValue {
++                needsDisplay = true
++            }
++        }
++    }
++
++    // The strip shows the sidebar's material, as Sublime's tabs sit on its
++    // side bar's colour; the tabs are drawn on a view above it.
++    private let material = NSVisualEffectView()
++    private let canvas = OmniTabStripCanvas()
++
++    override var needsDisplay: Bool {
++        get { canvas.needsDisplay }
++        set { canvas.needsDisplay = newValue }
++    }
++
 +    var onSelect: ((Int) -> Void)?
 +    var onClose: ((Int) -> Void)?
 +    var onPin: ((Int) -> Void)?
 +    var onMove: ((Int, Int) -> Void)?
 +    var onNewTab: (() -> Void)?
 +    // A tab dragged out of the strip and let go, with where (window
-+    // coordinates): another group's strip takes it.
++    // coordinates): the group under the pointer takes it.
 +    var onDragOut: ((Int, NSPoint) -> Void)?
++    // While a tab is dragged outside the strip, where the pointer is
++    // (window coordinates); nil once it is back or let go.
++    var onDragOver: ((Int, NSPoint?) -> Void)?
 +    var menuForTab: ((Int) -> NSMenu?)?
 +
 +    private static let leading: CGFloat = 10
 +    private static let slant: CGFloat = 9
 +    private static let topMargin: CGFloat = 5
-+    private static let minWidth: CGFloat = 72
++    // Room for a short title such as “Settings”; past that the strip scrolls.
++    private static let minWidth: CGFloat = 104
 +    private static let naturalMin: CGFloat = 110
 +    private static let naturalMax: CGFloat = 250
 +    private static let closeSize: CGFloat = 16
@@ -49074,6 +49208,17 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +    override init(frame frameRect: NSRect) {
 +        super.init(frame: frameRect)
 +        autoresizingMask = [.width, .minYMargin]
++        OmniTheme.configureSidebar(material)
++        for view in [material, canvas] as [NSView] {
++            view.frame = bounds
++            view.autoresizingMask = [.width, .height]
++            addSubview(view)
++        }
++    }
++
++    // The material and the canvas never take the mouse; the strip does.
++    override func hitTest(_ point: NSPoint) -> NSView? {
++        return super.hitTest(point) != nil ? self : nil
 +    }
 +
 +    required init?(coder: NSCoder) {
@@ -49152,12 +49297,11 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +
 +    // MARK: - Drawing
 +
-+    override func draw(_ dirtyRect: NSRect) {
++    fileprivate func drawStrip(_ dirtyRect: NSRect) {
 +        layoutTabs()
-+        OmniTheme.tabStripBackground.setFill()
-+        bounds.fill()
-+        // The hairline under the strip; the selected tab covers its part.
-+        OmniTheme.cardBorder.setFill()
++        // The line under the other tabs, between them and the content; the
++        // selected tab covers its part and opens onto the content.
++        OmniTheme.tabBottomBorder.setFill()
 +        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
 +
 +        NSGraphicsContext.saveGraphicsState()
@@ -49191,7 +49335,7 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +        closed.close()
 +        fill.setFill()
 +        closed.fill()
-+        OmniTheme.cardBorder.setStroke()
++        (item.selected ? OmniTheme.cardBorder : OmniTheme.tabBottomBorder).setStroke()
 +        path.lineWidth = 1
 +        path.stroke()
 +
@@ -49212,7 +49356,7 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +        paragraph.lineBreakMode = .byTruncatingMiddle
 +        let attributes: [NSAttributedString.Key: Any] = [
 +            .font: font(for: item),
-+            .foregroundColor: item.selected ? NSColor.labelColor : OmniTheme.secondaryText,
++            .foregroundColor: item.selected && !dimmed ? NSColor.labelColor : OmniTheme.secondaryText,
 +            .paragraphStyle: paragraph,
 +        ]
 +        let title = item.title as NSString
@@ -49338,16 +49482,12 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +        drag.moved = true
 +        self.drag = drag
 +        // Out of the strip, the tab is on its way to another group.
-+        guard point.y >= bounds.minY - 8, point.y <= bounds.maxY + 8,
-+              let from = items.firstIndex(where: { $0.id == drag.id }) else { return }
-+        // The tab goes where the pointer is among the other tabs' centres.
-+        var destination = 0
-+        for (index, frame) in frames.enumerated() where index != from && point.x > frame.rect.midX {
-+            destination = index < from ? index + 1 : index
++        guard isInDragBand(point), let from = items.firstIndex(where: { $0.id == drag.id }) else {
++            onDragOver?(drag.id, event.locationInWindow)
++            return
 +        }
-+        if point.x <= (frames.first?.rect.midX ?? 0) {
-+            destination = 0
-+        }
++        onDragOver?(drag.id, nil)
++        let destination = insertionIndex(at: point, excluding: from)
 +        if destination != from {
 +            onMove?(drag.id, destination)
 +        }
@@ -49361,10 +49501,38 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +                onClose?(id)
 +            }
 +        }
-+        if let drag, drag.moved, !bounds.contains(point) {
-+            onDragOut?(drag.id, event.locationInWindow)
++        if let drag, drag.moved {
++            onDragOver?(drag.id, nil)
++            if !isInDragBand(point) {
++                onDragOut?(drag.id, event.locationInWindow)
++            }
 +        }
 +        drag = nil
++    }
++
++    // Reordering follows the pointer a little above and below the strip,
++    // but never past its ends, where the next group's strip may be.
++    private func isInDragBand(_ point: NSPoint) -> Bool {
++        return point.x >= bounds.minX && point.x <= bounds.maxX &&
++            point.y >= bounds.minY - 8 && point.y <= bounds.maxY + 8
++    }
++
++    // Where a tab let go at `point` goes among the tabs' centres, leaving
++    // out the one at `excluding` (the tab being dragged within the strip).
++    private func insertionIndex(at point: NSPoint, excluding: Int? = nil) -> Int {
++        if frames.map(\.id) != items.map(\.id) {
++            layoutTabs()
++        }
++        var destination = 0
++        for (index, frame) in frames.enumerated() where index != excluding && point.x > frame.rect.midX {
++            destination = excluding.map { index < $0 ? index + 1 : index } ?? index + 1
++        }
++        return destination
++    }
++
++    // Where a tab dropped here from another strip goes.
++    func insertionIndex(atWindowPoint point: NSPoint) -> Int {
++        return insertionIndex(at: convert(point, from: nil))
 +    }
 +
 +    // A middle click closes the tab, as in Sublime and browsers.
@@ -49390,6 +49558,19 @@ index 0000000000000000000000000000000000000000..f666c6394c20c1b6ab74d3cc65639329
 +    override func viewDidChangeEffectiveAppearance() {
 +        super.viewDidChangeEffectiveAppearance()
 +        needsDisplay = true
++    }
++}
++
++// Where the strip's tabs are drawn, over its material.
++private final class OmniTabStripCanvas: NSView {
++    override var isFlipped: Bool { true }
++
++    override func draw(_ dirtyRect: NSRect) {
++        (superview as? OmniWindowTabStrip)?.drawStrip(dirtyRect)
++    }
++
++    override func hitTest(_ point: NSPoint) -> NSView? {
++        return nil
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabs.swift b/sources/OmniTerm/OmniWindowTabs.swift
@@ -50383,7 +50564,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..90f7d470df78417bba0e0273eb57ba26
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e7603735607d2a81e 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..811fbee8d4e7ccf2c72a286daa037e649a02bdb9 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -50446,7 +50627,19 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      [_contentView shutdown];
  
      [self closeInstantReplayWindow];
-@@ -2482,6 +2514,13 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
+@@ -2001,6 +2033,11 @@ ITERM_WEAKLY_REFERENCEABLE
+     if (_contentView.tabBarControlOnLoan) {
+         return NO;
+     }
++    // OmniTerm: the title bar runs into the sidebar and the tabs, as in
++    // Sublime.
++    if (_contentView.omniHidesTabBar) {
++        return NO;
++    }
+     if (!_contentView.tabBarShouldBeVisible) {
+         return YES;
+     }
+@@ -2482,6 +2519,13 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
  }
  
  - (void)closeTab:(PTYTab *)aTab soft:(BOOL)soft {
@@ -50460,7 +50653,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      if (!soft &&
          [self tabIsAttachedTmuxTabWithSessions:aTab]) {
          if ([self numberOfTabsWithTmuxController:aTab.tmuxController] == 1) {
-@@ -2753,6 +2792,15 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
+@@ -2753,6 +2797,15 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
  
  - (IBAction)closeCurrentTab:(id)sender {
      PTYTab *tab = self.currentTab;
@@ -50476,7 +50669,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      [self closeTabIfConfirmed:tab];
  }
  
-@@ -2776,6 +2824,16 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
+@@ -2776,6 +2829,16 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          if ([aSession closeComposer]) {
              return;
          }
@@ -50493,7 +50686,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
          [self closeSessionWithConfirmation:aSession];
      }
  }
-@@ -3144,6 +3202,12 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
+@@ -3144,6 +3207,12 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          // title can be nil during loadWindowArrangement
          title = @"";
      }
@@ -50506,7 +50699,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      if (title.length > 256) {
          const NSRange range = [title makeRangeSafe:NSMakeRange(0, 256)];
          title = [[title substringWithRange:range] stringByAppendingString:@"…"];
-@@ -3179,6 +3243,11 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
+@@ -3179,6 +3248,11 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          // Localization unneeded
          titleExWindowNumber = [titleExWindowNumber stringByAppendingString:@" 🔔"];
      }
@@ -50518,7 +50711,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      if ((self.desiredTitle && [title isEqualToString:self.desiredTitle]) ||
          [title isEqualToString:self.window.title]) {
          // Title is already up to date.
-@@ -4855,34 +4924,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -4855,34 +4929,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (BOOL)windowShouldClose:(NSNotification *)aNotification {
      RLog(@"windowShouldClose %@", self);
@@ -50555,7 +50748,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5856,169 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5861,169 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -50726,7 +50919,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7157,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7162,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -50736,7 +50929,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7473,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7478,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -50748,7 +50941,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7683,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7688,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -50756,7 +50949,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7799,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7804,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -50768,7 +50961,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8421,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8426,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -50776,7 +50969,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8430,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8435,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -50789,7 +50982,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8582,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8587,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -50798,7 +50991,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8921,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8926,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -50815,7 +51008,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8959,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8964,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -50824,7 +51017,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9210,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9215,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -50833,7 +51026,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12524,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12529,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -50849,7 +51042,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13484,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13489,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -50865,7 +51058,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14061,9 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14066,9 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
@@ -50876,7 +51069,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e76037356
  
      if (!_contentView.tabBarControl.flashing &&
          [self tabBarShouldBeVisibleWithAdditionalTabs:tabViewItemsBeingAdded]) {
-@@ -14189,6 +14416,10 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -14189,6 +14421,10 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  // Adjust the tab's size for a new window size.
  - (void)fitTabToWindow:(PTYTab *)aTab {
      NSSize size = [_contentView.tabView contentRect].size;

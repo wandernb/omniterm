@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Drag a tab anywhere onto the other side of a split, its tab bar or its content, to move it there. The side it will land in is outlined while you drag, and dropping on its tab bar puts the tab where you let go.
+- The window looks more like Sublime Text: the title bar, sidebar and tab bars share the sidebar's colour, with no line under the title bar or along the sidebar's edge. The selected tab takes the content's darker colour, the other tabs sit open on the bar above a line that separates them from the content, and short titles no longer squeeze down to a few letters.
+
+### Fixed
+
+- Dragging a tab sideways past the end of its tab bar no longer shuffles it to the end of that bar on the way to the other side.
+- Inbox and other wide pages in a narrow split no longer paint over the tab bars and the other side of the split. In a narrow group, the Inbox's Mark All as Read button steps aside instead of running over the filters.
+
 ## [0.12.0] - 2026-11-28
 
 ### Added
