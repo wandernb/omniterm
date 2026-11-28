@@ -828,10 +828,10 @@ index 0000000000000000000000000000000000000000..4a612dc5d42a720ee4b4c6d3be50e191
 +}
 diff --git a/ModernTests/OmniInboxViewControllerTests.swift b/ModernTests/OmniInboxViewControllerTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..58099cff6e9765f1851145d97f4f42941a246977
+index 0000000000000000000000000000000000000000..b13e876f6899655f66087d836b1c86fe84135d1f
 --- /dev/null
 +++ b/ModernTests/OmniInboxViewControllerTests.swift
-@@ -0,0 +1,549 @@
+@@ -0,0 +1,550 @@
 +//
 +//  OmniInboxViewControllerTests.swift
 +//  ModernTests
@@ -1080,7 +1080,8 @@ index 0000000000000000000000000000000000000000..58099cff6e9765f1851145d97f4f4294
 +            pane.show(tab: tab)
 +            titles += pane.zones.map(\.title)
 +        }
-+        XCTAssertEqual(titles, ["General", "New agents", "Notifications", "Notification kinds", "Per agent", "Memory"])
++        XCTAssertEqual(titles, ["General", "New agents", "Notifications", "Notification kinds", "Per agent", "Memory",
++                                "Tabs and groups"])
 +        pane.show(tab: .agents)
 +        let agentKeys = pane.zones.first { $0.title == "Per agent" }?.zone.keys ?? []
 +        XCTAssertEqual(agentKeys, ["agent-Gone", "agent-Nightly"], "agents and leftover overrides are listed")
