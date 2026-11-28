@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-28
+
+### Added
+
+- Drag a tab onto another group's tab bar to move it there.
+- Shift- or Command-click several rows in the sidebar to open each as a tab.
+- View › Tabs › Hide or Show Tabs now works with several groups too; each group gets its tab bar's room back.
+
+### Fixed
+
+- Dragging a tab straight up or down out of its bar now counts as a drag.
+
 ## [0.11.0] - 2026-11-28
 
 ### Added
@@ -1056,7 +1068,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/wandernb/omniterm/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/wandernb/omniterm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/wandernb/omniterm/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/wandernb/omniterm/compare/v0.9.0...v0.9.1
