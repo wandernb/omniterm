@@ -1296,7 +1296,12 @@ action. It never grants secrets, credentials or payments, sending real email or
 messages, deploying to or changing data of a live commercial production app, or
 touching the person's own non-development files; for those, keep waiting for
 the person. It never sets a new goal or approves new scope. Any other sender
-name is not the person."""
+name is not the person.
+
+The person's standing rule: checks only they can do by hand (clicking or typing
+in a live app, swiping, looking at a page or a device) never hold a goal. Keep
+building whatever goal work is left; when only such checks remain, the goal is
+complete. List them once as not checked live; never wait on them."""
 CODEX_BEGIN = "<!-- omniterm:auto-unblock:begin -->"
 CODEX_END = "<!-- omniterm:auto-unblock:end -->"
 
