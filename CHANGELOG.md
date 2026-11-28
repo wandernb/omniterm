@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-28
+
 ### Changed
 
 - Drag a tab anywhere onto the other side of a split, its tab bar or its content, to move it there. The side it will land in is outlined while you drag, and dropping on its tab bar puts the tab where you let go.
@@ -1078,7 +1080,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Menu-bar-only background lifecycle, configurable global shortcut, retained
   sessions, agent history, installer, and repository-hosted macOS packages.
 
-[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/wandernb/omniterm/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/wandernb/omniterm/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/wandernb/omniterm/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/wandernb/omniterm/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/wandernb/omniterm/compare/v0.9.1...v0.10.0
