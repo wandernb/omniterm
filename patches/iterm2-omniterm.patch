@@ -7373,10 +7373,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a6b463257
+index 0000000000000000000000000000000000000000..412fc5bdc9fff41f8d6a6c575312393edcd95529
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2286 @@
+@@ -0,0 +1,2332 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8016,11 +8016,26 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        }
 +        let (_, wide) = bar(selected: 0, width: 2000)
 +        let (narrow, buttons) = bar(selected: 7, width: 300)
++        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: OmniTabBar.height), styleMask: [.titled],
++                          backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        window.contentView?.addSubview(narrow)
 +        XCTAssertEqual(wide.map(\.frame.width), buttons.map(\.frame.width), "Choosing a tab moves no other")
 +        XCTAssertLessThanOrEqual(buttons[7].fittingSize.width, buttons[7].frame.width, "The bold label fits")
 +        let scroll = try XCTUnwrap(Self.find(NSScrollView.self, in: narrow))
 +        XCTAssertGreaterThan(scroll.documentView?.frame.width ?? 0, 300, "The row is wider than the bar")
 +        XCTAssertTrue(scroll.documentVisibleRect.contains(buttons[7].frame), "The chosen tab is scrolled into view")
++        // A sideways swipe scrolls the tabs; a mostly vertical one is left to the page.
++        func swipe(dx: Int32, dy: Int32) throws {
++            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0))
++            scroll.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cg)))
++        }
++        let start = scroll.documentVisibleRect.minX
++        try swipe(dx: 0, dy: -60)
++        XCTAssertEqual(scroll.documentVisibleRect.minX, start, "A vertical scroll does not move the tabs")
++        try swipe(dx: 120, dy: 0)
++        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
++        XCTAssertLessThan(scroll.documentVisibleRect.minX, start, "A sideways swipe scrolls back towards the first tab")
 +    }
 +
 +    func testControlCommandSFocusesTheSidebarAndPlainKeysAreLeftAlone() {
@@ -8629,7 +8644,9 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        let titles = ["Dashboard", "Inbox", "Memory", "Unblocker", "Settings"]
 +        for (index, title) in titles.enumerated() {
 +            XCTAssertEqual(cell(index)?.textField?.stringValue, title)
-+            XCTAssertEqual(outlineView.rect(ofRow: index).height, OmniTheme.Sidebar.topRowHeight)
++            // The panel's first and last rows also hold its padding.
++            let padding = index == 0 || index == titles.count - 1 ? OmniTheme.Sidebar.panelPadY : 0
++            XCTAssertEqual(outlineView.rect(ofRow: index).height, OmniTheme.Sidebar.topRowHeight + padding)
 +            XCTAssertEqual(cell(index)?.textField?.font, OmniTheme.Sidebar.topTitleFont, "A medium title, not semibold")
 +            let icon = try XCTUnwrap(subviews(NSImageView.self, of: try XCTUnwrap(cell(index))).first { !$0.isHidden })
 +            XCTAssertEqual(icon.frame.width, OmniTheme.Sidebar.iconSlot)
@@ -8686,7 +8703,7 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        let icon = try XCTUnwrap(Self.find(NSImageView.self, in: header))
 +        XCTAssertEqual(icon.contentTintColor, OmniAgentColor.color("orange"), "The project's colour")
 +        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))
-+        let buttons = tabs.subviews.compactMap { $0 as? NSButton }
++        let buttons = Self.all(NSButton.self, in: tabs).sorted { $0.tag < $1.tag }
 +        XCTAssertEqual(buttons.map(\.title), ["Home", "Branches", "Sessions", "Knowledge", "Code", "Files", "Tickets", "Settings"])
 +        XCTAssertNotNil(Self.find(OmniExplorerBox.self, in: pane), "The README sits in a file box")
 +
@@ -8695,14 +8712,15 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        let names = Self.all(OmniExplorerRow.self, in: pane).map(\.titleText)
 +        XCTAssertEqual(names, ["src", ".env", "b.txt"], "Folders first, then files by name")
 +
-+        try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)).subviews.compactMap { $0 as? NSButton }[3].performClick(nil)
++        Self.all(NSButton.self, in: try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))).sorted { $0.tag < $1.tag }[3].performClick(nil)
 +        wait("knowledge lists") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["plans", "MASTER.md"] }
 +        Self.all(OmniExplorerRow.self, in: pane).first?.activate()
 +        wait("a knowledge folder opens") { Self.all(OmniExplorerRow.self, in: pane).map(\.titleText) == ["..", "one.md", "two.md"] }
 +    }
 +
-+    // The Code tab: the overview, a search, a definition's page, following a caller,
-+    // the breadcrumb back, and a memory that names it.
++    // The Code tab: the overview with its questions and surprising connections, the path
++    // between two files, a search, a definition's page, following a caller, the breadcrumb
++    // back, and a memory that names it.
 +    func testCodeTabSearchesAndExploresTheCodeGraph() throws {
 +        let root = "/tmp/omni-project"
 +        fake.handlers["get_project"] = { _ in
@@ -8721,7 +8739,12 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +                        "hubs": [store.merging(["files_using": 1]) { $1 }],
 +                        "clusters": [["name": "lib/", "files": 2, "top_files": ["lib/store.py", "app.py"],
 +                                      "depends_on_files_outside": 0]],
-+                        "import_cycles": [["a.py", "b.py"]]]
++                        "import_cycles": [["a.py", "b.py"]],
++                        "bridges": [["from": "app.py", "to": "lib/store.py", "references": 2, "from_group": "app/",
++                                     "to_group": "lib/"]]]
++            case "path":
++                return ["ok": true, "found": true, "length": 1, "confidence": "extracted",
++                        "hops": [["from": handle, "to": store, "edge": "calls", "direction": "out", "confidence": "extracted"]]]
 +            case "query":
 +                return ["ok": true, "total": 1, "results": [store]]
 +            case "explain" where request["name"] as? String == "app.handle":
@@ -8750,10 +8773,33 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        pane.frame = window.contentView?.bounds ?? .zero
 +        pane.reload()
 +        wait("the page loads") { Self.find(OmniTabBar.self, in: pane) != nil }
-+        let tabs = try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)).subviews.compactMap { $0 as? NSButton }
++        let tabs = Self.all(NSButton.self, in: try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)))
 +        try XCTUnwrap(tabs.first { $0.title == "Code" }).performClick(nil)
 +        func titles() -> [String] { Self.all(OmniFolderEntryRow.self, in: pane).map(\.titleText) }
-+        wait("the overview lists hubs, groups and cycles") { titles() == ["store.Store", "lib/", "a.py ↔ b.py"] }
++        let overview = ["What breaks if I change store.Store?", "How does app.py reach store.py?", "What holds lib/ together?",
++                        "Why do a.py and b.py import each other?", "app.py ↔ store.py", "store.Store", "lib/", "a.py ↔ b.py"]
++        wait("the overview asks its questions and lists connections, hubs, groups and cycles") { titles() == overview }
++
++        // A surprising connection opens the path between its two files.
++        try XCTUnwrap(Self.all(OmniFolderEntryRow.self, in: pane).first { $0.titleText == "app.py ↔ store.py" }).activate()
++        wait("the path lists each step") { titles() == ["app.handle", "store.Store"] }
++        let path = try XCTUnwrap(codeRequests.last { $0["mode"] as? String == "path" })
++        XCTAssertEqual(path["name"] as? String, "app.py")
++        XCTAssertEqual(path["target"] as? String, "lib/store.py")
++        XCTAssertEqual(pane.codePathFrom.stringValue, "app.py", "The finder shows what it connected")
++        try XCTUnwrap(Self.all(OmniLinkButton.self, in: pane).first { $0.title == "Overview" }).performClick(nil)
++        wait("back on the overview") { titles() == overview }
++        // Typed names find a path too.
++        pane.codePathFrom.stringValue = "app.handle"
++        pane.codePathTo.stringValue = "lib.store.Store"
++        pane.codeFindPath(nil)
++        wait("the typed path asks the graph") {
++            codeRequests.last { $0["mode"] as? String == "path" }?["name"] as? String == "app.handle"
++        }
++        XCTAssertEqual(codeRequests.last { $0["mode"] as? String == "path" }?["target"] as? String, "lib.store.Store")
++        wait("its steps list") { titles() == ["app.handle", "store.Store"] }
++        try XCTUnwrap(Self.all(OmniLinkButton.self, in: pane).first { $0.title == "Overview" }).performClick(nil)
++        wait("the overview once more") { titles() == overview }
 +
 +        pane.codeSearch.stringValue = "Sto"
 +        pane.codeSearchChanged(pane.codeSearch)
@@ -8782,9 +8828,9 @@ index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a
 +        try XCTUnwrap(Self.all(OmniLinkButton.self, in: pane).first).performClick(nil)
 +        pane.codeSearch.stringValue = ""
 +        pane.codeSearchChanged(pane.codeSearch)
-+        wait("the overview again") { titles() == ["store.Store", "lib/", "a.py ↔ b.py"] }
++        wait("the overview again") { titles() == overview }
 +        // A page opens on the last tab used: leave it on Home for the tests after this one.
-+        try XCTUnwrap(Self.find(OmniTabBar.self, in: pane)?.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Home" })
++        try XCTUnwrap(Self.all(NSButton.self, in: try XCTUnwrap(Self.find(OmniTabBar.self, in: pane))).first { $0.title == "Home" })
 +            .performClick(nil)
 +    }
 +
@@ -20896,10 +20942,10 @@ index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d0
 +}
 diff --git a/sources/OmniTerm/OmniMemoryGraphView.swift b/sources/OmniTerm/OmniMemoryGraphView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..fb377bc0d83733a87fc715c6d5ddbeba1aef7352
+index 0000000000000000000000000000000000000000..42f0c67a07432b69f67a41fa6142dd277bdc25fc
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMemoryGraphView.swift
-@@ -0,0 +1,1274 @@
+@@ -0,0 +1,1283 @@
 +import AppKit
 +import Foundation
 +import os.signpost
@@ -22014,7 +22060,7 @@ index 0000000000000000000000000000000000000000..fb377bc0d83733a87fc715c6d5ddbeba
 +    // Draws the regions and returns their names, placed so none overlaps
 +    // another (the largest community first), to draw over the nodes.
 +    private func drawRegions() -> [(text: NSString, rect: CGRect, attributes: [NSAttributedString.Key: Any])] {
-+        var names: [(text: NSString, rect: CGRect, attributes: [NSAttributedString.Key: Any], size: Int)] = []
++        var names: [(text: NSString, rects: [CGRect], attributes: [NSAttributedString.Key: Any], size: Int)] = []
 +        for community in regionCommunities {
 +            let points = community.members.compactMap { positions[$0] }.map { viewPoint($0) }
 +            let hull = OmniMemoryGraphLayout.convexHull(points)
@@ -22039,13 +22085,22 @@ index 0000000000000000000000000000000000000000..fb377bc0d83733a87fc715c6d5ddbeba
 +            let text = (community.label.count > 32 ? String(community.label.prefix(31)) + "…" : community.label) as NSString
 +            let size = text.size(withAttributes: attributes)
 +            let top = hull.map { $0.y }.min() ?? 0
++            let bottom = hull.map { $0.y }.max() ?? 0
 +            let midX = hull.map { $0.x }.reduce(0, +) / CGFloat(hull.count)
-+            names.append((text, CGRect(x: midX - size.width / 2, y: top - 14 - size.height, width: size.width, height: size.height),
-+                          attributes, community.members.count))
++            // Above the region, or below it when a neighbour's name is already there.
++            let above = CGRect(x: midX - size.width / 2, y: top - 14 - size.height, width: size.width, height: size.height)
++            let below = CGRect(x: midX - size.width / 2, y: bottom + 14, width: size.width, height: size.height)
++            names.append((text, [above, below], attributes, community.members.count))
 +        }
 +        names.sort { $0.size > $1.size }
-+        let placed = Set(OmniMemoryGraphLayout.placeLabels(names.enumerated().map { (id: "\($0.offset)", rect: $0.element.rect.insetBy(dx: -4, dy: -2)) }))
-+        return names.enumerated().filter { placed.contains("\($0.offset)") }.map { ($0.element.text, $0.element.rect, $0.element.attributes) }
++        var placed: [(text: NSString, rect: CGRect, attributes: [NSAttributedString.Key: Any])] = []
++        for name in names {
++            guard let rect = name.rects.first(where: { candidate in
++                !placed.contains { $0.rect.insetBy(dx: -6, dy: -3).intersects(candidate.insetBy(dx: -6, dy: -3)) }
++            }) else { continue }
++            placed.append((name.text, rect, name.attributes))
++        }
++        return placed
 +    }
 +
 +    // MARK: - Mouse
@@ -38282,10 +38337,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..5b9ed1ff4913b107d679bc2576f1959e3c18517b
+index 0000000000000000000000000000000000000000..3b6d78de97727c33d2a9f9e96d934341f16be185
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5114 @@
+@@ -0,0 +1,5116 @@
 +import AppKit
 +import Foundation
 +import os
@@ -42390,7 +42445,9 @@ index 0000000000000000000000000000000000000000..5b9ed1ff4913b107d679bc2576f1959e
 +        // A folder reads as a heading of what it holds: bold, with how many
 +        // items it has, unless it already shows a count of its own.
 +        let isFolder = [.group, .projectFolder, .viewGroup, .sessionFolder].contains(item.kind)
-+        cell.titleField.font = isFolder ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
++        if !item.isTopGroup {
++            cell.titleField.font = isFolder ? OmniTheme.Font.rowTitleEmphasized : OmniTheme.Font.rowTitle
++        }
 +        if isFolder, item.count.isEmpty, !item.children.isEmpty {
 +            cell.setCount("\(item.children.count)", needsAttention: false)
 +        } else {
