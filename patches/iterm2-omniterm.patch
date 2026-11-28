@@ -1772,10 +1772,10 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +}
 diff --git a/ModernTests/OmniMemoryTests.swift b/ModernTests/OmniMemoryTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a2b84aea09704aa8c3b3b27be6e368e258acdf80
+index 0000000000000000000000000000000000000000..c05e77b98da0e2f4536943362e7d035ff09c1e0a
 --- /dev/null
 +++ b/ModernTests/OmniMemoryTests.swift
-@@ -0,0 +1,1074 @@
+@@ -0,0 +1,1083 @@
 +//
 +//  OmniMemoryTests.swift
 +//  ModernTests
@@ -2463,6 +2463,15 @@ index 0000000000000000000000000000000000000000..a2b84aea09704aa8c3b3b27be6e368e2
 +        var sameX = [Double](repeating: 0, count: 3), sameY = sameX
 +        OmniMemoryGraphLayout.barnesHutRepulsion(x: [1, 1, 1], y: [2, 2, 2], k: 10, dx: &sameX, dy: &sameY)
 +        XCTAssertTrue((sameX + sameY).allSatisfy(\.isFinite))
++    }
++
++    // Labels keep off the drawn nodes: one over a node is left out.
++    func testLabelPlacementKeepsOffObstacles() {
++        let node = CGRect(x: 100, y: 100, width: 12, height: 12)
++        let placed = OmniMemoryGraphLayout.placeLabels([(id: "over", rect: CGRect(x: 95, y: 100, width: 60, height: 13)),
++                                                        (id: "clear", rect: CGRect(x: 200, y: 100, width: 60, height: 13))],
++                                                       obstacles: [node])
++        XCTAssertEqual(placed, ["clear"])
 +    }
 +
 +    func testLabelPlacementNeverOverlapsAndHubLabelsAreShort() {
@@ -7364,10 +7373,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..204da23014ce295976de0e21b52c61de09dd4201
+index 0000000000000000000000000000000000000000..c8fabb452b70dbee933afe8c20dc226a6b463257
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2238 @@
+@@ -0,0 +1,2286 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -7964,6 +7973,54 @@ index 0000000000000000000000000000000000000000..204da23014ce295976de0e21b52c61de
 +        XCTAssertEqual(overlay.sessionID, "claude:s1")
 +        let open = try XCTUnwrap(Self.all(NSButton.self, in: overlay).first { $0.title == "Open Session" })
 +        XCTAssertTrue(open.isEnabled)
++    }
++
++    // The page refreshes every two seconds and on every scheduler change. It
++    // used to rebuild the Unblocker page under the person's typing, taking
++    // the keyboard out of the policy editor; it now waits until they leave it.
++    func testTypingInTheUnblockerPolicySurvivesThePageRefresh() throws {
++        fake.handlers["get_settings"] = { _ in ["ok": true, "settings": ["unblocker": ["enabled": true]]] }
++        fake.handlers["unblocker_audit"] = { _ in ["ok": true, "entries": []] }
++        fake.handlers["get_unblocker_policy"] = { _ in ["ok": true, "policy": "# Policy", "path": "/tmp/policy.md"] }
++        fake.handlers["list_blocked"] = { _ in ["ok": true, "blocks": []] }
++        showSidebarWithPages()
++        sidebar.showUnblocker()
++        let root = try XCTUnwrap(window.contentView)
++        wait("the policy loads") { Self.find(OmniMarkdownEditor.self, in: root)?.text.contains("# Policy") == true }
++        let editor = try XCTUnwrap(Self.find(OmniMarkdownEditor.self, in: root))
++        window.makeFirstResponder(editor.textView)
++        editor.textView.setSelectedRange(NSRange(location: (editor.text as NSString).length, length: 0))
++        editor.textView.insertText(" first", replacementRange: NSRange(location: NSNotFound, length: 0))
++        let reloads = fake.requests("get_unblocker_policy").count
++        NotificationCenter.default.post(name: .OmniNotificationsDidChange, object: nil)
++        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
++        XCTAssertTrue(window.firstResponder === editor.textView, "The editor keeps the keyboard through a refresh")
++        XCTAssertEqual(fake.requests("get_unblocker_policy").count, reloads, "No reload while typing")
++        editor.textView.insertText(" second", replacementRange: NSRange(location: NSNotFound, length: 0))
++        XCTAssertTrue(editor.text.contains("# Policy first second"), editor.text)
++        // Once the person leaves the editor, the page refreshes again and keeps the edit.
++        window.makeFirstResponder(nil)
++        NotificationCenter.default.post(name: .OmniNotificationsDidChange, object: nil)
++        wait("the page reloads") { fake.requests("get_unblocker_policy").count > reloads }
++        XCTAssertTrue(editor.text.contains("first second"), "An unsaved edit is not replaced by the saved policy")
++    }
++
++    // Each page tab is as wide as its bold label whichever tab is chosen, and
++    // a row wider than the page scrolls sideways with the chosen tab in view.
++    func testPageTabsKeepTheirWidthsAndScrollSidewaysWhenNarrow() throws {
++        let tabs = (0..<8).map { (title: "Section \($0)", symbol: SFSymbol.gearshape) }
++        func bar(selected: Int, width: CGFloat) -> (OmniTabBar, [NSButton]) {
++            let bar = OmniTabBar(tabs: tabs, selected: selected, target: self, action: #selector(NSView.layout))
++            bar.frame = NSRect(x: 0, y: 0, width: width, height: OmniTabBar.height)
++            return (bar, Self.all(NSButton.self, in: bar).sorted { $0.tag < $1.tag })
++        }
++        let (_, wide) = bar(selected: 0, width: 2000)
++        let (narrow, buttons) = bar(selected: 7, width: 300)
++        XCTAssertEqual(wide.map(\.frame.width), buttons.map(\.frame.width), "Choosing a tab moves no other")
++        XCTAssertLessThanOrEqual(buttons[7].fittingSize.width, buttons[7].frame.width, "The bold label fits")
++        let scroll = try XCTUnwrap(Self.find(NSScrollView.self, in: narrow))
++        XCTAssertGreaterThan(scroll.documentView?.frame.width ?? 0, 300, "The row is wider than the bar")
++        XCTAssertTrue(scroll.documentVisibleRect.contains(buttons[7].frame), "The chosen tab is scrolled into view")
 +    }
 +
 +    func testControlCommandSFocusesTheSidebarAndPlainKeysAreLeftAlone() {
