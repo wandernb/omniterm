@@ -11327,7 +11327,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c8198db1baaf 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd923e93804 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11499,6 +11499,15 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
      [iTermController releaseSharedInstance];
      [[iTermModifierRemapper sharedInstance] setRemapModifiers:NO];
      DLog(@"applicationWillTerminate returning");
+@@ -1219,7 +1300,7 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
+     NSMenu* aMenu = [[NSMenu alloc] initWithTitle: @"Dock Menu"];
+ 
+     [aMenu addItemWithTitle:NSLocalizedStringWithDefaultValue(@"DockMenu.NewWindowDefaultProfile", nil, [NSBundle mainBundle], @"New Window (Default Profile)", @"Dock menu item to open a new window with the default profile")
+-                     action:@selector(newWindow:)
++                     action:@selector(omniNewTerminalWindow:)
+               keyEquivalent:@""];
+     [aMenu addItem:[NSMenuItem separatorItem]];
+     [self newSessionMenu:aMenu
 @@ -1358,6 +1439,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
      DLog(@"Application will resign active.");
  }
@@ -11623,7 +11632,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  
      // When running an isolated instance via -suite, overlay the suite name on
      // the dock icon so it's obvious which instance this dock icon belongs to.
-@@ -1901,6 +2085,267 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1901,6 +2085,272 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
  #endif
  
@@ -11809,11 +11818,14 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
 +    [self launchOmniSchedulerCommand:command title:title runID:nil agent:nil background:NO];
 +}
 +
-+// A background run's tab is inserted without being selected: the sidebar
-+// follows the selected run tab to its page, so selecting it would pull the
-+// window away from what the person is doing every time the agent fires.
-+// Launches overlap (tab creation waits for a working directory), so only
-+// background launches touch the flag, and the last one to finish restores it.
++// A run's tab is inserted without being selected: the sidebar follows the
++// selected run tab to its page, so selecting it would pull the window away
++// from what the person is doing every time an agent fires or a session
++// resumes. A run the person started from a page reaches its run page through
++// the sidebar (`paneExpectTab`), not through tab selection. Only the
++// dashboard tab is selected as it opens. Launches overlap (tab creation waits
++// for a working directory), so only unselected launches touch the flag, and
++// the last one to finish restores it.
 +static NSInteger OmniPendingBackgroundLaunches;
 +static BOOL OmniSelectedNewTabsBeforeBackgroundLaunch;
 +
@@ -11836,7 +11848,9 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
 +    const BOOL wasVisible = terminal.window.isVisible;
 +    const BOOL previouslyOrderedNewTabs = terminal.automaticallyOrderFrontNewTabs;
 +    terminal.automaticallyOrderFrontNewTabs = NO;
-+    if (background) {
++    const BOOL isDashboard = [title isEqualToString:@"Omni"];
++    const BOOL unselected = background || !isDashboard;
++    if (unselected) {
 +        if (OmniPendingBackgroundLaunches++ == 0) {
 +            OmniSelectedNewTabsBeforeBackgroundLaunch = terminal.automaticallySelectNewTabs;
 +        }
@@ -11846,8 +11860,8 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
 +    profile[KEY_NAME] = title;
 +    NSMutableDictionary *environment = [NSMutableDictionary dictionaryWithDictionary:@{
 +        @"OMNITERM_MANAGED": @"1",
-+        @"OMNITERM_KIND": [title isEqualToString:@"Omni"] ? @"dashboard" : @"run",
-+        @"OMNITERM_DASHBOARD_KEYS": [title isEqualToString:@"Omni"] ? @"1" : @"0" }];
++        @"OMNITERM_KIND": isDashboard ? @"dashboard" : @"run",
++        @"OMNITERM_DASHBOARD_KEYS": isDashboard ? @"1" : @"0" }];
 +    // Saved with the arrangement, so a restored tab still knows its run.
 +    if (runID.length) {
 +        environment[@"OMNITERM_RUN_ID"] = runID;
@@ -11858,10 +11872,10 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
 +    [terminal asyncCreateTabWithProfile:profile
 +                            withCommand:command
 +                            environment:environment
-+                               tabIndex:[title isEqualToString:@"Omni"] ? @0 : nil
++                               tabIndex:isDashboard ? @0 : nil
 +                         didMakeSession:^(PTYSession *session) {
 +        [session.nameController setNeedsUpdate];
-+        if ([title isEqualToString:@"Omni"]) {
++        if (isDashboard) {
 +            PTYTab *dashboardTab = [terminal tabForSession:session];
 +            [self cleanOmniTermStartupTabsInTerminal:terminal keepingTab:dashboardTab];
 +            // Restored helpers can take a moment to notice that their owning
@@ -11878,7 +11892,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
 +            }
 +        }
 +        terminal.automaticallyOrderFrontNewTabs = previouslyOrderedNewTabs;
-+        if (background && --OmniPendingBackgroundLaunches == 0) {
++        if (unselected && --OmniPendingBackgroundLaunches == 0) {
 +            terminal.automaticallySelectNewTabs = OmniSelectedNewTabsBeforeBackgroundLaunch;
 +        }
 +        if (!wasVisible) {
@@ -11891,7 +11905,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2384,494 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -1939,45 +2389,494 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -12404,7 +12418,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3310,116 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3315,116 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -12521,7 +12535,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3548,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3553,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -12544,7 +12558,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3694,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3699,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -12553,7 +12567,26 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -3168,13 +4158,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2988,6 +3983,18 @@ static iTermKeyEventReplayer *gReplayer;
+ 
+ - (IBAction)newWindow:(id)sender {
+     DLog(@"newWindow: invoked");
++    // OmniTerm has one window, and its New is an agent: iTerm2's New Window
++    // would only add an arbitrary terminal tab. The sidebar's + and New Tab
++    // still open a terminal.
++    [[OmniInboxWindowController sharedInstance].window orderOut:nil];
++    [self openOmniTerm:sender];
++    PseudoTerminal *omniTerminal = [iTermController sharedInstance].currentTerminal ?: self.terminals.firstObject;
++    [omniTerminal omniShowNewAgent];
++}
++
++// iTerm2's New Window, for launch (no window restored) and the Dock menu's
++// explicitly named item.
++- (IBAction)omniNewTerminalWindow:(id)sender {
+     BOOL cancel;
+     BOOL tmux = [self possiblyTmuxValueForWindow:YES cancel:&cancel];
+     if (!cancel) {
+@@ -3168,13 +4175,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -12569,7 +12602,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4924,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4941,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -12590,7 +12623,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5170,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5187,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -12608,6 +12641,15 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..0f3db2c6d474a35548b31a18ed53c819
      [term addSessionInNewTab:session];
      iTermGeneralServerConnection temp = generalConnection;
      iTermSessionAttachOrLaunchRequest *launchRequest =
+@@ -4457,7 +5470,7 @@ static iTermKeyEventReplayer *gReplayer;
+ 
+ - (void)untitledWindowStateMachineCreateNewWindow:(iTermUntitledWindowStateMachine *)sender {
+     RLog(@"untitledWindowStateMachineCreateNewWindow");
+-    [self newWindow:nil];
++    [self omniNewTerminalWindow:nil];
+ }
+ 
+ #pragma mark - NSMenuDelegate
 diff --git a/sources/AppKit/iTermInstanceLock.swift b/sources/AppKit/iTermInstanceLock.swift
 index 23f62b1bf0755645f409677039058b30d190b229..0afb36353f27e62e81675384f3bd039981fe48ff 100644
 --- a/sources/AppKit/iTermInstanceLock.swift
@@ -37602,10 +37644,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..13bde252916ee8f1105f7a3877cc4b0fe748a700
+index 0000000000000000000000000000000000000000..321530dd5fb1312ff1f2160687455db921387ee3
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5021 @@
+@@ -0,0 +1,5031 @@
 +import AppKit
 +import Foundation
 +import os
@@ -41797,6 +41839,12 @@ index 0000000000000000000000000000000000000000..13bde252916ee8f1105f7a3877cc4b0f
 +        showPane(.settings)
 +    }
 +
++    // Command-N and the menu's New Agent: the agent editor, never a new
++    // terminal. A selected folder receives the agent, as in the sidebar.
++    @objc func showNewAgent() {
++        presentNewAgent(group: selectedItem?.kind == .group ? selectedItem?.groupPath : nil)
++    }
++
 +    // omniterm://memory: the Memory page, on a named tab when given.
 +    @objc(showMemoryTab:mindMap:query:node:openNode:)
 +    func showMemory(tab: String?, mindMap: Bool, query: String?, node: String?, openNode: Bool) {
@@ -41877,7 +41925,8 @@ index 0000000000000000000000000000000000000000..13bde252916ee8f1105f7a3877cc4b0f
 +            OmniKeyboardMap.show(for: window)
 +            return true
 +        }
-+        // Command-, Settings; Command-K the navigator; Command-F the search
++        // Command-, Settings; Command-K the navigator; Command-N a new agent
++        // (iTerm2's New Window would open a stray terminal); Command-F the search
 +        // (an editor's own Find keeps it while it has the keyboard).
 +        if flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() {
 +            switch key {
@@ -41886,6 +41935,9 @@ index 0000000000000000000000000000000000000000..13bde252916ee8f1105f7a3877cc4b0f
 +                return true
 +            case "k":
 +                showQuickNav(query: nil)
++                return true
++            case "n":
++                showNewAgent()
 +                return true
 +            case "f":
 +                if let editor = view.window?.firstResponder as? NSTextView, editor.isEditable, !editor.isFieldEditor {
@@ -45421,10 +45473,10 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
          [self.window orderFront:nil];
      }
 diff --git a/sources/TerminalView/PseudoTerminal.h b/sources/TerminalView/PseudoTerminal.h
-index f75074cb4bdb5493c5cebdf2792d8565c0af780c..44db424041f0b3715fbab4fcfb109adf1cdd23b2 100644
+index f75074cb4bdb5493c5cebdf2792d8565c0af780c..ffb06f27eb8c4cfeb0b14255020a669c0e15d68a 100644
 --- a/sources/TerminalView/PseudoTerminal.h
 +++ b/sources/TerminalView/PseudoTerminal.h
-@@ -390,6 +390,52 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
+@@ -390,6 +390,54 @@ extern NSString *const iTermDidCreateTerminalWindowNotification;
  // All tabs in this window.
  - (NSArray<PTYTab *> *)tabs;
  
@@ -45446,6 +45498,8 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..44db424041f0b3715fbab4fcfb109adf
 +// The window's OmniSidebarViewController, for tests.
 +- (id)omniSidebarForTesting;
 +- (void)omniShowSettings;
++// Command-N and the menu's New Agent: the agent editor, not a terminal.
++- (void)omniShowNewAgent;
 +- (void)omniShowUnblocker;
 +- (void)omniShowUnblockerAuditEntry:(NSInteger)index;
 +- (void)omniShowProjects:(NSString *)root file:(NSString *)file;
@@ -45478,7 +45532,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..44db424041f0b3715fbab4fcfb109adf
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54eea1cf35 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1c8cd89bb 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -45640,7 +45694,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,145 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5846,149 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -45722,6 +45776,10 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
 +    [_omniSidebar showSettings];
 +}
 +
++- (void)omniShowNewAgent {
++    [_omniSidebar showNewAgent];
++}
++
 +- (void)omniShowUnblocker {
 +    [_omniSidebar showUnblocker];
 +}
@@ -45787,7 +45845,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7123,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7127,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -45797,7 +45855,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7439,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7443,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -45809,7 +45867,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7649,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7653,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -45817,7 +45875,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7765,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7769,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -45829,7 +45887,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8387,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8391,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -45837,7 +45895,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8396,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8400,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -45850,7 +45908,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8548,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8552,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -45859,7 +45917,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8887,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8891,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -45876,7 +45934,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8925,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8929,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -45885,7 +45943,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9176,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9180,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -45894,7 +45952,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12490,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12494,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -45910,7 +45968,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13450,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13454,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -45926,7 +45984,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..17cc77cd3bf112e555a812f7497aba54
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14027,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14031,7 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {

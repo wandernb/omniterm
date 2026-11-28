@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
+- An agent run or resumed session starting no longer moves the window to it. It opens in the background and shows in the sidebar; the page you are on stays put.
+- Command-N opens New Agent instead of an arbitrary terminal tab. New Tab and the sidebar's + still open a terminal.
 - The Omni Unblocker reaches every waiting goal session again. A few old sessions it had already checked used up every pass, so newer ones were never looked at. Waiting-session lists now keep the newest when they are trimmed.
 
 ## [0.10.0] - 2026-11-27
