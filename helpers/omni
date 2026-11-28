@@ -3549,6 +3549,11 @@ def cli_parser():
         "set", help="change one setting, e.g. notifications.levels.info.banner true or agent_defaults.provider codex")
     settings_set.add_argument("key", help="a setting, with dots for nested values")
     settings_set.add_argument("value", help="JSON (true, 12, \"text\") or plain text")
+    window = subs.add_parser("window", help="run a window tab or group command, as its key would (e.g. new_pane columns)")
+    window.add_argument("window_command", metavar="COMMAND",
+                        help="a keymap command (new_file, set_layout, focus_group, ...), open, pin or report")
+    window.add_argument("window_argument", metavar="ARGUMENT", nargs="?",
+                        help="its argument: columns_2, 2, rows, or for open INTENT:PAGE such as navigate:settings")
     mute = subs.add_parser("mute", help="silence OmniTerm's banners and sounds; the Inbox still fills")
     mute.add_argument("duration", nargs="?", default="forever",
                       help="30m, 2h, tomorrow (08:00) or forever (default)")
@@ -4487,6 +4492,12 @@ def main(argv=None):
         if getattr(args, "settings_command", None) == "set":
             return set_setting(args.key, args.value)
         print(json.dumps(request({"op": "get_settings"})["settings"], indent=2)); return
+    if args.command == "window":
+        payload = {"op": "window_command", "command": args.window_command}
+        if args.window_argument is not None:
+            payload["argument"] = args.window_argument
+        request(payload)
+        return
     if args.command == "mute": return set_setting("notifications.muted_until", json.dumps(mute_until(args.duration)))
     if args.command == "unmute": return set_setting("notifications.muted_until", "0")
     if args.command == "schedule" and args.schedule_command == "preview": return preview_schedule(args.name)

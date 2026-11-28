@@ -11,7 +11,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Tabs, Sublime Text style, above the window's content. Projects, folders, agents, runs, sessions, Inbox, Memory, Settings, Unblocker, search results and terminals all open as tabs. A plain click shows a page in an italic preview tab that changes in place until you click, scroll or type in it. Terminals and double-clicks open permanent tabs, and Command-click (or Command-Return) opens a tab in the background, wherever you click. Command-N opens a new empty terminal tab (New Agent moves to Option-Command-N). Command-W closes the tab: an agent's run tab only leaves the bar and the run keeps going. Shift-Command-T reopens the last closed tab. Command-1 to 9, Option-Command-Left/Right, Shift-Command-[ ] and Control-Tab (most recently used) switch tabs, Command-P opens the navigator, and tabs drag to reorder. Two tabs with the same name show where each comes from.
 - Split the window into groups, as Sublime Text does, each with its own tabs. Command-D adds a column and Shift-Command-D a row, each opening a new terminal. Option-Command-1 to 5 and Option-Shift-Command-2/3 pick Single, Columns 2/3/4, Grid 4 or Rows 2/3. Control-1 to 4 focuses a group and Control-Shift-1 to 4 moves the tab there. Clicking in a group focuses it, and dividers drag. Terminals stay live in every group. Splitting a terminal into panes, as iTerm2 does, moves to Option-Command-D. View has Tabs, Layout, Groups, Focus Group and Move Tab to Group menus, and rows in the sidebar get Open in New Tab and Open in Group.
-- Your tabs, groups and layout come back after a relaunch.
+- Your tabs, groups and layout come back after a relaunch, and the start page no longer pushes in front of them.
+- `omni window COMMAND [ARGUMENT]` runs any tab or group command from a script, as its key would (`omni window set_layout columns_2`, `omni window open navigate:settings`, `omni window report`).
+
+### Fixed
+
+- Command-D into a new group now puts its new terminal there; the group stayed empty.
+- Moving focus between groups of the same size is instant: it no longer refits every terminal tab, which also made every running agent's screen redraw. Even splits are exactly even.
 - Every tab and group key can be rebound in Settings › Shortcuts (Sublime Text's keymap format, `keymap` in settings), and the View menus show your keys. View › Tabs can hide the tab bar and the status bar.
 - A status bar along the bottom of the window. It shows the sidebar toggle and, for the selected tab, the git branch with staged and unstaged counts, the folder, a run's agent and state, and on the right the branch with its change count, the project, the provider and model (⚠ for dangerous permissions), the terminal size, how many agents run and Inbox unread. The branch and project open the project, the run count opens the Dashboard and the unread count opens the Inbox.
 

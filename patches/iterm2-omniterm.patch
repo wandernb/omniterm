@@ -9936,10 +9936,10 @@ index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c0
 +}
 diff --git a/ModernTests/OmniWindowTabsTests.swift b/ModernTests/OmniWindowTabsTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..cc500714f6e57d069dd8edc176ad2f0223ac5915
+index 0000000000000000000000000000000000000000..c3da72d99e9271fd4e2908978e691a285c32d177
 --- /dev/null
 +++ b/ModernTests/OmniWindowTabsTests.swift
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,205 @@
 +//
 +//  OmniWindowTabsTests.swift
 +//  ModernTests
@@ -10062,8 +10062,11 @@ index 0000000000000000000000000000000000000000..cc500714f6e57d069dd8edc176ad2f02
 +    func testColumnsSplitTheWidthWithAGapForTheDivider() {
 +        let cells = OmniGroupLayout.columns(2).cells(in: NSRect(x: 0, y: 0, width: 1000, height: 500))
 +        XCTAssertEqual(cells.count, 2)
-+        XCTAssertEqual(cells[0], NSRect(x: 0, y: 0, width: 500 - OmniGroupLayout.gap, height: 500))
-+        XCTAssertEqual(cells[1], NSRect(x: 500, y: 0, width: 500, height: 500))
++        // Even columns are exactly as wide, so moving focus never resizes a terminal.
++        XCTAssertEqual(cells[0].width, cells[1].width)
++        XCTAssertEqual(cells[1].minX - cells[0].maxX, OmniGroupLayout.gap)
++        XCTAssertEqual(cells[0].minX, 0)
++        XCTAssertLessThanOrEqual(cells[1].maxX, 1000)
 +    }
 +
 +    func testRowsStackTopToBottomAndTheGridHasFourCells() {
@@ -11720,7 +11723,7 @@ index b08222c47618882dbfe47127239b8018e74d4777..261a0723e5dab9a4c9cb2e674e04c8f0
  
  - (void)toggleToolbeltTool:(id)sender;
 diff --git a/sources/AppKit/iTermApplicationDelegate.m b/sources/AppKit/iTermApplicationDelegate.m
-index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f346addaba7 100644
+index 5620948039aec13cb46aa1c0519cc4d194965ef3..c63897171971d7971456d00f762348b959cc56b8 100644
 --- a/sources/AppKit/iTermApplicationDelegate.m
 +++ b/sources/AppKit/iTermApplicationDelegate.m
 @@ -26,6 +26,8 @@
@@ -11929,7 +11932,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
      [[iTermApplication sharedApplication] updateAppearance];
      [[iTermUserDefaults userDefaults] it_addObserverForKey:kPreferenceKeyTabStyle
                                                       block:^(id _Nonnull newValue) {
-@@ -1604,6 +1699,95 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1604,6 +1699,102 @@ void TurnOnDebugLoggingAutomatically(void) {
  - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
      [iTermMacOS13RequirementNotice maybeShow];
      DLog(@"didFinishLaunching");
@@ -11960,6 +11963,13 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
 +    // `set_settings` from the CLI or the Settings page: apply behaviour at once.
 +    _omniScheduler.settingsChangedHandler = ^{
 +        [weakSelf applyOmniTermBehaviorSettings:[weakSelf->_omniScheduler currentSettings]];
++    };
++    _omniScheduler.windowCommandHandler = ^(NSString *command, NSString *argument) {
++        PseudoTerminal *terminal = [[iTermController sharedInstance] currentTerminal];
++        OmniSidebarViewController *sidebar = (OmniSidebarViewController *)terminal.omniSidebarViewController;
++        if ([sidebar isKindOfClass:[OmniSidebarViewController class]]) {
++            [sidebar performWindowCommand:command argument:argument];
++        }
 +    };
 +    _omniScheduler.runScreenRequestHandler = ^(NSString *runID) {
 +        [weakSelf saveOmniScreenForRun:runID];
@@ -12025,7 +12035,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  
      // When running an isolated instance via -suite, overlay the suite name on
      // the dock icon so it's obvious which instance this dock icon belongs to.
-@@ -1901,6 +2085,272 @@ void TurnOnDebugLoggingAutomatically(void) {
+@@ -1901,6 +2092,272 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
  #endif
  
@@ -12298,7 +12308,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2389,500 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -1939,45 +2396,500 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -12817,7 +12827,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3321,116 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2416,6 +3328,116 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -12934,7 +12944,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3559,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2544,21 +3566,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -12957,7 +12967,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3705,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2704,7 +3712,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -12966,7 +12976,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -2988,6 +3989,18 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -2988,6 +3996,18 @@ static iTermKeyEventReplayer *gReplayer;
  
  - (IBAction)newWindow:(id)sender {
      DLog(@"newWindow: invoked");
@@ -12985,7 +12995,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
      BOOL cancel;
      BOOL tmux = [self possiblyTmuxValueForWindow:YES cancel:&cancel];
      if (!cancel) {
-@@ -3168,13 +4181,11 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3168,13 +4188,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -13001,7 +13011,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4947,12 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -3936,15 +4954,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -13022,7 +13032,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5193,17 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4185,6 +5200,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -13040,7 +13050,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..b12130bd3bbd96704cec59a1a0c51f34
      [term addSessionInNewTab:session];
      iTermGeneralServerConnection temp = generalConnection;
      iTermSessionAttachOrLaunchRequest *launchRequest =
-@@ -4457,7 +5476,7 @@ static iTermKeyEventReplayer *gReplayer;
+@@ -4457,7 +5483,7 @@ static iTermKeyEventReplayer *gReplayer;
  
  - (void)untitledWindowStateMachineCreateNewWindow:(iTermUntitledWindowStateMachine *)sender {
      RLog(@"untitledWindowStateMachineCreateNewWindow");
@@ -29754,10 +29764,10 @@ index 0000000000000000000000000000000000000000..bca17bdc36df4d2d6e533de6529276e1
 +}
 diff --git a/sources/OmniTerm/OmniScheduler.h b/sources/OmniTerm/OmniScheduler.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604e255727c
+index 0000000000000000000000000000000000000000..ad707819566e4194f53696cffdf9d9100e7f162b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.h
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,75 @@
 +#import <Foundation/Foundation.h>
 +
 +NS_ASSUME_NONNULL_BEGIN
@@ -29818,6 +29828,9 @@ index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604
 +@property(nonatomic, copy, nullable) void (^runScreenRequestHandler)(NSString *runID);
 +// Returns whether input was written to an untouched managed run, on the main thread.
 +@property(nonatomic, copy, nullable) BOOL (^runInputHandler)(NSString *runID, NSString *text);
++// `window_command`: a window tab or group command (`omni window`), run on
++// the main thread, asynchronously.
++@property(nonatomic, copy, nullable) void (^windowCommandHandler)(NSString *command, NSString * _Nullable argument);
 +
 +// Stores the last screen of a run's terminal (text with SGR colour sequences),
 +// replacing any earlier one. Safe to call from any thread.
@@ -29832,10 +29845,10 @@ index 0000000000000000000000000000000000000000..9257f8f63fce46aca6b29660324d7604
 +NS_ASSUME_NONNULL_END
 diff --git a/sources/OmniTerm/OmniScheduler.m b/sources/OmniTerm/OmniScheduler.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..775605f71e8eb3f3ae2819fe11e7864817197e0f
+index 0000000000000000000000000000000000000000..247b4d80662292f2bece254273a4e741ee2afe3d
 --- /dev/null
 +++ b/sources/OmniTerm/OmniScheduler.m
-@@ -0,0 +1,4647 @@
+@@ -0,0 +1,4670 @@
 +#import "OmniScheduler.h"
 +#import "iTerm2SharedARC-Swift.h"
 +
@@ -30344,6 +30357,7 @@ index 0000000000000000000000000000000000000000..775605f71e8eb3f3ae2819fe11e78648
 +    [_showInboxHandler release];
 +    [_runScreenRequestHandler release];
 +    [_runInputHandler release];
++    [_windowCommandHandler release];
 +    [super dealloc];
 +}
 +
@@ -32812,6 +32826,28 @@ index 0000000000000000000000000000000000000000..775605f71e8eb3f3ae2819fe11e78648
 +        }
 +        [self notificationsDidChange];
 +        return @{ @"ok": @YES, @"names": known };
++    }
++    if ([operation isEqualToString:@"window_command"]) {
++        // A window tab or group command, as its key would run it. The app
++        // checks the name; the result shows in the window and its log.
++        NSString *command = request[@"command"];
++        id argument = request[@"argument"];
++        NSCharacterSet *word = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789_"];
++        if (![command isKindOfClass:[NSString class]] || command.length == 0 || command.length > 40 ||
++            [[command stringByTrimmingCharactersInSet:word] length] > 0 ||
++            (argument && (![argument isKindOfClass:[NSString class]] || [argument length] > 4096))) {
++            return @{ @"ok": @NO, @"code": @"invalid_command", @"error": @"command must be a command name, argument a string" };
++        }
++        void (^handler)(NSString *, NSString *) = self.windowCommandHandler;
++        if (!handler) {
++            return @{ @"ok": @NO, @"error": @"No terminal window" };
++        }
++        NSString *commandCopy = [[command copy] autorelease];
++        NSString *argumentCopy = [[argument copy] autorelease];
++        dispatch_async(dispatch_get_main_queue(), ^{
++            handler(commandCopy, argumentCopy);
++        });
++        return @{ @"ok": @YES };
 +    }
 +    if ([operation isEqualToString:@"set_layout"]) {
 +        // Panel sizes and collapsed states of the terminal window, merged
@@ -38896,10 +38932,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f56a6bb59
+index 0000000000000000000000000000000000000000..be505441b800dd91ce323dde2fb6ed9c9fcd2760
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,6483 @@
+@@ -0,0 +1,6586 @@
 +import AppKit
 +import Foundation
 +import os
@@ -38908,6 +38944,7 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +// with the other `sidebar-keys` logging. Key codes are logged only for
 +// navigation keys and Command/Control combinations, never typed text.
 +let omniSidebarKeysLog = Logger(subsystem: "com.omniterm.app", category: "sidebar-keys")
++let omniWindowTabsLog = Logger(subsystem: "com.omniterm.app", category: "window-tabs")
 +// TEMP window-frame: every save and apply of the window's stored frame, and
 +// every fit to the tabs that was skipped; remove once the frame holds live.
 +let omniWindowFrameLog = Logger(subsystem: "com.omniterm.app", category: "window-frame")
@@ -39341,6 +39378,8 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +    // GUID, the group they go to; they join it when their tab appears.
 +    fileprivate var awaitedTerminals: [String: Int] = [:]
 +    fileprivate var awaitedTerminalsDeadline = Date.distantPast
++    fileprivate var restoreSettleDeadline = Date.distantPast
++    fileprivate var restoreRedisplays = 0
 +    @objc let tabStripView = OmniWindowTabStrip(frame: NSRect(x: 0, y: 0, width: 600, height: OmniWindowTabStrip.height))
 +    // How the open in progress asked to be opened; nil reads the current event.
 +    fileprivate var openIntentOverride: OmniOpenIntent?
@@ -41160,6 +41199,11 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +
 +    @objc func showStartPage() {
 +        guard !contentHost.isShowingPane else { return }
++        // Restored tabs are the start page.
++        if let selected = windowTabs.selected {
++            display(selected.target)
++            return
++        }
 +        if mode == .agents {
 +            showPane(.overview)
 +        } else {
@@ -41655,6 +41699,8 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +            if runTab(pendingRunID) != nil {
 +                self.pendingRunID = nil
 +                if let pendingRoute, contentHost.route == pendingFromRoute {
++                    // Asked for by the person (Run Now, Resume): a tab like any open.
++                    pendingOpenIntent = .navigate
 +                    contentHost.show(pendingRoute)
 +                }
 +            } else if Date() > pendingRunDeadline {
@@ -44259,6 +44305,7 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +        if let route = contentHost.route {
 +            return .page(route)
 +        }
++        // An empty group shows no terminal: the tab view's is someone else's.
 +        if hasGroups, windowTabs.tabs.isEmpty {
 +            return nil
 +        }
@@ -44293,8 +44340,25 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +            knownTerminalIDs = liveIDs
 +            contentHost.keptRoutes = Set(tabGroups.flatMap { $0.tabs.compactMap(\.target.route) })
 +        }
-+        guard let displayed = displayedTarget, displayed != windowTabs.selected?.target else { return }
++        // A new terminal (Command-N or Command-D into an empty group) comes
++        // forward: it is the empty group's first tab.
++        var shown = displayedTarget
++        if shown == nil, hasGroups, windowTabs.tabs.isEmpty, let current = terminal?.currentTab(),
++           !knownTerminalIDs.contains(current.uniqueId) || intent != nil,
++           groupIndex(showing: .terminal(current.uniqueId)) == nil {
++            shown = .terminal(current.uniqueId)
++        }
++        guard let displayed = shown, displayed != windowTabs.selected?.target else { return }
 +        let elsewhere = groupIndex(showing: displayed).map { $0 != focusedGroup } ?? false
++        // Right after the tabs are restored, a page the window puts up by
++        // itself (a run tab coming forward at launch) gives way to the
++        // restored selection; only a few times, so it never fights the window.
++        if intent == nil, displayed.route != nil, let selected = windowTabs.selected,
++           Date() < restoreSettleDeadline, restoreRedisplays < 3 {
++            restoreRedisplays += 1
++            display(selected.target)
++            return
++        }
 +        if intent == nil, let id = displayed.terminalID, knownTerminalIDs.contains(id) || elsewhere,
 +           windowTabs.tab(showing: displayed) == nil {
 +            // An existing terminal came forward by itself (a neighbour closed,
@@ -44358,6 +44422,8 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +    }
 +
 +    fileprivate func showFocusedGroup() {
++        // The single strip shows or hides in the same layout pass.
++        tabStripView.isHidden = hasGroups || tabsHidden
 +        groupsView.focusedGroup = focusedGroup
 +        terminal?.omniGroupsDidChange()
 +        if let target = windowTabs.selected?.target {
@@ -44818,6 +44884,77 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +        refreshTabStrip()
 +    }
 +
++    // MARK: Scripted commands
++
++    // `omni window <command> [argument]`: a command as its key runs it, or
++    // `open <intent>:<page>` (intent navigate, pin, background or
++    // foreground; the page as saved tabs name it), `pin` (as a click inside
++    // the page would) and `report`. Each logs how long it took and what the
++    // window then shows, under the `window-tabs` category.
++    @objc(performWindowCommand:argument:)
++    func performWindowCommand(_ command: String, argument: String?) {
++        let started = Date()
++        var handled = true
++        switch command {
++        case "open":
++            let parts = (argument ?? "").split(separator: ":", maxSplits: 1).map(String.init)
++            guard parts.count == 2, let route = OmniPaneRoute(storageKey: parts[1]) else {
++                handled = false
++                break
++            }
++            let intents: [String: OmniOpenIntent] = ["navigate": .navigate, "pin": .pin,
++                                                     "background": .newTab(background: true),
++                                                     "foreground": .newTab(background: false)]
++            guard let intent = intents[parts[0]] else {
++                handled = false
++                break
++            }
++            openIntentOverride = intent
++            showPane(route)
++            openIntentOverride = nil
++        case "pin":
++            windowTabs.pinSelected()
++            refreshTabStrip()
++        case "report":
++            break
++        default:
++            handled = performWindowTabAction(OmniKeyAction(command, argument))
++        }
++        let elapsed = Int(Date().timeIntervalSince(started) * 1000)
++        omniWindowTabsLog.notice("window-tabs \(command, privacy: .public) \(argument ?? "", privacy: .public) handled=\(handled, privacy: .public) ms=\(elapsed, privacy: .public)")
++        // What the window shows once the change has settled.
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
++            guard let self else { return }
++            omniWindowTabsLog.notice("window-tabs state \(self.windowTabsReport, privacy: .public)")
++        }
++    }
++
++    fileprivate var windowTabsReport: String {
++        let groups = tabGroups.enumerated().map { index, group -> String in
++            let tabs = group.tabs.map { tab -> String in
++                var text: String
++                switch tab.target {
++                case .page(let route):
++                    text = route.storageKey
++                case .terminal(let id):
++                    text = "terminal:\(id)"
++                    if let pty = ptyTab(id), let session = pty.activeSession {
++                        let frame = pty.tabViewItem?.view.flatMap { view in
++                            view.window != nil ? view.convert(view.bounds, to: nil) : nil
++                        }
++                        text += "[live=\(pty.isForegroundTab()) grid=\(session.columns)x\(session.rows)"
++                        text += " frame=\(frame.map { "\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width))x\(Int($0.height))" } ?? "none")]"
++                    }
++                }
++                if tab.preview { text = "(" + text + ")" }
++                if tab.id == group.selectedID { text = "*" + text }
++                return text
++            }
++            return "\(index == focusedGroup ? ">" : "")group\(index + 1){\(tabs.joined(separator: " "))}"
++        }
++        return "layout=\(groupLayout.storage["arrangement"] ?? "")x\(tabGroups.count) " + groups.joined(separator: " ")
++    }
++
 +    // MARK: Opening from a row's menu
 +
 +    // "Open in New Tab" and, with several groups, "Open in Group N" for a
@@ -45113,6 +45250,8 @@ index 0000000000000000000000000000000000000000..80d33b06ef4d3bad4d4b94f37362662f
 +              let layout = OmniGroupLayout(storage: stored, groups: groups.count) else { return }
 +        savedWindowTabs = stored as NSDictionary
 +        awaitedTerminalsDeadline = Date().addingTimeInterval(30)
++        restoreSettleDeadline = Date().addingTimeInterval(5)
++        restoreRedisplays = 0
 +        let byGUID = Dictionary((terminal?.tabs() ?? []).compactMap { tab in guid(of: tab).map { ($0, tab.uniqueId) } },
 +                                uniquingKeysWith: { first, _ in first })
 +        var restored: [OmniWindowTabs] = []
@@ -48996,10 +49135,10 @@ index 0000000000000000000000000000000000000000..b35ab0a81c6b4960edaccddff3b985a7
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabs.swift b/sources/OmniTerm/OmniWindowTabs.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..400670c1f266cb54ffd62987a2e1bae193f48348
+index 0000000000000000000000000000000000000000..54b7b8eed7c297f9ac347324871e335b696299d9
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowTabs.swift
-@@ -0,0 +1,562 @@
+@@ -0,0 +1,596 @@
 +//
 +//  OmniWindowTabs.swift
 +//  iTerm2SharedARC
@@ -49390,6 +49529,20 @@ index 0000000000000000000000000000000000000000..400670c1f266cb54ffd62987a2e1bae1
 +        func span(_ start: CGFloat, _ end: CGFloat, last: Bool) -> (CGFloat, CGFloat) {
 +            return (start.rounded(), (end - start - (last ? 0 : gap)).rounded())
 +        }
++        // Even splits are exactly even, so moving focus between them never
++        // resizes a terminal.
++        let even = stops == Self.evenStops(stops.count)
++        if even, arrangement != .grid, stops.count > 1 {
++            let count = CGFloat(stops.count)
++            let length = arrangement == .columns ? rect.width : rect.height
++            let size = ((length - gap * (count - 1)) / count).rounded(.down)
++            return (0..<stops.count).map { index in
++                let offset = CGFloat(index) * (size + gap)
++                return arrangement == .columns
++                    ? NSRect(x: rect.minX + offset, y: rect.minY, width: size, height: rect.height)
++                    : NSRect(x: rect.minX, y: rect.maxY - offset - size, width: rect.width, height: size)
++            }
++        }
 +        switch arrangement {
 +        case .columns:
 +            var start: CGFloat = 0
@@ -49406,11 +49559,12 @@ index 0000000000000000000000000000000000000000..400670c1f266cb54ffd62987a2e1bae1
 +                return NSRect(x: rect.minX, y: rect.maxY - y - height, width: rect.width, height: max(0, height))
 +            }
 +        case .grid:
-+            let (_, leftWidth) = span(0, rect.width * split.x, last: false)
-+            let (_, topHeight) = span(0, rect.height * split.y, last: false)
++            let even = split == CGPoint(x: 0.5, y: 0.5)
++            let leftWidth = even ? ((rect.width - gap) / 2).rounded(.down) : span(0, rect.width * split.x, last: false).1
++            let topHeight = even ? ((rect.height - gap) / 2).rounded(.down) : span(0, rect.height * split.y, last: false).1
 +            let rightX = rect.minX + leftWidth + gap
-+            let bottomHeight = rect.height - topHeight - gap
-+            let rightWidth = rect.maxX - rightX
++            let bottomHeight = even ? topHeight : rect.height - topHeight - gap
++            let rightWidth = even ? leftWidth : rect.maxX - rightX
 +            return [
 +                NSRect(x: rect.minX, y: rect.maxY - topHeight, width: leftWidth, height: topHeight),
 +                NSRect(x: rightX, y: rect.maxY - topHeight, width: rightWidth, height: topHeight),
@@ -49425,6 +49579,25 @@ index 0000000000000000000000000000000000000000..400670c1f266cb54ffd62987a2e1bae1
 +    // horizontal (1) one.
 +    func dividers(in rect: NSRect) -> [(index: Int, vertical: Bool, rect: NSRect)] {
 +        let gap = Self.gap
++        // The gaps between the cells, wherever rounding put them.
++        let cells = self.cells(in: rect)
++        switch arrangement {
++        case .columns where cells.count > 1:
++            return (0..<cells.count - 1).map { index in
++                (index, true, NSRect(x: cells[index].maxX, y: rect.minY, width: gap, height: rect.height))
++            }
++        case .rows where cells.count > 1:
++            return (0..<cells.count - 1).map { index in
++                (index, false, NSRect(x: rect.minX, y: cells[index].minY - gap, width: rect.width, height: gap))
++            }
++        case .grid:
++            return [
++                (0, true, NSRect(x: cells[0].maxX, y: rect.minY, width: gap, height: rect.height)),
++                (1, false, NSRect(x: rect.minX, y: cells[0].minY - gap, width: rect.width, height: gap)),
++            ]
++        default:
++            break
++        }
 +        switch arrangement {
 +        case .columns:
 +            return stops.dropLast().enumerated().map { index, stop in
@@ -49951,7 +50124,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..90f7d470df78417bba0e0273eb57ba26
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e5f3c2e76 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..28688bb2895200639ec6e17e7603735607d2a81e 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -50123,7 +50296,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5856,157 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -5813,8 +5856,169 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -50253,7 +50426,19 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
 +}
 +
 +- (void)omniGroupsDidChange {
-+    [self omniSidebarWidthDidChange];
++    // Moving focus between groups of the same size only moves the tab view;
++    // refitting every tab (and signalling every terminal's program) is for a
++    // change of size.
++    const NSSize before = _contentView.tabView.frame.size;
++    [_contentView layoutSubviews];
++    if (NSEqualSizes(before, _contentView.tabView.frame.size)) {
++        return;
++    }
++    [self rootTerminalViewDidResizeContentArea];
++    for (PTYSession *session in self.currentTab.sessions) {
++        [session.view updateLayout];
++        [session.textview requestDelegateRedraw];
++    }
 +}
 +
 +- (BOOL)omniHandleSidebarKeyDown:(NSEvent *)event {
@@ -50282,7 +50467,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7145,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -6953,7 +7157,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -50292,7 +50477,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7461,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7268,6 +7473,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -50304,7 +50489,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7671,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7473,6 +7683,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -50312,7 +50497,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7787,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -7588,7 +7799,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -50324,7 +50509,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8409,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8207,6 +8421,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -50332,7 +50517,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8418,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8215,10 +8430,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -50345,7 +50530,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8570,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8367,7 +8582,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -50354,7 +50539,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8909,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8706,14 +8921,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -50371,7 +50556,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8947,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8744,7 +8959,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -50380,7 +50565,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9198,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
+@@ -8995,7 +9210,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -50389,7 +50574,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12512,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
+@@ -12309,6 +12524,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -50405,7 +50590,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13472,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13260,10 +13484,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -50421,7 +50606,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14049,9 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -13836,7 +14061,9 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
@@ -50432,7 +50617,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..edefafce2eac2222691d42a1951dae6e
  
      if (!_contentView.tabBarControl.flashing &&
          [self tabBarShouldBeVisibleWithAdditionalTabs:tabViewItemsBeingAdded]) {
-@@ -14189,6 +14404,10 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
+@@ -14189,6 +14416,10 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  // Adjust the tab's size for a new window size.
  - (void)fitTabToWindow:(PTYTab *)aTab {
      NSSize size = [_contentView.tabView contentRect].size;
