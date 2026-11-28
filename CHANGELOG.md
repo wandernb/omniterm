@@ -7,6 +7,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Tabs, Sublime Text style, above the window's content. Projects, folders, agents, runs, sessions, Inbox, Memory, Settings, Unblocker, search results and terminals all open as tabs. A plain click shows a page in an italic preview tab that changes in place until you click, scroll or type in it. Terminals and double-clicks open permanent tabs, and Command-click (or Command-Return) opens a tab in the background, wherever you click. Command-N opens a new empty terminal tab (New Agent moves to Option-Command-N). Command-W closes the tab: an agent's run tab only leaves the bar and the run keeps going. Shift-Command-T reopens the last closed tab. Command-1 to 9, Option-Command-Left/Right, Shift-Command-[ ] and Control-Tab (most recently used) switch tabs, Command-P opens the navigator, and tabs drag to reorder. Two tabs with the same name show where each comes from.
+- A status bar along the bottom of the window. It shows the sidebar toggle and, for the selected tab, the git branch with staged and unstaged counts, the folder, a run's agent and state, and on the right the branch with its change count, the project, the provider and model (⚠ for dangerous permissions), the terminal size, how many agents run and Inbox unread. The branch and project open the project, the run count opens the Dashboard and the unread count opens the Inbox.
+
 ### Changed
 
 - A project folder reached through a symlink is now one project: when a checkout links into another project's folder (`app/@head` linking into `.dev/components/app`), the two merge into the project that holds the checkouts, with its name, and their sessions, agents and lookups all land on it.

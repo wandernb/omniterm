@@ -9933,6 +9933,129 @@ index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c0
 +        XCTAssertTrue(controller.isEditingTicket)
 +    }
 +}
+diff --git a/ModernTests/OmniWindowTabsTests.swift b/ModernTests/OmniWindowTabsTests.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..41bd92355d9aececcb5ee43c149a0fc5bd6a3879
+--- /dev/null
++++ b/ModernTests/OmniWindowTabsTests.swift
+@@ -0,0 +1,117 @@
++//
++//  OmniWindowTabsTests.swift
++//  ModernTests
++//
++//  The window tabs' opening rules: the italic preview that changes in place
++//  until touched, new tabs for terminals and Command-click, reopening, and
++//  recently used order.
++//
++
++import XCTest
++@testable import iTerm2SharedARC
++
++final class OmniWindowTabsTests: XCTestCase {
++    private let settings = OmniTabTarget.page(.settings)
++    private let memory = OmniTabTarget.page(.memory)
++    private let inbox = OmniTabTarget.page(.inbox)
++
++    func testPlainClicksChangeTheUntouchedPreviewInPlace() {
++        var tabs = OmniWindowTabs()
++        tabs.open(settings, intent: .navigate, live: false)
++        tabs.open(memory, intent: .navigate, live: false)
++        XCTAssertEqual(tabs.tabs.map(\.target), [memory])
++        XCTAssertEqual(tabs.selected?.preview, true)
++    }
++
++    func testATouchedPreviewStaysAndTheNextClickOpensANewPreview() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .navigate, live: false)
++        tabs.pinSelected()
++        tabs.open(inbox, intent: .navigate, live: false)
++        XCTAssertEqual(tabs.tabs.map(\.target), [memory, inbox])
++        XCTAssertEqual(tabs.tabs.map(\.preview), [false, true])
++        XCTAssertEqual(tabs.selected?.target, inbox)
++    }
++
++    func testThePreviewIsReusedFromAPermanentTab() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .pin, live: false)
++        tabs.open(inbox, intent: .navigate, live: false)
++        tabs.select(tabs.tabs[0].id)
++        tabs.open(settings, intent: .navigate, live: false)
++        XCTAssertEqual(tabs.tabs.map(\.target), [memory, settings])
++        XCTAssertEqual(tabs.selected?.target, settings)
++    }
++
++    func testTerminalsAlwaysOpenPermanentTabs() {
++        var tabs = OmniWindowTabs()
++        tabs.open(settings, intent: .navigate, live: false)
++        tabs.open(.terminal(7), intent: .navigate, live: true)
++        XCTAssertEqual(tabs.tabs.map(\.target), [settings, .terminal(7)])
++        XCTAssertEqual(tabs.selected?.preview, false)
++    }
++
++    func testCommandClickOpensABackgroundTabAndShiftBringsItForward() {
++        var tabs = OmniWindowTabs()
++        tabs.open(settings, intent: .navigate, live: false)
++        tabs.open(memory, intent: .newTab(background: true), live: false)
++        XCTAssertEqual(tabs.selected?.target, settings)
++        XCTAssertEqual(tabs.tab(showing: memory)?.preview, false)
++        tabs.open(inbox, intent: .newTab(background: false), live: false)
++        XCTAssertEqual(tabs.selected?.target, inbox)
++        XCTAssertEqual(tabs.tabs.count, 3)
++    }
++
++    func testOpeningSomethingOpenRevealsItsTab() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .pin, live: false)
++        tabs.open(inbox, intent: .pin, live: false)
++        tabs.open(memory, intent: .navigate, live: false)
++        XCTAssertEqual(tabs.tabs.count, 2)
++        XCTAssertEqual(tabs.selected?.target, memory)
++    }
++
++    func testClosingShowsTheMostRecentTabAndReopenBringsItBack() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .pin, live: false)
++        tabs.open(inbox, intent: .pin, live: false)
++        tabs.open(settings, intent: .pin, live: false)
++        tabs.select(tabs.tabs[0].id)
++        tabs.select(tabs.tabs[2].id)
++        let next = tabs.close(tabs.selectedID!)
++        XCTAssertEqual(next?.target, memory)
++        XCTAssertEqual(tabs.popClosed { _ in true }, settings)
++        XCTAssertNil(tabs.popClosed { _ in true })
++    }
++
++    func testAShellThatExitsLeavesWithoutGoingOnTheReopenStack() {
++        var tabs = OmniWindowTabs()
++        tabs.open(.terminal(1), intent: .navigate, live: true)
++        tabs.open(.terminal(2), intent: .navigate, live: true)
++        tabs.prune { $0 != .terminal(2) }
++        XCTAssertEqual(tabs.tabs.map(\.target), [.terminal(1)])
++        XCTAssertEqual(tabs.selected?.target, .terminal(1))
++        XCTAssertTrue(tabs.closed.isEmpty)
++    }
++
++    func testRecentOrderAndStepping() {
++        var tabs = OmniWindowTabs()
++        tabs.open(memory, intent: .pin, live: false)
++        tabs.open(inbox, intent: .pin, live: false)
++        tabs.open(settings, intent: .pin, live: false)
++        XCTAssertEqual(tabs.recentTab(depth: 1)?.target, inbox)
++        tabs.step(by: 1)
++        XCTAssertEqual(tabs.selected?.target, memory)
++        tabs.step(by: -1)
++        XCTAssertEqual(tabs.selected?.target, settings)
++    }
++
++    func testDuplicateTitlesGetTheShortestTellingSuffix() {
++        let titles = OmniWindowTabs.disambiguated([
++            (".env.development", "/p/one/core/.env.development"),
++            (".env.development", "/p/two/@head/.env.development"),
++            ("Memory", nil),
++        ])
++        XCTAssertEqual(titles, [".env.development — core", ".env.development — @head", "Memory"])
++    }
++}
 diff --git a/ModernTests/OmniWindowTypeTests.m b/ModernTests/OmniWindowTypeTests.m
 new file mode 100644
 index 0000000000000000000000000000000000000000..faa970de22e6455397158ba4e8f0d2cca009992d
@@ -10274,10 +10397,10 @@ index 1dd0d27b74a5d596905254b6705f7b98a751348a..2432ac93681706bb95fdbd9d8e292679
 +The session’s system prompt sits collapsed
 +above the chat.
 diff --git a/iTerm2.xcodeproj/project.pbxproj b/iTerm2.xcodeproj/project.pbxproj
-index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf42f551c0 100644
+index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..0d974daf40d9659c42e3dd0653189a17648a44b8 100644
 --- a/iTerm2.xcodeproj/project.pbxproj
 +++ b/iTerm2.xcodeproj/project.pbxproj
-@@ -7,6 +7,33 @@
+@@ -7,6 +7,36 @@
  	objects = {
  
  /* Begin PBXBuildFile section */
@@ -10295,6 +10418,9 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
 +		5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */; };
 +		5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */; };
 +		5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */; };
++		5D0B6F417C82BD017A6CDA48 /* OmniWindowStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0C6F417C82BD017A6CDA48 /* OmniWindowStatusBar.swift */; };
++		5D0B74DAB6B01ADCDE8D0101 /* OmniWindowTabStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0C74DAB6B01ADCDE8D0101 /* OmniWindowTabStrip.swift */; };
++		5D0BF6532C6FF007121B518A /* OmniWindowTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0CF6532C6FF007121B518A /* OmniWindowTabs.swift */; };
 +		5D0A7B1C2E3F0000000000F1 /* OmniContextMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */; };
 +		5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */; };
 +		0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */; };
@@ -10311,7 +10437,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  		CBC96459BD6FC8896785A3D9 /* TmuxWorkgroupPeerCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA61C02D50EE6E66768FE0C /* TmuxWorkgroupPeerCreation.swift */; };
  		3EF33423CA26E1A5D858D1C9 /* TmuxWorkgroupAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD54BF2A45695A8C76271D5 /* TmuxWorkgroupAdoption.swift */; };
  		40063C16D73D3B917B920C9B /* FramerPaneStrandedFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 704E93B8A70AA0106E558871 /* FramerPaneStrandedFinder.swift */; };
-@@ -5138,6 +5165,34 @@
+@@ -5138,6 +5168,37 @@
  /* End PBXCopyFilesBuildPhase section */
  
  /* Begin PBXFileReference section */
@@ -10330,6 +10456,9 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
 +		5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniProjectsPane.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSearch.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniTickets.swift; sourceTree = "<group>"; };
++		5D0C6F417C82BD017A6CDA48 /* OmniWindowStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniWindowStatusBar.swift; sourceTree = "<group>"; };
++		5D0C74DAB6B01ADCDE8D0101 /* OmniWindowTabStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniWindowTabStrip.swift; sourceTree = "<group>"; };
++		5D0CF6532C6FF007121B518A /* OmniWindowTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniWindowTabs.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniContextMenus.swift; sourceTree = "<group>"; };
 +		5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniMemoryGraphView.swift; sourceTree = "<group>"; };
 +		0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../OmniTerm/OmniSidebarViewController.swift; sourceTree = "<group>"; };
@@ -10346,7 +10475,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  		413B31365A66C69AAB923889 /* BashWordSplitter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BashWordSplitter.swift; sourceTree = "<group>"; };
  		F7F500F98D6607037DCEB270 /* iTermFloatingPaneView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermFloatingPaneView.swift; sourceTree = "<group>"; };
  		0071478CE7978AC6B38C5DF7 /* iTermWorkgroupSessionMode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = iTermWorkgroupSessionMode.swift; sourceTree = "<group>"; };
-@@ -10607,6 +10662,34 @@
+@@ -10607,6 +10668,37 @@
  		A62A779B2F987095007CAA0B /* AppKit */ = {
  			isa = PBXGroup;
  			children = (
@@ -10365,6 +10494,9 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
 +				5D0A7B1C2E3F0000000000C2 /* OmniProjectsPane.swift */,
 +				5D0A7B1C2E3F0000000000D2 /* OmniSearch.swift */,
 +				5D0A7B1C2E3F0000000000E2 /* OmniTickets.swift */,
++				5D0C6F417C82BD017A6CDA48 /* OmniWindowStatusBar.swift */,
++				5D0C74DAB6B01ADCDE8D0101 /* OmniWindowTabStrip.swift */,
++				5D0CF6532C6FF007121B518A /* OmniWindowTabs.swift */,
 +				5D0A7B1C2E3F0000000000F2 /* OmniContextMenus.swift */,
 +				5D0A7B1C2E3F000000000008 /* OmniMemoryGraphView.swift */,
 +				0A0B0C0D0E0F000000000007 /* OmniSidebarViewController.swift */,
@@ -10381,7 +10513,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				A626DDE32AD627D3005EEB95 /* CommandURLHandler.swift */,
  				DDF0FD63062916F70080EF74 /* iTermApplication.h */,
  				DDF0FD64062916F70080EF74 /* iTermApplication.m */,
-@@ -18568,7 +18651,7 @@
+@@ -18568,7 +18660,7 @@
  			inputFileListPaths = (
  			);
  			inputPaths = (
@@ -10390,7 +10522,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  			);
  			name = "Make symlink to iTerm";
  			outputFileListPaths = (
-@@ -18578,7 +18661,7 @@
+@@ -18578,7 +18670,7 @@
  			);
  			runOnlyForDeploymentPostprocessing = 0;
  			shellPath = /bin/sh;
@@ -10399,7 +10531,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  		};
  		A6B78B812A099498007D6D85 /* Build binary dependencies if xcode version changed */ = {
  			isa = PBXShellScriptBuildPhase;
-@@ -18765,6 +18848,32 @@
+@@ -18765,6 +18857,35 @@
  			isa = PBXSourcesBuildPhase;
  			buildActionMask = 2147483647;
  			files = (
@@ -10416,6 +10548,9 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
 +				5D0A7B1C2E3F0000000000C1 /* OmniProjectsPane.swift in Sources */,
 +				5D0A7B1C2E3F0000000000D1 /* OmniSearch.swift in Sources */,
 +				5D0A7B1C2E3F0000000000E1 /* OmniTickets.swift in Sources */,
++				5D0B6F417C82BD017A6CDA48 /* OmniWindowStatusBar.swift in Sources */,
++				5D0B74DAB6B01ADCDE8D0101 /* OmniWindowTabStrip.swift in Sources */,
++				5D0BF6532C6FF007121B518A /* OmniWindowTabs.swift in Sources */,
 +				5D0A7B1C2E3F0000000000F1 /* OmniContextMenus.swift in Sources */,
 +				5D0A7B1C2E3F000000000007 /* OmniMemoryGraphView.swift in Sources */,
 +				0A0B0C0D0E0F000000000006 /* OmniSidebarViewController.swift in Sources */,
@@ -10432,7 +10567,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				C7D353B754D8B784AA580E5C /* IT2HostGrants.swift in Sources */,
  				E7C62A122214F1586F8C2EED /* iTermRemoteIt2.swift in Sources */,
  				AA98CC958BF6A53E358DCDA3 /* iTermBundledIt2.swift in Sources */,
-@@ -20748,6 +20857,7 @@
+@@ -20748,6 +20869,7 @@
  				A6EF5BC625BCCC0900807157 /* PseudoTerminalRestorer.m in Sources */,
  				A6DC8151285CF45C0050788C /* GPBAny.pbobjc.m in Sources */,
  				A6C762CA1B45C52B00E3C992 /* iTermApplicationDelegate.m in Sources */,
@@ -10440,7 +10575,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				A6C762C11B45C52B00E3C992 /* NSTextField+iTerm.m in Sources */,
  				A6FEA2711CF2C8EE00376F28 /* iTermProfileHotKey.m in Sources */,
  				A6C763E61B45C70100E3C992 /* SCEvents.m in Sources */,
-@@ -21559,7 +21669,7 @@
+@@ -21559,7 +21681,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -10449,7 +10584,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21592,7 +21702,7 @@
+@@ -21592,7 +21714,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -10458,7 +10593,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -21729,8 +21839,8 @@
+@@ -21729,8 +21851,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -10469,7 +10604,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -22817,8 +22927,8 @@
+@@ -22817,8 +22939,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -10480,7 +10615,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -24683,7 +24793,7 @@
+@@ -24683,7 +24805,7 @@
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
  				SWIFT_VERSION = 5.0;
@@ -10489,7 +10624,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24770,7 +24880,7 @@
+@@ -24770,7 +24892,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -10498,7 +10633,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24857,7 +24967,7 @@
+@@ -24857,7 +24979,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -10507,7 +10642,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -24944,7 +25054,7 @@
+@@ -24944,7 +25066,7 @@
  				SWIFT_COMPILATION_MODE = wholemodule;
  				SWIFT_EMIT_LOC_STRINGS = NO;
  				SWIFT_VERSION = 5.0;
@@ -10516,7 +10651,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/ThirdParty",
  					"$(PROJECT_DIR)/ThirdParty/adblock-rust/include",
-@@ -25240,8 +25350,8 @@
+@@ -25240,8 +25362,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -10527,7 +10662,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				SDKROOT = macosx;
  				SECTORDER_FLAGS = "";
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25335,8 +25445,8 @@
+@@ -25335,8 +25457,8 @@
  					"-force_load",
  					"$(BUILT_PRODUCTS_DIR)/libit2core.a",
  				);
@@ -10538,7 +10673,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				PROVISIONING_PROFILE_SPECIFIER = "iTerm2 Dev ID Keychain";
  				SDKROOT = macosx;
  				SWIFT_OBJC_BRIDGING_HEADER = "";
-@@ -25540,7 +25650,7 @@
+@@ -25540,7 +25662,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -10547,7 +10682,7 @@ index 0fa5f3f9c925bc8f18fc8ccfcf412412c14b2aea..c2e9f3adc1dc894e6619dc06496533cf
  				USER_HEADER_SEARCH_PATHS = (
  					"$(SRCROOT)/sources",
  					"$(SRCROOT)/ThirdParty",
-@@ -25573,7 +25683,7 @@
+@@ -25573,7 +25695,7 @@
  				PRODUCT_NAME = "$(TARGET_NAME)";
  				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PerformanceTests/PerformanceTests-Bridging-Header.h";
  				SWIFT_VERSION = 5.0;
@@ -11233,7 +11368,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
  #import "iTermAdvancedSettingsModel.h"
  #import "iTermController.h"
  #import "iTermEventTap.h"
-@@ -115,6 +126,7 @@ @implementation iTermApplication {
+@@ -115,6 +126,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      BOOL _functionPressed;
      BOOL _characterAccentWindowWasOpen;
      NSTimeInterval _lastRepeatTime;
@@ -11241,7 +11376,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
  #if DEBUG
      NSEventModifierFlags _it_modifierFlags;
  #endif
-@@ -129,6 +141,9 @@ + (iTermApplication *)sharedApplication {
+@@ -129,6 +141,9 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      assert([sharedApplication isKindOfClass:[iTermApplication class]]);
      static dispatch_once_t onceToken;
      dispatch_once(&onceToken, ^{
@@ -11251,7 +11386,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
          NSSetUncaughtExceptionHandler(&iTermUncaughtExceptionHandler);
          [sharedApplication addObserver:sharedApplication
                              forKeyPath:@"modalWindow"
-@@ -864,11 +879,111 @@ - (void)sendEvent:(NSEvent *)event {
+@@ -864,11 +879,111 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
              }
              break;
          }
@@ -11364,7 +11499,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
              event.it_functionModifierPressed = _functionPressed;
              event = [self eventByRemappingForSecureInput:event];
              if (!event) {
-@@ -883,6 +998,7 @@ - (void)sendEvent:(NSEvent *)event {
+@@ -883,6 +998,7 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  #endif
              RLog(@"NSKeyDown event taking the regular path");
              break;
@@ -11372,7 +11507,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
          case NSEventTypeKeyUp:
              RLog(@"begin key-up");
  #if DEBUG
-@@ -955,6 +1071,33 @@ - (NSEvent *)currentEvent {
+@@ -955,6 +1071,33 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
      }];
  }
  
@@ -11406,7 +11541,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
  - (void)setIsUIElement:(BOOL)uiElement {
      if (uiElement == _isUIElement) {
          return;
-@@ -978,6 +1121,26 @@ - (void)setIsUIElement:(BOOL)uiElement {
+@@ -978,6 +1121,26 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
                                                          object:self];
  }
  
@@ -11433,7 +11568,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
  - (NSArray<NSWindow *> *)orderedWindowsPlusVisibleHotkeyPanels {
      NSArray<NSWindow *> *panels = [[iTermHotKeyController sharedInstance] visibleFloatingHotkeyWindows] ?: @[];
      return [panels arrayByAddingObjectsFromArray:[self orderedWindows]];
-@@ -990,11 +1153,21 @@ - (void)setIsUIElement:(BOOL)uiElement {
+@@ -990,11 +1153,21 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  
  - (void)activateIgnoringOtherApps:(BOOL)flag {
      RLog(@"activateIgnoringOtherApps flag=%@", @(flag));
@@ -11455,7 +11590,7 @@ index a56037c6cf057bea51441220684b06421d322893..9a015e3043261cc2d61cbf5d368d2652
      [super activate];
  }
  
-@@ -1282,4 +1455,3 @@ - (BOOL)it_functionPressed {
+@@ -1282,4 +1455,3 @@ static void iTermUncaughtExceptionHandler(NSException *exception) {
  }
  
  @end
@@ -11529,7 +11664,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  
  #include "iTermFileDescriptorClient.h"
  #include <libproc.h>
-@@ -147,6 +154,7 @@
+@@ -147,6 +154,7 @@ static NSString *kUseBackgroundPatternIndicatorKey = @"Use background pattern in
  NSString *kUseBackgroundPatternIndicatorChangedNotification = @"kUseBackgroundPatternIndicatorChangedNotification";
  NSString *const kSavedArrangementDidChangeNotification = @"kSavedArrangementDidChangeNotification";
  NSString *const kNonTerminalWindowBecameKeyNotification = @"kNonTerminalWindowBecameKeyNotification";
@@ -11537,7 +11672,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  static NSString *const kMarkAlertAction = @"Mark Alert Action";
  NSString *const kMarkAlertActionModalAlert = @"Modal Alert";
  NSString *const kMarkAlertActionPostNotification = @"Post Notification";
-@@ -186,6 +194,15 @@ @interface iTermApplicationDelegate () <
+@@ -186,6 +194,15 @@ static BOOL hasBecomeActive = NO;
  
  @property(nonatomic, readwrite) BOOL workspaceSessionActive;
  
@@ -11553,7 +11688,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  @end
  
  
-@@ -213,6 +230,14 @@ @implementation iTermApplicationDelegate {
+@@ -213,6 +230,14 @@ static BOOL hasBecomeActive = NO;
      IBOutlet SUUpdater * suUpdater;
      IBOutlet NSMenuItem *_showTipOfTheDay;  // Here because we must remove it for older OS versions.
      BOOL quittingBecauseLastWindowClosed_;
@@ -11568,7 +11703,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  
      IBOutlet NSMenuItem *_splitHorizontallyWithCurrentProfile;
      IBOutlet NSMenuItem *_splitVerticallyWithCurrentProfile;
-@@ -446,6 +471,11 @@ - (void)awakeFromNib {
+@@ -446,6 +471,11 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  
  - (BOOL)validateMenuItem:(NSMenuItem *)menuItem {
      const SEL action = [menuItem action];
@@ -11580,7 +11715,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      if (action == @selector(newSessionInTabAtIndex:) ||
          action == @selector(newSession:) ||
          action == @selector(newSessionWithSameProfile:)) {
-@@ -979,13 +1009,45 @@ - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
+@@ -979,13 +1009,45 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
      return quittingBecauseLastWindowClosed_;
  }
  
@@ -11630,7 +11765,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  }
  
  - (void)applicationDidChangeScreenParameters:(NSNotification *)aNotification
-@@ -1042,6 +1104,16 @@ - (NSApplicationTerminateReply)applicationShouldTerminate:(NSNotification *)theN
+@@ -1042,6 +1104,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
          return NSTerminateCancel;
      }
  
@@ -11647,7 +11782,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      // Capture the option-key state for the “Quit and Close All Windows”
      // detection below. We sample it before any modal prompt so a slow user
      // releasing the key doesn’t change the answer.
-@@ -1178,6 +1250,15 @@ - (NSApplicationTerminateReply)applicationShouldTerminate:(NSNotification *)theN
+@@ -1178,6 +1250,15 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
  
  - (void)applicationWillTerminate:(NSNotification *)aNotification {
      RLog(@"applicationWillTerminate called");
@@ -11663,7 +11798,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      [iTermController releaseSharedInstance];
      [[iTermModifierRemapper sharedInstance] setRemapModifiers:NO];
      DLog(@"applicationWillTerminate returning");
-@@ -1219,7 +1300,7 @@ - (NSMenu *)applicationDockMenu:(NSApplication *)sender {
+@@ -1219,7 +1300,7 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
      NSMenu* aMenu = [[NSMenu alloc] initWithTitle: @"Dock Menu"];
  
      [aMenu addItemWithTitle:NSLocalizedStringWithDefaultValue(@"DockMenu.NewWindowDefaultProfile", nil, [NSBundle mainBundle], @"New Window (Default Profile)", @"Dock menu item to open a new window with the default profile")
@@ -11672,7 +11807,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
                keyEquivalent:@""];
      [aMenu addItem:[NSMenuItem separatorItem]];
      [self newSessionMenu:aMenu
-@@ -1358,6 +1439,16 @@ - (void)applicationWillResignActive:(NSNotification *)notification {
+@@ -1358,6 +1439,16 @@ static NSModalResponse iTermCompareRenderingRunModal(id self, SEL _cmd) {
      DLog(@"Application will resign active.");
  }
  
@@ -11689,7 +11824,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  - (void)applicationWillHide:(NSNotification *)aNotification {
      for (NSWindow *aWindow in [[NSApplication sharedApplication] windows]) {
          [self hideToolTipsInView:[aWindow contentView]];
-@@ -1399,6 +1490,10 @@ - (void)applicationWillFinishLaunching:(NSNotification *)aNotification {
+@@ -1399,6 +1490,10 @@ void TurnOnDebugLoggingAutomatically(void) {
      } else {
          suUpdater.delegate = (id<SUUpdaterDelegate>)[iTermTestHostIsolation updaterDelegate];
      }
@@ -11700,7 +11835,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      [[iTermApplication sharedApplication] updateAppearance];
      [[iTermUserDefaults userDefaults] it_addObserverForKey:kPreferenceKeyTabStyle
                                                       block:^(id _Nonnull newValue) {
-@@ -1604,6 +1699,95 @@ - (NSInteger)parseIntegerArgument:(NSString *)name defaultValue:(NSInteger)defau
+@@ -1604,6 +1699,95 @@ void TurnOnDebugLoggingAutomatically(void) {
  - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
      [iTermMacOS13RequirementNotice maybeShow];
      DLog(@"didFinishLaunching");
@@ -11796,7 +11931,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  
      // When running an isolated instance via -suite, overlay the suite name on
      // the dock icon so it's obvious which instance this dock icon belongs to.
-@@ -1901,6 +2085,272 @@ - (IBAction)debugCheckSettingsControlTruncation:(id)sender {
+@@ -1901,6 +2085,272 @@ void TurnOnDebugLoggingAutomatically(void) {
  }
  #endif
  
@@ -12069,7 +12204,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  #if DEBUG
  - (IBAction)toggleKeyRecording:(id)sender {
      [iTermKeyEventRecorder toggle];
-@@ -1939,45 +2389,494 @@ - (pid_t)pidForReplay {
+@@ -1939,45 +2389,494 @@ static iTermKeyEventReplayer *gReplayer;
  }
  #endif
  
@@ -12582,7 +12717,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  #pragma mark - Notifications
  
  - (void)workspaceSessionDidBecomeActive:(NSNotification *)notification {
-@@ -2416,6 +3315,116 @@ - (void)getUrl:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescr
+@@ -2416,6 +3315,116 @@ static iTermKeyEventReplayer *gReplayer;
          return;
      }
  
@@ -12699,7 +12834,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      // If the OS (or `open -a iTerm <url>`, Velja, vim gx, etc.) hands us a web URL
      // and the user hasn't bound this scheme to a specific profile, open it in the
      // built-in web browser rather than launching a terminal. See issue 12431.
-@@ -2544,21 +3553,7 @@ - (void)updateAddressBookMenu:(NSNotification *)aNotification {
+@@ -2544,21 +3553,7 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Startup Helpers
  
  - (void)complainIfNightlyBuildIsTooOld {
@@ -12722,7 +12857,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  }
  
  // This performs startup activities as long as they haven't been run before.
-@@ -2704,7 +3699,7 @@ - (IBAction)copyPerformanceStats:(id)sender {
+@@ -2704,7 +3699,7 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)checkForUpdatesFromMenu:(id)sender {
@@ -12731,7 +12866,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  }
  
  // Depth-first search for the menu item wired to a given action, so a
-@@ -2988,6 +3983,18 @@ - (IBAction)toggleFullScreenTabBar:(id)sender {
+@@ -2988,6 +3983,18 @@ static iTermKeyEventReplayer *gReplayer;
  
  - (IBAction)newWindow:(id)sender {
      DLog(@"newWindow: invoked");
@@ -12750,7 +12885,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      BOOL cancel;
      BOOL tmux = [self possiblyTmuxValueForWindow:YES cancel:&cancel];
      if (!cancel) {
-@@ -3168,13 +4175,11 @@ - (IBAction)newTmuxTab:(id)sender {
+@@ -3168,13 +4175,11 @@ static iTermKeyEventReplayer *gReplayer;
  }
  
  - (IBAction)showPrefWindow:(id)sender {
@@ -12766,7 +12901,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  }
  
  - (IBAction)showBookmarkWindow:(id)sender {
-@@ -3936,15 +4941,12 @@ - (IBAction)toggleAlertOnMarksInOffscreenSessions:(id)sender {
+@@ -3936,15 +4941,12 @@ static iTermKeyEventReplayer *gReplayer;
  #pragma mark - Private
  
  - (void)updateProcessType {
@@ -12787,7 +12922,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
  }
  
  - (PseudoTerminal *)terminalToOpenFileIn {
-@@ -4185,6 +5187,17 @@ - (void)makeSessionWithConnection:(iTermGeneralServerConnection)generalConnectio
+@@ -4185,6 +5187,17 @@ static iTermKeyEventReplayer *gReplayer;
      Profile *defaultProfile = preferredProfile ?: [[ProfileModel sharedInstance] defaultBookmark];
      PTYSession *session = [[term.sessionFactory newSessionWithProfile:defaultProfile
                                                                 parent:nil] autorelease];
@@ -12805,7 +12940,7 @@ index 5620948039aec13cb46aa1c0519cc4d194965ef3..d088c291b7c33ac9a6524cbf4a87edd9
      [term addSessionInNewTab:session];
      iTermGeneralServerConnection temp = generalConnection;
      iTermSessionAttachOrLaunchRequest *launchRequest =
-@@ -4457,7 +5470,7 @@ - (void)restorableStateRestoreApplicationStateWithRecord:(iTermEncoderGraphRecor
+@@ -4457,7 +5470,7 @@ static iTermKeyEventReplayer *gReplayer;
  
  - (void)untitledWindowStateMachineCreateNewWindow:(iTermUntitledWindowStateMachine *)sender {
      RLog(@"untitledWindowStateMachineCreateNewWindow");
@@ -12906,7 +13041,7 @@ diff --git a/sources/AppLaunch/iTermLaunchExperienceController.m b/sources/AppLa
 index 22a5f7394a1afc20001fc8811b1d6559ee9e9251..bcd9b44808f08c75e5dda61ef401d3aa6b4515a9 100644
 --- a/sources/AppLaunch/iTermLaunchExperienceController.m
 +++ b/sources/AppLaunch/iTermLaunchExperienceController.m
-@@ -158,10 +158,8 @@ - (void)performStartupActivities {
+@@ -158,10 +158,8 @@ typedef NS_ENUM(NSUInteger, iTermLaunchExperienceChoice) {
  }
  
  - (void)applicationWillFinishLaunching {
@@ -12938,7 +13073,7 @@ diff --git a/sources/Hotkey/iTermBaseHotKey.m b/sources/Hotkey/iTermBaseHotKey.m
 index 417cf6e45b92117299508ea9f3470ecad962c95a..7912ad265ce2913541d81f16a0e03b3b73f6c3c5 100644
 --- a/sources/Hotkey/iTermBaseHotKey.m
 +++ b/sources/Hotkey/iTermBaseHotKey.m
-@@ -168,7 +168,9 @@ - (void)didDoublePressActivationModifier {
+@@ -168,7 +168,9 @@
          }
      }];
      dispatch_async(dispatch_get_main_queue(), ^{
@@ -12949,7 +13084,7 @@ index 417cf6e45b92117299508ea9f3470ecad962c95a..7912ad265ce2913541d81f16a0e03b3b
      });
  }
  
-@@ -176,6 +178,11 @@ - (void)didDoublePressActivationModifier {
+@@ -176,6 +178,11 @@
  
  - (NSArray<iTermBaseHotKey *> *)carbonHotkeyPressed:(NSDictionary *)userInfo siblings:(NSArray<iTermHotKey *> *)siblings {
      RLog(@"carbonHotkeyPressed running");
@@ -13091,7 +13226,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
  #import "DebugLogging.h"
  #import "iTermAdvancedSettingsModel.h"
  #import "iTermController.h"
-@@ -68,6 +69,11 @@ - (instancetype)init {
+@@ -68,6 +69,11 @@
      return self;
  }
  
@@ -13103,7 +13238,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
  - (void)ensureNotificationPermissionsWithCompletion:(void (^)(BOOL granted))completion {
      [self.pendingPermissionCompletions addObject:[completion copy]];
      
-@@ -158,6 +164,10 @@ - (BOOL)notifyRich:(NSString *)title
+@@ -158,6 +164,10 @@
          DLog(@"notifyRich passed nil description.");
          return NO;
      }
@@ -13114,7 +13249,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
  
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
-@@ -237,6 +247,10 @@ - (BOOL)notify:(NSString *)title
+@@ -237,6 +247,10 @@
               sticky:(BOOL)sticky {
      RLog(@"Notify title=%@ description=%@ window=%@ tab=%@ view=%@ sticky=%@",
           title, description, @(windowIndex), @(tabIndex), @(viewIndex), @(sticky));
@@ -13125,7 +13260,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
      
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
-@@ -278,6 +292,10 @@ - (BOOL)notify:(NSString *)title
+@@ -278,6 +292,10 @@
  }
  
  - (void)postNotificationWithTitle:(NSString *)title detail:(NSString *)detail URL:(NSURL *)url {
@@ -13136,7 +13271,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
              DLog(@"Notification permission not granted");
-@@ -315,11 +333,32 @@ - (void)postNotificationWithTitle:(NSString *)title
+@@ -315,11 +333,32 @@
      [self postNotificationWithTitle:title detail:detail callbackNotificationName:name callbackNotificationUserInfo:userInfo actionButtonTitle:nil];
  }
  
@@ -13169,7 +13304,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
      [self ensureNotificationPermissionsWithCompletion:^(BOOL granted) {
          if (!granted) {
              DLog(@"Notification permission not granted");
-@@ -332,7 +371,7 @@ - (void)postNotificationWithTitle:(NSString *)title
+@@ -332,7 +371,7 @@
          content.userInfo = @{ @"CallbackNotificationName": name ?: @"",
                                @"CallbackUserInfo": userInfo ?: @{} };
          
@@ -13178,7 +13313,7 @@ index b722c5ff2fd5f9babdbfdc27877c8f8760600174..db187008c6e45a58f0fa96f417b599c5
              content.sound = [UNNotificationSound defaultSound];
          }
          
-@@ -366,6 +405,11 @@ - (void)postNotificationWithTitle:(NSString *)title
+@@ -366,6 +405,11 @@
  
  - (void)notificationWasClicked:(id)clickContext {
      RLog(@"notificationWasClicked:%@", clickContext);
@@ -15702,15 +15837,15 @@ index 0000000000000000000000000000000000000000..276a4470f56b6c012eb2c66fec243294
 +}
 diff --git a/sources/OmniTerm/OmniContentHost.swift b/sources/OmniTerm/OmniContentHost.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d18db351005cfa329d3a6d44e919f5d6c9865e7a
+index 0000000000000000000000000000000000000000..ff703cab73711f407f542e076c39476205397221
 --- /dev/null
 +++ b/sources/OmniTerm/OmniContentHost.swift
-@@ -0,0 +1,863 @@
+@@ -0,0 +1,900 @@
 +import AppKit
 +import Foundation
 +
 +// What the right side of the window shows when it is not a plain terminal.
-+enum OmniPaneRoute: Equatable {
++enum OmniPaneRoute: Hashable {
 +    case overview
 +    case agent(String)
 +    case run(String)
@@ -15801,6 +15936,28 @@ index 0000000000000000000000000000000000000000..d18db351005cfa329d3a6d44e919f5d6
 +    var exitToSidebar: (() -> Void)?
 +    // The window's panel sizes; pages read and change it.
 +    var layoutStore: OmniPanelLayoutStore?
++    // The pages of open tabs: switching away parks a page here, hidden, so
++    // coming back finds it as it was left.
++    private var parked: [OmniPaneRoute: OmniPane] = [:]
++    var keptRoutes: Set<OmniPaneRoute> = [] {
++        didSet {
++            for (route, pane) in parked where !keptRoutes.contains(route) {
++                pane.removeFromSuperview()
++                parked[route] = nil
++            }
++        }
++    }
++
++    // Takes the current page off screen: parked while its tab is open.
++    private func parkPane() {
++        guard let pane else { return }
++        if let route, keptRoutes.contains(route) {
++            pane.isHidden = true
++            parked[route] = pane
++        } else {
++            pane.removeFromSuperview()
++        }
++    }
 +
 +    override var isFlipped: Bool { true }
 +    override var acceptsFirstResponder: Bool { true }
@@ -15867,7 +16024,22 @@ index 0000000000000000000000000000000000000000..d18db351005cfa329d3a6d44e919f5d6
 +            isHidden = false
 +            return
 +        }
-+        pane?.removeFromSuperview()
++        parkPane()
++        if let kept = parked.removeValue(forKey: route) {
++            if let card = kept as? OmniCardPane {
++                card.expanded = terminalExpanded
++            }
++            kept.frame = bounds
++            kept.isHidden = false
++            if let layoutStore {
++                kept.applyPanelLayout(layoutStore.layout)
++            }
++            self.pane = kept
++            self.route = route
++            isHidden = false
++            kept.reload()
++            return
++        }
 +        let pane: OmniPane
 +        switch route {
 +        case .overview:
@@ -16064,7 +16236,7 @@ index 0000000000000000000000000000000000000000..d18db351005cfa329d3a6d44e919f5d6
 +    @discardableResult
 +    func hide() -> Bool {
 +        guard route != nil else { return false }
-+        pane?.removeFromSuperview()
++        parkPane()
 +        pane = nil
 +        route = nil
 +        isHidden = true
@@ -38405,10 +38577,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0016cb98f
+index 0000000000000000000000000000000000000000..78d7a8d54b2264ecebe3a6b2dc3752330c601306
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5145 @@
+@@ -0,0 +1,5726 @@
 +import AppKit
 +import Foundation
 +import os
@@ -38828,6 +39000,22 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +    private var appliedInset: CGFloat = 0
 +    private var lastFocusKey = ""
 +
++    // The Sublime-style tabs above the content (`// MARK: - Window tabs`).
++    fileprivate var windowTabs = OmniWindowTabs()
++    @objc let tabStripView = OmniWindowTabStrip(frame: NSRect(x: 0, y: 0, width: 600, height: OmniWindowTabStrip.height))
++    // How the open in progress asked to be opened; nil reads the current event.
++    fileprivate var openIntentOverride: OmniOpenIntent?
++    fileprivate var pendingOpenIntent: OmniOpenIntent?
++    fileprivate var knownTerminalIDs: Set<Int32> = []
++    fileprivate var syncingTabs = false
++    fileprivate var tabEventMonitor: Any?
++    // Control-Tab walks recently used tabs while Control is held.
++    fileprivate var recentCycle: (order: [Int], depth: Int)?
++    // The status bar across the bottom (`// MARK: - Status bar`), with the
++    // focused tab's repository read by iTerm2's own git poller.
++    @objc let statusBarView = OmniWindowStatusBar(frame: NSRect(x: 0, y: 0, width: 600, height: OmniWindowStatusBar.height))
++    fileprivate var gitPoller: iTermGitPoller?
++
 +    // What the window title should name while a pane covers the terminal; nil
 +    // when a terminal shows. The window owns its title, so it reads this when
 +    // told it changed.
@@ -38838,6 +39026,7 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +    init(terminal: PseudoTerminal) {
 +        self.terminal = terminal
 +        super.init(nibName: nil, bundle: nil)
++        configureWindowTabs()
 +    }
 +
 +    // Unit tests drive the sidebar without a window controller or tabs.
@@ -39062,6 +39251,10 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +    @objc func shutdown() {
 +        timer?.invalidate()
 +        timer = nil
++        if let tabEventMonitor {
++            NSEvent.removeMonitor(tabEventMonitor)
++            self.tabEventMonitor = nil
++        }
 +        NotificationCenter.default.removeObserver(self)
 +        contentHost.hide()
 +        contentHost.detach()
@@ -41240,26 +41433,10 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +    // Highlights the row of the pane or the tab the window shows, however it
 +    // was selected.
 +    private func syncSelection() {
++        syncWindowTabs()
 +        var row = -1
 +        let route = contentHost.route
-+        let title: String?
-+        switch route {
-+        case .overview: title = "Dashboard"
-+        case .inbox: title = "Inbox"
-+        case .memory: title = "Memory"
-+        case .settings: title = "Settings"
-+        case .unblocker: title = "Unblocker"
-+        case .projects: title = "Projects"
-+        case .search(let query): title = query.isEmpty ? "Search" : "Search · \(query)"
-+        case .project(let root): title = (root as NSString).lastPathComponent
-+        case .agent(let name): title = name
-+        case .run(let id): title = recentRuns.first { $0.id == id }.map { "\($0.agent) · Run" } ?? "Run"
-+        case .group(let path): title = path.components(separatedBy: "/").last ?? path
-+        case .session(let id):
-+            title = sessions.first { $0["session_id"] as? String == id }
-+                .map { OmniSessionText.title($0["title"] as? String) } ?? "Session"
-+        case nil: title = nil
-+        }
++        let title = route.map { self.title(for: $0) }
 +        if title != paneTitle {
 +            paneTitle = title
 +            paneTitleDidChange?()
@@ -41300,8 +41477,29 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +        syncingSelection = false
 +    }
 +
++    // A page's name, for the window title and its tab.
++    fileprivate func title(for route: OmniPaneRoute) -> String {
++        switch route {
++        case .overview: return "Dashboard"
++        case .inbox: return "Inbox"
++        case .memory: return "Memory"
++        case .settings: return "Settings"
++        case .unblocker: return "Unblocker"
++        case .projects: return "Projects"
++        case .search(let query): return query.isEmpty ? "Search" : "Search · \(query)"
++        case .project(let root): return projectLayout.name(root) ?? (root as NSString).lastPathComponent
++        case .agent(let name): return name
++        case .run(let id): return recentRuns.first { $0.id == id }.map { "\($0.agent) · Run" } ?? "Run"
++        case .group(let path): return path.components(separatedBy: "/").last ?? path
++        case .session(let id):
++            return sessions.first { $0["session_id"] as? String == id }
++                .map { OmniSessionText.title($0["title"] as? String) } ?? "Session"
++        }
++    }
++
 +    private func show(_ tab: PTYTab) {
 +        guard let tabViewItem = tab.tabViewItem else { return }
++        guard beginOpen(.terminal(tab.uniqueId)) else { return }
 +        // Open Terminal or a terminal row: the full terminal, not its page.
 +        tabFollowing.terminalShownExplicitly(tab.uniqueId)
 +        contentHost.hide()
@@ -41312,6 +41510,7 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +    }
 +
 +    private func showPane(_ route: OmniPaneRoute) {
++        guard beginOpen(.page(route)) else { return }
 +        tabFollowing.pageShown()
 +        lastCurrentTabID = terminal?.currentTab()?.uniqueId
 +        contentHost.show(route)
@@ -41606,6 +41805,9 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +
 +    @objc private func doubleClicked(_ sender: Any?) {
 +        let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
++        // A double click keeps the row's page: its preview tab becomes permanent.
++        windowTabs.pinSelected()
++        refreshTabStrip()
 +        let event = NSApp.currentEvent
 +        let point = event.flatMap { event -> NSPoint? in
 +            guard event.type == .leftMouseDown || event.type == .leftMouseUp,
@@ -42739,6 +42941,11 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +            OmniKeyboardMap.show(for: window)
 +            return true
 +        }
++        // The window's tab keys (Sublime's): new, close, reopen, select,
++        // step and Control-Tab.
++        if handleWindowTabKey(event) {
++            return true
++        }
 +        // Command-, Settings; Command-K the navigator; Command-N a new agent
 +        // (iTerm2's New Window would open a stray terminal); Command-F the search
 +        // (an editor's own Find keeps it while it has the keyboard).
@@ -43554,6 +43761,552 @@ index 0000000000000000000000000000000000000000..12aaf97122d77809997711cac1f211f0
 +        move(connection, [NSNumber(value: window.windowNumber)] as CFArray, space)
 +    }
 +}
++
++// MARK: - Window tabs
++
++// The Sublime-style tabs above the content. Every way of showing something
++// still goes through `showPane` and `show(_:)`; they ask `beginOpen` first,
++// and `syncWindowTabs` (from `syncSelection`) puts whatever the window then
++// shows into a tab under the opening rules.
++extension OmniSidebarViewController {
++    fileprivate func configureWindowTabs() {
++        let strip = tabStripView
++        strip.onSelect = { [weak self] id in self?.selectWindowTab(id) }
++        strip.onClose = { [weak self] id in self?.closeWindowTab(id, fromKeyboard: false) }
++        strip.onPin = { [weak self] id in
++            self?.windowTabs.pin(id)
++            self?.selectWindowTab(id)
++        }
++        strip.onMove = { [weak self] id, index in
++            self?.windowTabs.move(id, to: index)
++            self?.refreshTabStrip()
++        }
++        strip.onNewTab = { [weak self] in self?.newTerminalTab() }
++        strip.menuForTab = { [weak self] id in self?.windowTabMenu(id) }
++        statusBarView.onToggleSidebar = { [weak self] in _ = self?.togglePanel(.sidebar) }
++        statusBarView.onAction = { [weak self] action in self?.performStatusAction(action) }
++        tabEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .scrollWheel,
++                                                                      .keyDown, .flagsChanged]) { [weak self] event in
++            self?.noteWindowTabEvent(event)
++            return event
++        }
++    }
++
++    // MARK: Opening
++
++    // How the click or key that is opening something asks for it: Command
++    // for a new tab (Shift-Command to bring it forward), a middle click for a
++    // background tab, a double click for a permanent one.
++    fileprivate func currentOpenIntent() -> OmniOpenIntent {
++        if let openIntentOverride {
++            return openIntentOverride
++        }
++        guard let event = NSApp.currentEvent else { return .navigate }
++        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
++        switch event.type {
++        case .leftMouseDown, .leftMouseUp:
++            if flags.contains(.command) {
++                return .newTab(background: !flags.contains(.shift))
++            }
++            return event.clickCount >= 2 ? .pin : .navigate
++        case .otherMouseDown, .otherMouseUp:
++            return .newTab(background: true)
++        case .keyDown:
++            // Command-Return in a list or the navigator; other Command keys
++            // are shortcuts and open as a plain click does.
++            if flags.contains(.command), event.keyCode == 36 || event.keyCode == 76 {
++                return .newTab(background: !flags.contains(.shift))
++            }
++            return .navigate
++        default:
++            return .navigate
++        }
++    }
++
++    // Called before the window shows a target. A background open only adds
++    // its tab and returns false: the window keeps what it shows.
++    fileprivate func beginOpen(_ target: OmniTabTarget) -> Bool {
++        let intent = currentOpenIntent()
++        if case .newTab(background: true) = intent, displayedTarget != target {
++            windowTabs.open(target, intent: intent, live: target.terminalID != nil)
++            refreshTabStrip()
++            return false
++        }
++        pendingOpenIntent = intent
++        return true
++    }
++
++    fileprivate var displayedTarget: OmniTabTarget? {
++        if let route = contentHost.route {
++            return .page(route)
++        }
++        return terminal?.currentTab().map { .terminal($0.uniqueId) }
++    }
++
++    fileprivate func ptyTab(_ id: Int32) -> PTYTab? {
++        return terminal?.tabs().first { $0.uniqueId == id }
++    }
++
++    // Puts what the window shows into a tab, prunes terminals that went away,
++    // and keeps the pages of open tabs alive.
++    fileprivate func syncWindowTabs() {
++        guard !syncingTabs, terminal != nil else { return }
++        syncingTabs = true
++        defer {
++            syncingTabs = false
++            refreshTabStrip()
++        }
++        let liveIDs = Set((terminal?.tabs() ?? []).map(\.uniqueId))
++        windowTabs.prune { target in
++            guard let id = target.terminalID else { return true }
++            return liveIDs.contains(id)
++        }
++        let intent = pendingOpenIntent
++        pendingOpenIntent = nil
++        defer {
++            knownTerminalIDs = liveIDs
++            contentHost.keptRoutes = Set(windowTabs.tabs.compactMap(\.target.route))
++        }
++        guard let displayed = displayedTarget, displayed != windowTabs.selected?.target else { return }
++        if intent == nil, let id = displayed.terminalID, knownTerminalIDs.contains(id),
++           windowTabs.tab(showing: displayed) == nil, let selected = windowTabs.selected {
++            // An existing terminal came forward by itself (a neighbour closed):
++            // the selected tab stays on screen.
++            display(selected.target)
++            return
++        }
++        windowTabs.open(displayed, intent: intent ?? .navigate, live: displayed.terminalID != nil)
++    }
++
++    // Shows a tab's target without changing the tabs.
++    fileprivate func display(_ target: OmniTabTarget) {
++        openIntentOverride = .navigate
++        defer { openIntentOverride = nil }
++        switch target {
++        case .page(let route):
++            showPane(route)
++        case .terminal(let id):
++            if let tab = ptyTab(id) {
++                show(tab)
++            }
++        }
++    }
++
++    fileprivate func selectWindowTab(_ id: Int) {
++        windowTabs.select(id)
++        if let target = windowTabs.selected?.target {
++            let wasSyncing = syncingTabs
++            syncingTabs = false
++            display(target)
++            syncingTabs = wasSyncing
++        }
++        refreshTabStrip()
++    }
++
++    // MARK: Closing
++
++    // Command-W and the close button. A plain terminal closes (iTerm2 asks
++    // about a running job); an agent's run, a resumed session and the
++    // dashboard only leave the strip, so nothing an agent is doing is ended.
++    // Command-W on the only tab hides the window, as it always has.
++    fileprivate func closeWindowTab(_ id: Int, fromKeyboard: Bool) {
++        guard let tab = windowTabs.tabs.first(where: { $0.id == id }), let terminal else { return }
++        if fromKeyboard, windowTabs.tabs.count <= 1 {
++            terminal.omniHideWindow()
++            return
++        }
++        if case .terminal(let tabID) = tab.target, let pty = ptyTab(tabID), Self.isPlainTerminal(pty),
++           terminal.tabs().count > 1 {
++            guard terminal.closeTabIfConfirmed(pty) else { return }
++        }
++        let wasSelected = windowTabs.selectedID == id
++        let next = windowTabs.close(id)
++        if wasSelected {
++            if let next {
++                display(next.target)
++            } else {
++                // The last tab closed: the Dashboard stands in, as a preview.
++                display(.page(.overview))
++            }
++        }
++        refreshTabStrip()
++    }
++
++    static func isPlainTerminal(_ tab: PTYTab) -> Bool {
++        return (tab.sessions() ?? []).allSatisfy { $0.environment?["OMNITERM_KIND"] == nil }
++    }
++
++    fileprivate func reopenClosedTab() {
++        let liveIDs = Set((terminal?.tabs() ?? []).map(\.uniqueId))
++        guard let target = windowTabs.popClosed(where: { target in
++            guard let id = target.terminalID else { return true }
++            return liveIDs.contains(id)
++        }) else {
++            // A closed plain terminal is gone; a new one in its place.
++            if windowTabs.closed.contains(where: { $0.terminalID != nil }) {
++                newTerminalTab()
++            }
++            return
++        }
++        windowTabs.open(target, intent: .pin, live: false)
++        display(target)
++        refreshTabStrip()
++    }
++
++    // Command-N, the strip's + and a double click on the empty strip.
++    @objc func newTerminalTab() {
++        openIntentOverride = .pin
++        defer { openIntentOverride = nil }
++        pendingOpenIntent = .pin
++        (NSApp.delegate as? iTermApplicationDelegate)?.newSession(nil)
++    }
++
++    fileprivate func windowTabMenu(_ id: Int) -> NSMenu {
++        let menu = NSMenu()
++        func add(_ title: String, _ handler: @escaping () -> Void, enabled: Bool = true) {
++            menu.addAction(title, enabled: enabled, handler)
++        }
++        add("Close Tab") { [weak self] in self?.closeWindowTab(id, fromKeyboard: false) }
++        add("Close Other Tabs", { [weak self] in
++            guard let self else { return }
++            self.selectWindowTab(id)
++            self.windowTabs.others(than: id).forEach { self.closeWindowTab($0, fromKeyboard: false) }
++        }, enabled: windowTabs.tabs.count > 1)
++        add("Close Tabs to the Right", { [weak self] in
++            guard let self else { return }
++            self.windowTabs.toTheRight(of: id).forEach { self.closeWindowTab($0, fromKeyboard: false) }
++        }, enabled: !windowTabs.toTheRight(of: id).isEmpty)
++        menu.addItem(.separator())
++        if windowTabs.tabs.first(where: { $0.id == id })?.preview == true {
++            add("Keep Open") { [weak self] in
++                self?.windowTabs.pin(id)
++                self?.refreshTabStrip()
++            }
++        }
++        add("New Tab") { [weak self] in self?.newTerminalTab() }
++        add("Reopen Closed Tab", { [weak self] in self?.reopenClosedTab() }, enabled: !windowTabs.closed.isEmpty)
++        return menu
++    }
++
++    // MARK: Keys
++
++    // Sublime's tab keys, from anywhere in the window.
++    fileprivate func handleWindowTabKey(_ event: NSEvent) -> Bool {
++        let flags = Self.modifiers(event)
++        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
++        let command: NSEvent.ModifierFlags = .command
++        switch (flags, event.keyCode) {
++        case (command, 45): // Command-N: a new empty terminal tab.
++            newTerminalTab()
++        case ([.option, .command], 45): // Option-Command-N: a new agent.
++            showNewAgent()
++        case (command, 13), ([.option, .command], 13): // Command-W
++            guard let selected = windowTabs.selected else { return false }
++            // A split terminal closes its pane first, as iTerm2 does.
++            if let id = selected.target.terminalID, let pty = ptyTab(id), (pty.sessions() ?? []).count > 1 {
++                return false
++            }
++            closeWindowTab(selected.id, fromKeyboard: true)
++        case ([.shift, .command], 17): // Shift-Command-T
++            reopenClosedTab()
++        case (command, _) where ("1"..."8").contains(key) && key.count == 1:
++            guard let index = Int(key), windowTabs.tabs.count > 0 else { return false }
++            guard index - 1 < windowTabs.tabs.count else { return true }
++            selectWindowTab(windowTabs.tabs[index - 1].id)
++        case (command, _) where key == "9":
++            guard let last = windowTabs.tabs.last else { return false }
++            selectWindowTab(last.id)
++        case ([.shift, .command], 33), ([.option, .command], 123): // Shift-Command-[, Option-Command-Left
++            stepWindowTab(by: -1)
++        case ([.shift, .command], 30), ([.option, .command], 124): // Shift-Command-], Option-Command-Right
++            stepWindowTab(by: 1)
++        case ([.control], 48), ([.control, .shift], 48): // Control-Tab, recently used order
++            cycleRecentTabs(forward: !flags.contains(.shift))
++        case ([.control], 121), ([.control], 116): // Control-Page Down / Up
++            stepWindowTab(by: event.keyCode == 121 ? 1 : -1)
++        case (command, 35): // Command-P: Goto Anything is the navigator.
++            showQuickNav(query: nil)
++        default:
++            return false
++        }
++        return true
++    }
++
++    fileprivate func stepWindowTab(by offset: Int) {
++        guard windowTabs.tabs.count > 1 else { return }
++        windowTabs.step(by: offset)
++        if let id = windowTabs.selectedID {
++            selectWindowTab(id)
++        }
++    }
++
++    // Each Control-Tab goes one tab further back in recently used order; the
++    // order only changes when Control is let go, as in Sublime.
++    fileprivate func cycleRecentTabs(forward: Bool) {
++        if recentCycle == nil {
++            let order = windowTabs.recent.filter { id in windowTabs.tabs.contains { $0.id == id } }
++            recentCycle = (order, 0)
++        }
++        guard var cycle = recentCycle, cycle.order.count > 1 else { return }
++        cycle.depth = ((cycle.depth + (forward ? 1 : -1)) % cycle.order.count + cycle.order.count) % cycle.order.count
++        recentCycle = cycle
++        let id = cycle.order[cycle.depth]
++        windowTabs.select(id, remember: false)
++        if let target = windowTabs.selected?.target {
++            display(target)
++        }
++        refreshTabStrip()
++    }
++
++    // MARK: Events
++
++    // A click, scroll or key inside the content makes its preview tab
++    // permanent; letting go of Control ends a Control-Tab walk.
++    fileprivate func noteWindowTabEvent(_ event: NSEvent) {
++        guard let window = view.window, event.window === window else { return }
++        if event.type == .flagsChanged {
++            if !event.modifierFlags.contains(.control), let cycle = recentCycle {
++                recentCycle = nil
++                windowTabs.select(cycle.order[cycle.depth])
++            }
++            return
++        }
++        guard windowTabs.selected?.preview == true else { return }
++        let inContent: Bool
++        if event.type == .keyDown {
++            let flags = Self.modifiers(event)
++            guard flags.isDisjoint(with: [.command, .control]) else { return }
++            let responder = window.firstResponder as? NSView
++            inContent = responder.map { $0.isDescendant(of: contentHost) || isInTerminalArea($0) } ?? false
++        } else {
++            guard let content = window.contentView else { return }
++            let point = content.convert(event.locationInWindow, from: nil)
++            let hostFrame = contentHost.isHidden ? .zero : contentHost.convert(contentHost.bounds, to: content)
++            let tabFrame = terminal.map { $0.tabView().convert($0.tabView().bounds, to: content) } ?? .zero
++            inContent = hostFrame.contains(point) || tabFrame.contains(point)
++        }
++        if inContent {
++            windowTabs.pinSelected()
++            refreshTabStrip()
++        }
++    }
++
++    private func isInTerminalArea(_ view: NSView) -> Bool {
++        guard let tabView = terminal?.tabView() else { return false }
++        return view.isDescendant(of: tabView)
++    }
++
++    // MARK: Strip
++
++    fileprivate func refreshTabStrip() {
++        let tabs = windowTabs.tabs
++        let described = tabs.map { describe($0.target) }
++        let titles = OmniWindowTabs.disambiguated(described.map { ($0.title, $0.path) })
++        tabStripView.items = zip(tabs, zip(titles, described)).map { tab, pair in
++            OmniTabStripItem(id: tab.id, title: pair.0, preview: tab.preview,
++                             selected: tab.id == windowTabs.selectedID, busy: pair.1.busy)
++        }
++        var fill = OmniTheme.contentBackground
++        if let id = windowTabs.selected?.target.terminalID,
++           let color = ptyTab(id)?.activeSession?.effectiveProcessedBackgroundColor {
++            fill = color
++        }
++        tabStripView.activeFill = fill
++        refreshStatusBar()
++    }
++
++    private func describe(_ target: OmniTabTarget) -> (title: String, path: String?, busy: Bool) {
++        switch target {
++        case .page(let route):
++            var path: String?
++            if case .project(let root) = route {
++                path = root
++            }
++            var busy = false
++            if case .run(let id) = route {
++                busy = recentRuns.first { $0.id == id }?.isWorking ?? false
++            }
++            return (title(for: route), path, busy)
++        case .terminal(let id):
++            guard let tab = ptyTab(id) else { return ("Terminal", nil, false) }
++            let session = tab.activeSession
++            if let route = Self.runRoute(forSessionEnvironments: (tab.sessions() ?? []).map { $0.environment }) {
++                return (title(for: route), nil, true)
++            }
++            let name = tab.title ?? session?.name ?? ""
++            return (name.isEmpty ? "Terminal" : name, session?.currentLocalWorkingDirectory, false)
++        }
++    }
++}
++
++// MARK: - Status bar
++
++// What the status bar says follows the selected tab: a terminal's
++// repository, a run's agent and state, a session's provider; on the right
++// the branch with its change count, the project, the model and the live runs.
++extension OmniSidebarViewController: iTermGitPollerDelegate {
++    func gitPollerShouldPoll(_ poller: iTermGitPoller, after lastPoll: Date?) -> Bool {
++        return view.window?.isVisible == true && !statusBarView.isHidden
++    }
++
++    fileprivate func performStatusAction(_ action: OmniStatusAction) {
++        switch action {
++        case .dashboard:
++            showPane(.overview)
++        case .inbox:
++            showPane(.inbox)
++        case .project(let root):
++            showPane(.project(root))
++        }
++    }
++
++    // The forge project holding `path`, by the longest root that contains it.
++    private func projectRoot(containing path: String) -> String? {
++        let roots = forgeProjects.compactMap { $0["root"] as? String }
++        return roots.filter { path == $0 || path.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
++            .max { $0.count < $1.count }
++    }
++
++    private func watchRepository(_ directory: String?) {
++        guard let directory, !directory.isEmpty else {
++            gitPoller?.enabled = false
++            return
++        }
++        if gitPoller == nil {
++            let poller = iTermGitPoller(cadence: 3) { [weak self] in
++                self?.refreshStatusBar()
++            }
++            poller.delegate = self
++            gitPoller = poller
++        }
++        guard let gitPoller else { return }
++        if gitPoller.currentDirectory != directory {
++            gitPoller.currentDirectory = directory
++            gitPoller.enabled = true
++            gitPoller.bump()
++        } else {
++            gitPoller.enabled = true
++        }
++    }
++
++    fileprivate func refreshStatusBar() {
++        guard terminal != nil else { return }
++        var content = OmniStatusContent()
++        var sentence: [String] = []
++        var directory: String?
++        var run: OmniRun?
++        var provider: String?
++        var model: String?
++        var permission: String?
++        var size: String?
++        let target = windowTabs.selected?.target ?? displayedTarget
++        switch target {
++        case .terminal(let id)?:
++            if let tab = ptyTab(id) {
++                let environments = (tab.sessions() ?? []).map { $0.environment }
++                if case .run(let runID)? = Self.runRoute(forSessionEnvironments: environments) {
++                    run = recentRuns.first { $0.id == runID }
++                }
++                if let session = tab.activeSession {
++                    directory = session.currentLocalWorkingDirectory
++                    size = "\(session.columns)×\(session.rows)"
++                    if run == nil {
++                        let name = tab.title ?? session.name
++                        if !name.isEmpty {
++                            sentence.append(name)
++                        }
++                    }
++                }
++            }
++        case .page(let route)?:
++            switch route {
++            case .run(let runID):
++                run = recentRuns.first { $0.id == runID }
++            case .agent(let name):
++                let agent = agents.first { $0["name"] as? String == name }
++                sentence.append(name)
++                directory = agent?["workspace"] as? String
++                provider = agent?["provider"] as? String
++                model = agent?["model"] as? String
++                permission = agent?["permission_mode"] as? String
++                if let live = recentRuns.first(where: { $0.agent == name && $0.isLive }) {
++                    sentence.append(live.statusLine)
++                }
++            case .session(let id):
++                let session = sessions.first { $0["session_id"] as? String == id }
++                sentence.append(title(for: route))
++                provider = session?["provider"] as? String
++                directory = session?["workspace"] as? String
++                if let updated = (session?["updated"] as? NSNumber)?.doubleValue {
++                    sentence.append("Last active " + OmniSessionText.dateText(updated))
++                }
++            case .project(let root):
++                directory = root
++                sentence.append(title(for: route))
++            case .inbox:
++                sentence.append(inboxUnread > 0 ? "Inbox · \(inboxUnread) unread" : "Inbox")
++            default:
++                sentence.append(title(for: route))
++            }
++        case nil:
++            break
++        }
++        if let run {
++            sentence.insert(contentsOf: [run.agent, run.statusLine], at: 0)
++            directory = directory ?? run.workspace
++            provider = run.provider
++            if let agent = agents.first(where: { $0["name"] as? String == run.agent }) {
++                model = agent["model"] as? String
++                permission = agent["permission_mode"] as? String
++            }
++        }
++        if let directory {
++            sentence.append((directory as NSString).abbreviatingWithTildeInPath)
++        }
++        watchRepository(directory)
++
++        // The repository: branch, staged and unstaged counts.
++        var git: String?
++        if let directory, let poller = gitPoller, poller.enabled, poller.currentDirectory == directory,
++           let branch = poller.state.branch, !branch.isEmpty {
++            let state = poller.state
++            let statuses = state.fileStatuses ?? []
++            let index = statuses.filter { $0.indexStatus != .none && $0.indexStatus != .untracked }.count
++            let working = statuses.filter { $0.workdirStatus != .none }.count
++            git = "Git branch: \(branch), index: \(index), working: \(working)"
++            let changes = statuses.count
++            let root = projectRoot(containing: directory)
++            content.segments.append(OmniStatusSegment(text: branch, symbol: .arrowTriangleBranch,
++                                                      badge: changes > 0 ? "\(changes)" : nil,
++                                                      action: root.map { .project($0) }))
++        }
++        if let directory, let root = projectRoot(containing: directory) {
++            content.segments.append(OmniStatusSegment(text: projectLayout.name(root) ?? (root as NSString).lastPathComponent,
++                                                      symbol: .folder, action: .project(root)))
++        }
++        if provider != nil || model != nil {
++            let names = [provider.map { OmniSessionText.providerName($0) }, model].compactMap { $0 }.filter { !$0.isEmpty }
++            content.segments.append(OmniStatusSegment(text: names.joined(separator: " · ")))
++        }
++        if let permission, permission == "bypassPermissions" || permission == "dangerous" {
++            content.segments.append(OmniStatusSegment(text: "⚠ \(permission)", warning: true))
++        }
++        if let size {
++            content.segments.append(OmniStatusSegment(text: size))
++        }
++        let background = OmniBackgroundAgents.names(agents)
++        let live = recentRuns.filter { $0.isLive && !background.contains($0.agent) }.count
++        if live > 0 {
++            content.segments.append(OmniStatusSegment(text: live == 1 ? "1 running" : "\(live) running",
++                                                      action: .dashboard))
++        }
++        if inboxUnread > 0 {
++            content.segments.append(OmniStatusSegment(text: "\(inboxUnread)", symbol: .tray, action: .inbox))
++        }
++        content.sentence = ([git].compactMap { $0 } + sentence).joined(separator: ", ")
++        statusBarView.content = content
++    }
++}
 diff --git a/sources/OmniTerm/OmniTerminalSnapshotView.swift b/sources/OmniTerm/OmniTerminalSnapshotView.swift
 new file mode 100644
 index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301db6a8747
@@ -43887,10 +44640,10 @@ index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..e683e2ae7905d08a9911f13e1bd1e28536463974
+index 0000000000000000000000000000000000000000..748bb263291d3882e43d814d59dccff7ea14a817
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,365 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -43934,6 +44687,20 @@ index 0000000000000000000000000000000000000000..e683e2ae7905d08a9911f13e1bd1e285
 +            ? NSColor.white.withAlphaComponent(0.12)
 +            : NSColor.black.withAlphaComponent(0.12)
 +    }
++
++    // MARK: - Window tabs and status bar
++
++    // The Sublime-style strip and status bar use the colours above, by role:
++    // the strip sits on the well, unselected tabs on the bar's colour, and
++    // the selected tab takes the colour of what it shows.
++    static let tabStripBackground: NSColor = wellBackground
++    static let tabInactiveBackground: NSColor = barBackground
++    static let tabHoverBackground = NSColor(name: nil) { appearance in
++        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++            ? NSColor.windowBackgroundColor.blended(withFraction: 0.06, of: .white) ?? .windowBackgroundColor
++            : NSColor.windowBackgroundColor.blended(withFraction: 0.03, of: .black) ?? .windowBackgroundColor
++    }
++    static let statusBarBackground: NSColor = barBackground
 +
 +    // MARK: - Status
 +
@@ -43989,6 +44756,9 @@ index 0000000000000000000000000000000000000000..e683e2ae7905d08a9911f13e1bd1e285
 +    // MARK: - Type scale
 +
 +    enum Font {
++        // The window's tab titles and its status bar.
++        static let tabTitle = NSFont.systemFont(ofSize: 12.5)
++        static let statusBar = NSFont.systemFont(ofSize: 11.5)
 +        static let title = NSFont.systemFont(ofSize: 22, weight: .semibold)
 +        static let subtitle = NSFont.systemFont(ofSize: 17, weight: .semibold)
 +        // Section headers are set in capitals; see sectionHeader(_:).
@@ -46072,6 +46842,904 @@ index 0000000000000000000000000000000000000000..e845eed2c9df7e41aaaaaaf4083a1c27
 +private final class OmniAuditCard: NSView {
 +    override var isFlipped: Bool { true }
 +}
+diff --git a/sources/OmniTerm/OmniWindowStatusBar.swift b/sources/OmniTerm/OmniWindowStatusBar.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..06ebf814690c7ccdc80cd707fa29d22cd813c50c
+--- /dev/null
++++ b/sources/OmniTerm/OmniWindowStatusBar.swift
+@@ -0,0 +1,210 @@
++//
++//  OmniWindowStatusBar.swift
++//  iTerm2SharedARC
++//
++//  The Sublime-style status bar across the bottom of the window: the
++//  sidebar toggle, a sentence about what the focused tab shows, and short
++//  segments on the right (the branch with its change count, the project, the
++//  model, live runs). It only draws and reports; the sidebar fills it.
++//
++
++import AppKit
++
++enum OmniStatusAction: Equatable {
++    case dashboard
++    case inbox
++    case project(String)
++}
++
++struct OmniStatusSegment: Equatable {
++    var text: String
++    var symbol: SFSymbol? = nil
++    var badge: String? = nil
++    var warning = false
++    var action: OmniStatusAction? = nil
++}
++
++struct OmniStatusContent: Equatable {
++    var sentence = ""
++    var segments: [OmniStatusSegment] = []
++}
++
++final class OmniWindowStatusBar: NSView {
++    static let height: CGFloat = 24
++
++    var content = OmniStatusContent() {
++        didSet {
++            if content != oldValue {
++                needsDisplay = true
++            }
++        }
++    }
++
++    var onToggleSidebar: (() -> Void)?
++    var onAction: ((OmniStatusAction) -> Void)?
++
++    private var toggleRect = NSRect.zero
++    private var segmentRects: [(NSRect, OmniStatusAction)] = []
++    private var hovered: Int?
++
++    override var isFlipped: Bool { true }
++    override var mouseDownCanMoveWindow: Bool { false }
++
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        autoresizingMask = [.width, .maxYMargin]
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) has not been implemented")
++    }
++
++    private var textAttributes: [NSAttributedString.Key: Any] {
++        return [.font: OmniTheme.Font.statusBar, .foregroundColor: OmniTheme.secondaryText]
++    }
++
++    private static func image(_ symbol: SFSymbol) -> NSImage? {
++        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
++        return NSImage(systemSymbolName: symbol.rawValue, accessibilityDescription: nil)?
++            .withSymbolConfiguration(configuration)
++    }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniTheme.statusBarBackground.setFill()
++        bounds.fill()
++        OmniTheme.titlebarSeparator.setFill()
++        NSRect(x: 0, y: 0, width: bounds.width, height: 1).fill()
++
++        let midY = bounds.midY + 0.5
++        toggleRect = NSRect(x: 6, y: midY - 9, width: 22, height: 18)
++        if let image = Self.image(.sidebarLeft) {
++            drawSymbol(image, centeredIn: toggleRect, color: OmniTheme.secondaryText)
++        }
++
++        // Segments from the right edge leftwards.
++        segmentRects = []
++        var x = bounds.width - 12
++        for (index, segment) in content.segments.enumerated().reversed() {
++            let width = segmentWidth(segment)
++            let rect = NSRect(x: x - width, y: 2, width: width, height: bounds.height - 3)
++            drawSegment(segment, in: rect, hovered: hovered == index)
++            if let action = segment.action {
++                segmentRects.append((rect, action))
++            }
++            x = rect.minX - 18
++        }
++
++        let left = toggleRect.maxX + 8
++        let available = x - left
++        guard available > 20, !content.sentence.isEmpty else { return }
++        let paragraph = NSMutableParagraphStyle()
++        paragraph.lineBreakMode = .byTruncatingTail
++        var attributes = textAttributes
++        attributes[.paragraphStyle] = paragraph
++        let sentence = content.sentence as NSString
++        let height = sentence.size(withAttributes: attributes).height
++        sentence.draw(in: NSRect(x: left, y: midY - height / 2, width: available, height: height), withAttributes: attributes)
++    }
++
++    private func segmentWidth(_ segment: OmniStatusSegment) -> CGFloat {
++        var width = ceil((segment.text as NSString).size(withAttributes: textAttributes).width)
++        if segment.symbol != nil {
++            width += 16
++        }
++        if let badge = segment.badge {
++            width += ceil((badge as NSString).size(withAttributes: badgeAttributes).width) + 12
++        }
++        return width + 8
++    }
++
++    private var badgeAttributes: [NSAttributedString.Key: Any] {
++        return [.font: OmniTheme.Font.rowDetail, .foregroundColor: OmniTheme.secondaryText]
++    }
++
++    private func drawSegment(_ segment: OmniStatusSegment, in rect: NSRect, hovered: Bool) {
++        if hovered, segment.action != nil {
++            OmniTheme.cardBorder.setFill()
++            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
++        }
++        let color = segment.warning ? OmniTheme.waiting : OmniTheme.secondaryText
++        var x = rect.minX + 4
++        if let symbol = segment.symbol, let image = Self.image(symbol) {
++            drawSymbol(image, centeredIn: NSRect(x: x, y: rect.minY, width: 13, height: rect.height), color: color)
++            x += 16
++        }
++        var attributes = textAttributes
++        attributes[.foregroundColor] = color
++        let text = segment.text as NSString
++        let size = text.size(withAttributes: attributes)
++        text.draw(at: NSPoint(x: x, y: rect.midY - size.height / 2), withAttributes: attributes)
++        x += ceil(size.width)
++        if let badge = segment.badge {
++            let badgeText = badge as NSString
++            let badgeSize = badgeText.size(withAttributes: badgeAttributes)
++            let box = NSRect(x: x + 4, y: rect.midY - badgeSize.height / 2 - 1, width: ceil(badgeSize.width) + 8,
++                             height: badgeSize.height + 2)
++            OmniTheme.cardBorder.setStroke()
++            let path = NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3)
++            path.lineWidth = 1
++            path.stroke()
++            badgeText.draw(at: NSPoint(x: box.minX + 4, y: box.minY + 1), withAttributes: badgeAttributes)
++        }
++    }
++
++    private func drawSymbol(_ image: NSImage, centeredIn rect: NSRect, color: NSColor) {
++        let tinted = NSImage(size: image.size, flipped: false) { bounds in
++            image.draw(in: bounds)
++            color.set()
++            bounds.fill(using: .sourceAtop)
++            return true
++        }
++        let origin = NSPoint(x: rect.midX - image.size.width / 2, y: rect.midY - image.size.height / 2)
++        tinted.draw(in: NSRect(origin: origin, size: image.size), from: .zero, operation: .sourceOver, fraction: 1,
++                    respectFlipped: true, hints: nil)
++    }
++
++    // MARK: - Mouse
++
++    override func updateTrackingAreas() {
++        super.updateTrackingAreas()
++        trackingAreas.forEach(removeTrackingArea)
++        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
++                                       owner: self, userInfo: nil))
++    }
++
++    override func mouseMoved(with event: NSEvent) {
++        let point = convert(event.locationInWindow, from: nil)
++        let index = segmentIndex(at: point)
++        if index != hovered {
++            hovered = index
++            needsDisplay = true
++        }
++    }
++
++    override func mouseExited(with event: NSEvent) {
++        hovered = nil
++        needsDisplay = true
++    }
++
++    private func segmentIndex(at point: NSPoint) -> Int? {
++        // Segment rects are stored right to left; map back to content order.
++        guard let found = segmentRects.first(where: { $0.0.contains(point) }) else { return nil }
++        return content.segments.firstIndex { $0.action == found.1 }
++    }
++
++    override func mouseDown(with event: NSEvent) {
++        let point = convert(event.locationInWindow, from: nil)
++        if toggleRect.contains(point) {
++            onToggleSidebar?()
++            return
++        }
++        if let action = segmentRects.first(where: { $0.0.contains(point) })?.1 {
++            onAction?(action)
++        }
++    }
++
++    override func viewDidChangeEffectiveAppearance() {
++        super.viewDidChangeEffectiveAppearance()
++        needsDisplay = true
++    }
++}
+diff --git a/sources/OmniTerm/OmniWindowTabStrip.swift b/sources/OmniTerm/OmniWindowTabStrip.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..33a0de3ecdc3e6d7633586384d63b2d747e9c1cc
+--- /dev/null
++++ b/sources/OmniTerm/OmniWindowTabStrip.swift
+@@ -0,0 +1,381 @@
++//
++//  OmniWindowTabStrip.swift
++//  iTerm2SharedARC
++//
++//  The Sublime-style tab strip above the window's content: soft slanted
++//  tabs, the selected one filled with the content's colour so tab and page
++//  read as one container, a close button on each, italic preview titles, and
++//  a new-tab button at the end. It only draws and reports; the sidebar owns
++//  the tabs.
++//
++
++import AppKit
++
++struct OmniTabStripItem: Equatable {
++    let id: Int
++    let title: String
++    let preview: Bool
++    let selected: Bool
++    // A live agent or a running process: a dot before the title.
++    let busy: Bool
++}
++
++final class OmniWindowTabStrip: NSView {
++    static let height: CGFloat = 32
++
++    var items: [OmniTabStripItem] = [] {
++        didSet {
++            guard items != oldValue else { return }
++            if let selected = items.firstIndex(where: \.selected),
++               oldValue.firstIndex(where: \.selected) != selected || items.count != oldValue.count {
++                scrollSelectedIntoView = true
++            }
++            needsDisplay = true
++        }
++    }
++
++    // The colour under the selected tab: the page's background, or the
++    // terminal's.
++    var activeFill: NSColor = OmniTheme.contentBackground {
++        didSet { needsDisplay = true }
++    }
++
++    var onSelect: ((Int) -> Void)?
++    var onClose: ((Int) -> Void)?
++    var onPin: ((Int) -> Void)?
++    var onMove: ((Int, Int) -> Void)?
++    var onNewTab: (() -> Void)?
++    var menuForTab: ((Int) -> NSMenu?)?
++
++    private static let leading: CGFloat = 10
++    private static let slant: CGFloat = 9
++    private static let topMargin: CGFloat = 5
++    private static let minWidth: CGFloat = 72
++    private static let naturalMin: CGFloat = 110
++    private static let naturalMax: CGFloat = 250
++    private static let closeSize: CGFloat = 16
++    private static let newTabWidth: CGFloat = 30
++
++    private var frames: [(id: Int, rect: NSRect)] = []
++    private var scrollOffset: CGFloat = 0
++    private var scrollSelectedIntoView = false
++    private var hoveredID: Int?
++    private var hoveredClose: Int?
++    private var hoveredNewTab = false
++    private var pressedClose: Int?
++    private var drag: (id: Int, startX: CGFloat, moved: Bool)?
++
++    override var isFlipped: Bool { true }
++    override var mouseDownCanMoveWindow: Bool { false }
++
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        autoresizingMask = [.width, .minYMargin]
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) has not been implemented")
++    }
++
++    // MARK: - Geometry
++
++    private static let titleFont = OmniTheme.Font.tabTitle
++    private static let previewFont: NSFont = {
++        let descriptor = titleFont.fontDescriptor.withSymbolicTraits(.italic)
++        return NSFont(descriptor: descriptor, size: titleFont.pointSize) ?? titleFont
++    }()
++
++    private func font(for item: OmniTabStripItem) -> NSFont {
++        return item.preview ? Self.previewFont : Self.titleFont
++    }
++
++    private func layoutTabs() {
++        let available = max(0, bounds.width - Self.leading - Self.newTabWidth - Self.slant)
++        var widths = items.map { item -> CGFloat in
++            let text = (item.title as NSString).size(withAttributes: [.font: font(for: item)]).width
++            return min(Self.naturalMax, max(Self.naturalMin, ceil(text) + 2 * Self.slant + Self.closeSize + 28))
++        }
++        let total = widths.reduce(0, +)
++        if total > available, !widths.isEmpty {
++            let share = max(Self.minWidth, floor(available / CGFloat(widths.count)))
++            widths = widths.map { min($0, share) }
++        }
++        let content = widths.reduce(0, +)
++        let maxOffset = max(0, content - available)
++        if scrollSelectedIntoView, let index = items.firstIndex(where: \.selected) {
++            let start = widths[..<index].reduce(0, +)
++            let end = start + widths[index]
++            if start < scrollOffset {
++                scrollOffset = start
++            } else if end > scrollOffset + available {
++                scrollOffset = end - available
++            }
++        }
++        scrollSelectedIntoView = false
++        scrollOffset = min(max(0, scrollOffset), maxOffset)
++        var x = Self.leading + Self.slant - scrollOffset
++        frames = []
++        for (item, width) in zip(items, widths) {
++            frames.append((item.id, NSRect(x: x, y: Self.topMargin, width: width, height: bounds.height - Self.topMargin)))
++            x += width
++        }
++    }
++
++    private var newTabRect: NSRect {
++        let end = min((frames.last?.rect.maxX ?? Self.leading) + Self.slant + 4, bounds.width - Self.newTabWidth)
++        return NSRect(x: end, y: Self.topMargin + 3, width: Self.newTabWidth - 6, height: bounds.height - Self.topMargin - 7)
++    }
++
++    private func closeRect(_ rect: NSRect) -> NSRect {
++        return NSRect(x: rect.maxX - Self.closeSize - 6, y: rect.midY - Self.closeSize / 2 + 1,
++                      width: Self.closeSize, height: Self.closeSize)
++    }
++
++    private func tabPath(_ rect: NSRect) -> NSBezierPath {
++        let s = Self.slant
++        let top = rect.minY
++        let bottom = rect.maxY
++        let path = NSBezierPath()
++        path.move(to: NSPoint(x: rect.minX - s, y: bottom))
++        path.curve(to: NSPoint(x: rect.minX + s * 0.7, y: top),
++                   controlPoint1: NSPoint(x: rect.minX, y: bottom),
++                   controlPoint2: NSPoint(x: rect.minX - s * 0.1, y: top))
++        path.line(to: NSPoint(x: rect.maxX - s * 0.7, y: top))
++        path.curve(to: NSPoint(x: rect.maxX + s, y: bottom),
++                   controlPoint1: NSPoint(x: rect.maxX + s * 0.1, y: top),
++                   controlPoint2: NSPoint(x: rect.maxX, y: bottom))
++        return path
++    }
++
++    // MARK: - Drawing
++
++    override func draw(_ dirtyRect: NSRect) {
++        layoutTabs()
++        OmniTheme.tabStripBackground.setFill()
++        bounds.fill()
++        // The hairline under the strip; the selected tab covers its part.
++        OmniTheme.cardBorder.setFill()
++        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
++
++        NSGraphicsContext.saveGraphicsState()
++        NSRect(x: 0, y: 0, width: bounds.width - Self.newTabWidth + 4, height: bounds.height).clip()
++        var selectedPair: (OmniTabStripItem, NSRect)?
++        for (item, frame) in zip(items, frames) {
++            if item.selected {
++                selectedPair = (item, frame.rect)
++                continue
++            }
++            drawTab(item, in: frame.rect)
++        }
++        if let (item, rect) = selectedPair {
++            drawTab(item, in: rect)
++        }
++        NSGraphicsContext.restoreGraphicsState()
++        drawNewTabButton()
++    }
++
++    private func drawTab(_ item: OmniTabStripItem, in rect: NSRect) {
++        let path = tabPath(rect)
++        let fill: NSColor
++        if item.selected {
++            fill = activeFill
++        } else if hoveredID == item.id {
++            fill = OmniTheme.tabHoverBackground
++        } else {
++            fill = OmniTheme.tabInactiveBackground
++        }
++        let closed = path.copy() as! NSBezierPath
++        closed.close()
++        fill.setFill()
++        closed.fill()
++        OmniTheme.cardBorder.setStroke()
++        path.lineWidth = 1
++        path.stroke()
++
++        let hovered = hoveredID == item.id
++        let showsClose = item.selected || hovered
++        let close = closeRect(rect)
++        var textRect = NSRect(x: rect.minX + Self.slant + 4, y: rect.minY, width: close.minX - rect.minX - Self.slant - 6,
++                              height: rect.height)
++        if item.busy {
++            let dot = NSRect(x: textRect.minX, y: rect.midY - 2.5, width: 5, height: 5)
++            OmniTheme.running.setFill()
++            NSBezierPath(ovalIn: dot).fill()
++            textRect.origin.x += 10
++            textRect.size.width -= 10
++        }
++        let paragraph = NSMutableParagraphStyle()
++        paragraph.alignment = .center
++        paragraph.lineBreakMode = .byTruncatingMiddle
++        let attributes: [NSAttributedString.Key: Any] = [
++            .font: font(for: item),
++            .foregroundColor: item.selected ? NSColor.labelColor : OmniTheme.secondaryText,
++            .paragraphStyle: paragraph,
++        ]
++        let title = item.title as NSString
++        let height = title.size(withAttributes: attributes).height
++        title.draw(in: NSRect(x: textRect.minX, y: rect.midY - height / 2 + 1, width: max(0, textRect.width), height: height),
++                   withAttributes: attributes)
++
++        if hoveredClose == item.id {
++            OmniTheme.cardBorder.setFill()
++            NSBezierPath(roundedRect: close, xRadius: 3, yRadius: 3).fill()
++        }
++        let inset = close.insetBy(dx: 4.5, dy: 4.5)
++        let cross = NSBezierPath()
++        cross.move(to: NSPoint(x: inset.minX, y: inset.minY))
++        cross.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
++        cross.move(to: NSPoint(x: inset.maxX, y: inset.minY))
++        cross.line(to: NSPoint(x: inset.minX, y: inset.maxY))
++        cross.lineWidth = 1.2
++        (showsClose ? OmniTheme.secondaryText : OmniTheme.tertiaryText).setStroke()
++        cross.stroke()
++    }
++
++    private func drawNewTabButton() {
++        let rect = newTabRect
++        if hoveredNewTab {
++            OmniTheme.cardBorder.setFill()
++            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
++        }
++        let plus = NSBezierPath()
++        let c = NSPoint(x: rect.midX, y: rect.midY)
++        plus.move(to: NSPoint(x: c.x - 5, y: c.y))
++        plus.line(to: NSPoint(x: c.x + 5, y: c.y))
++        plus.move(to: NSPoint(x: c.x, y: c.y - 5))
++        plus.line(to: NSPoint(x: c.x, y: c.y + 5))
++        plus.lineWidth = 1.3
++        OmniTheme.secondaryText.setStroke()
++        plus.stroke()
++    }
++
++    // MARK: - Hit testing
++
++    private func tabID(at point: NSPoint) -> Int? {
++        // The selected tab is drawn on top, so it wins where tabs overlap.
++        if let selected = items.first(where: \.selected), let frame = frames.first(where: { $0.id == selected.id }),
++           frame.rect.insetBy(dx: -Self.slant / 2, dy: 0).contains(point) {
++            return selected.id
++        }
++        return frames.first { $0.rect.contains(point) }?.id
++    }
++
++    private func isOnClose(_ id: Int, _ point: NSPoint) -> Bool {
++        guard let frame = frames.first(where: { $0.id == id }) else { return false }
++        return closeRect(frame.rect).insetBy(dx: -2, dy: -2).contains(point)
++    }
++
++    // MARK: - Mouse
++
++    override func updateTrackingAreas() {
++        super.updateTrackingAreas()
++        trackingAreas.forEach(removeTrackingArea)
++        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
++                                       owner: self, userInfo: nil))
++    }
++
++    override func mouseMoved(with event: NSEvent) {
++        updateHover(convert(event.locationInWindow, from: nil))
++    }
++
++    override func mouseExited(with event: NSEvent) {
++        hoveredID = nil
++        hoveredClose = nil
++        hoveredNewTab = false
++        needsDisplay = true
++    }
++
++    private func updateHover(_ point: NSPoint) {
++        let id = tabID(at: point)
++        let close = id.flatMap { isOnClose($0, point) ? $0 : nil }
++        let newTab = newTabRect.contains(point)
++        guard id != hoveredID || close != hoveredClose || newTab != hoveredNewTab else { return }
++        hoveredID = id
++        hoveredClose = close
++        hoveredNewTab = newTab
++        needsDisplay = true
++    }
++
++    override func mouseDown(with event: NSEvent) {
++        let point = convert(event.locationInWindow, from: nil)
++        if newTabRect.contains(point) {
++            onNewTab?()
++            return
++        }
++        guard let id = tabID(at: point) else {
++            // A double click on the empty strip opens a new tab, as in Sublime.
++            if event.clickCount == 2 {
++                onNewTab?()
++            }
++            return
++        }
++        if isOnClose(id, point) {
++            pressedClose = id
++            return
++        }
++        if event.clickCount == 2 {
++            onPin?(id)
++            return
++        }
++        onSelect?(id)
++        drag = (id, point.x, false)
++    }
++
++    override func mouseDragged(with event: NSEvent) {
++        guard var drag else { return }
++        let point = convert(event.locationInWindow, from: nil)
++        if !drag.moved, abs(point.x - drag.startX) < 4 {
++            return
++        }
++        drag.moved = true
++        self.drag = drag
++        guard let from = items.firstIndex(where: { $0.id == drag.id }) else { return }
++        // The tab goes where the pointer is among the other tabs' centres.
++        var destination = 0
++        for (index, frame) in frames.enumerated() where index != from && point.x > frame.rect.midX {
++            destination = index < from ? index + 1 : index
++        }
++        if point.x <= (frames.first?.rect.midX ?? 0) {
++            destination = 0
++        }
++        if destination != from {
++            onMove?(drag.id, destination)
++        }
++    }
++
++    override func mouseUp(with event: NSEvent) {
++        let point = convert(event.locationInWindow, from: nil)
++        if let id = pressedClose {
++            pressedClose = nil
++            if isOnClose(id, point) {
++                onClose?(id)
++            }
++        }
++        drag = nil
++    }
++
++    // A middle click closes the tab, as in Sublime and browsers.
++    override func otherMouseUp(with event: NSEvent) {
++        let point = convert(event.locationInWindow, from: nil)
++        if event.buttonNumber == 2, let id = tabID(at: point) {
++            onClose?(id)
++        }
++    }
++
++    override func menu(for event: NSEvent) -> NSMenu? {
++        let point = convert(event.locationInWindow, from: nil)
++        guard let id = tabID(at: point) else { return nil }
++        return menuForTab?(id)
++    }
++
++    override func scrollWheel(with event: NSEvent) {
++        let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
++        scrollOffset -= delta * (event.hasPreciseScrollingDeltas ? 1 : 8)
++        needsDisplay = true
++    }
++
++    override func viewDidChangeEffectiveAppearance() {
++        super.viewDidChangeEffectiveAppearance()
++        needsDisplay = true
++    }
++}
+diff --git a/sources/OmniTerm/OmniWindowTabs.swift b/sources/OmniTerm/OmniWindowTabs.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..81ea9126e42373c22a39addee84452c190c67d95
+--- /dev/null
++++ b/sources/OmniTerm/OmniWindowTabs.swift
+@@ -0,0 +1,289 @@
++//
++//  OmniWindowTabs.swift
++//  iTerm2SharedARC
++//
++//  The window's Sublime-style tabs: what is open, which one shows, which one
++//  is the italic preview, and the order to step back through. Pure: the
++//  sidebar applies what it decides.
++//
++
++import Foundation
++
++// What a tab shows: a native page, or an iTerm2 terminal tab by its unique ID.
++enum OmniTabTarget: Hashable {
++    case page(OmniPaneRoute)
++    case terminal(Int32)
++
++    var route: OmniPaneRoute? {
++        if case .page(let route) = self { return route }
++        return nil
++    }
++
++    var terminalID: Int32? {
++        if case .terminal(let id) = self { return id }
++        return nil
++    }
++}
++
++// How something asks to be opened.
++enum OmniOpenIntent: Equatable {
++    // A plain click: into the group's preview tab.
++    case navigate
++    // A double click: a permanent tab, or the preview made permanent.
++    case pin
++    // Command-click: always a new permanent tab, behind the current one
++    // unless `background` is false (Shift-Command-click).
++    case newTab(background: Bool)
++}
++
++struct OmniWindowTab: Equatable {
++    let id: Int
++    var target: OmniTabTarget
++    // The italic tab a plain click reuses, until the person touches it.
++    var preview: Bool
++}
++
++struct OmniWindowTabs {
++    private(set) var tabs: [OmniWindowTab] = []
++    private(set) var selectedID: Int?
++    // Most recently selected first, for Control-Tab.
++    private(set) var recent: [Int] = []
++    // Closed targets, last closed last, for Shift-Command-T.
++    private(set) var closed: [OmniTabTarget] = []
++    private var nextID = 1
++
++    static let closedLimit = 30
++
++    var selected: OmniWindowTab? {
++        return tabs.first { $0.id == selectedID }
++    }
++
++    var selectedIndex: Int? {
++        return tabs.firstIndex { $0.id == selectedID }
++    }
++
++    var previewTab: OmniWindowTab? {
++        return tabs.first { $0.preview }
++    }
++
++    func tab(showing target: OmniTabTarget) -> OmniWindowTab? {
++        return tabs.first { $0.target == target }
++    }
++
++    func index(of id: Int) -> Int? {
++        return tabs.firstIndex { $0.id == id }
++    }
++
++    // Opens `target` under the opening rules and returns the tab that shows
++    // it. `live` targets (terminals) never preview.
++    @discardableResult
++    mutating func open(_ target: OmniTabTarget, intent: OmniOpenIntent, live: Bool) -> OmniWindowTab {
++        // Already open: reveal it.
++        if let index = tabs.firstIndex(where: { $0.target == target }) {
++            switch intent {
++            case .navigate:
++                select(tabs[index].id)
++            case .pin:
++                tabs[index].preview = false
++                select(tabs[index].id)
++            case .newTab(let background):
++                tabs[index].preview = false
++                if !background {
++                    select(tabs[index].id)
++                }
++            }
++            return tabs[index]
++        }
++        switch intent {
++        case .newTab(let background):
++            let tab = insert(target, preview: false)
++            if !background {
++                select(tab.id)
++            }
++            return tab
++        case .pin:
++            return insertAndSelect(target, preview: false)
++        case .navigate:
++            if live {
++                return insertAndSelect(target, preview: false)
++            }
++            // The untouched preview changes in place, wherever it is.
++            if let index = tabs.firstIndex(where: { $0.preview }) {
++                tabs[index].target = target
++                select(tabs[index].id)
++                return tabs[index]
++            }
++            return insertAndSelect(target, preview: true)
++        }
++    }
++
++    // `remember: false` shows a tab without moving it up the recently used
++    // order (a Control-Tab walk in progress).
++    mutating func select(_ id: Int, remember: Bool = true) {
++        guard tabs.contains(where: { $0.id == id }) else { return }
++        selectedID = id
++        guard remember else { return }
++        recent.removeAll { $0 == id }
++        recent.insert(id, at: 0)
++    }
++
++    mutating func select(index: Int) {
++        guard tabs.indices.contains(index) else { return }
++        select(tabs[index].id)
++    }
++
++    // Command-9: the last tab.
++    mutating func selectLast() {
++        if let last = tabs.last {
++            select(last.id)
++        }
++    }
++
++    // Next or previous tab in strip order, wrapping.
++    mutating func step(by offset: Int) {
++        guard !tabs.isEmpty else { return }
++        let current = selectedIndex ?? 0
++        let count = tabs.count
++        select(index: ((current + offset) % count + count) % count)
++    }
++
++    // The tab `depth` back in recently-used order (Control-Tab: 1).
++    func recentTab(depth: Int) -> OmniWindowTab? {
++        let order = recent.filter { id in tabs.contains { $0.id == id } }
++        guard !order.isEmpty else { return nil }
++        let id = order[((depth % order.count) + order.count) % order.count]
++        return tabs.first { $0.id == id }
++    }
++
++    // A click, scroll or key inside the tab: it is no longer a preview.
++    mutating func pin(_ id: Int) {
++        guard let index = index(of: id) else { return }
++        tabs[index].preview = false
++    }
++
++    mutating func pinSelected() {
++        if let selectedID {
++            pin(selectedID)
++        }
++    }
++
++    // Removes a tab. Returns the tab to show next (the most recent other
++    // one), or nil when no tab is left. `remember` keeps it for reopening.
++    @discardableResult
++    mutating func close(_ id: Int, remember: Bool = true) -> OmniWindowTab? {
++        guard let index = index(of: id) else { return selected }
++        let tab = tabs.remove(at: index)
++        recent.removeAll { $0 == id }
++        if remember {
++            closed.removeAll { $0 == tab.target }
++            closed.append(tab.target)
++            if closed.count > Self.closedLimit {
++                closed.removeFirst(closed.count - Self.closedLimit)
++            }
++        }
++        if selectedID == id {
++            selectedID = nil
++            if let next = recent.first(where: { id in tabs.contains { $0.id == id } }) {
++                select(next)
++            } else if !tabs.isEmpty {
++                select(tabs[min(index, tabs.count - 1)].id)
++            }
++        }
++        return selected
++    }
++
++    // Close Others / Close Tabs to the Right: the IDs to close.
++    func others(than id: Int) -> [Int] {
++        return tabs.map(\.id).filter { $0 != id }
++    }
++
++    func toTheRight(of id: Int) -> [Int] {
++        guard let index = index(of: id) else { return [] }
++        return tabs[(index + 1)...].map(\.id)
++    }
++
++    // The last closed target still worth reopening, removed from the stack.
++    mutating func popClosed(where usable: (OmniTabTarget) -> Bool) -> OmniTabTarget? {
++        while let target = closed.popLast() {
++            if usable(target) && tab(showing: target) == nil {
++                return target
++            }
++        }
++        return nil
++    }
++
++    // Drag to reorder.
++    mutating func move(_ id: Int, to destination: Int) {
++        guard let from = index(of: id) else { return }
++        let tab = tabs.remove(at: from)
++        tabs.insert(tab, at: max(0, min(destination, tabs.count)))
++    }
++
++    // A terminal tab that went away on its own (its shell exited, its run
++    // ended) leaves the strip without going on the reopen stack.
++    @discardableResult
++    mutating func prune(keeping isAlive: (OmniTabTarget) -> Bool) -> Bool {
++        let gone = tabs.filter { !isAlive($0.target) }.map(\.id)
++        for id in gone {
++            close(id, remember: false)
++        }
++        return !gone.isEmpty
++    }
++
++    mutating func replaceTarget(of id: Int, with target: OmniTabTarget) {
++        guard let index = index(of: id) else { return }
++        tabs[index].target = target
++    }
++
++    // MARK: - Private
++
++    // New tabs go right of the current one, as in Sublime.
++    private mutating func insert(_ target: OmniTabTarget, preview: Bool) -> OmniWindowTab {
++        let tab = OmniWindowTab(id: nextID, target: target, preview: preview)
++        nextID += 1
++        let at = selectedIndex.map { $0 + 1 } ?? tabs.count
++        tabs.insert(tab, at: at)
++        return tab
++    }
++
++    private mutating func insertAndSelect(_ target: OmniTabTarget, preview: Bool) -> OmniWindowTab {
++        let tab = insert(target, preview: preview)
++        select(tab.id)
++        return tab
++    }
++
++    // MARK: - Titles
++
++    // Sublime's disambiguation: tabs sharing a title each get the shortest
++    // trailing part of their path that tells them apart (`.env — core`).
++    static func disambiguated(_ items: [(title: String, path: String?)]) -> [String] {
++        var result = items.map(\.title)
++        let groups = Dictionary(grouping: items.indices, by: { items[$0].title })
++        for (_, indices) in groups where indices.count > 1 {
++            let parts: [[String]] = indices.map { index in
++                let path = items[index].path ?? ""
++                var components = (path as NSString).pathComponents.filter { $0 != "/" }
++                if components.last == items[index].title {
++                    components.removeLast()
++                }
++                return components
++            }
++            let longest = parts.map(\.count).max() ?? 0
++            var depth = 1
++            while depth < longest {
++                let suffixes = parts.map { $0.suffix(depth).joined(separator: "/") }
++                if Set(suffixes).count == suffixes.count {
++                    break
++                }
++                depth += 1
++            }
++            for (offset, index) in indices.enumerated() {
++                let suffix = parts[offset].suffix(depth).joined(separator: "/")
++                if !suffix.isEmpty {
++                    result[index] = "\(items[index].title) — \(suffix)"
++                }
++            }
++        }
++        return result
++    }
++}
 diff --git a/sources/PTYSession/PTYSession.h b/sources/PTYSession/PTYSession.h
 index ce73d2698257237277903ae664d5720458239e89..b82b761848dae839259e7d5878244e0d6194365a 100644
 --- a/sources/PTYSession/PTYSession.h
@@ -46089,7 +47757,7 @@ diff --git a/sources/PTYSession/PTYSession.m b/sources/PTYSession/PTYSession.m
 index a69f33a268e2f1164a5a6962d36bc5e6d912a3f8..35e7b03da712d741bb4b709070c87aa66ce93b46 100644
 --- a/sources/PTYSession/PTYSession.m
 +++ b/sources/PTYSession/PTYSession.m
-@@ -2898,7 +2898,11 @@ - (void)showOrphanAnnouncement {
+@@ -2898,7 +2898,11 @@ ITERM_WEAKLY_REFERENCEABLE
      [self jiggle];
      _jiggleUponAttach = YES;
      _adoptedAsOrphanWithoutFramerRecoveryCheck = YES;
@@ -46102,7 +47770,7 @@ index a69f33a268e2f1164a5a6962d36bc5e6d912a3f8..35e7b03da712d741bb4b709070c87aa6
  }
  
  // Session specific methods
-@@ -15630,6 +15634,10 @@ - (void)noteUserInput {
+@@ -15630,6 +15634,10 @@ typedef NS_ENUM(NSUInteger, PTYSessionTmuxReport) {
      DLog(@"User input noted for %@", self);
  }
  
@@ -46193,7 +47861,7 @@ diff --git a/sources/SessionCreation/iTermSessionLauncher.m b/sources/SessionCre
 index 436ad48e9a870fd736573e1b64b377ab7a417811..b07201c55433de955d93e2eb5db52e915fbb94a7 100644
 --- a/sources/SessionCreation/iTermSessionLauncher.m
 +++ b/sources/SessionCreation/iTermSessionLauncher.m
-@@ -879,9 +879,19 @@ - (iTermObjectType)objectType {
+@@ -879,9 +879,19 @@
  
  - (PseudoTerminal *)possiblyNewWindowControllerForProfile:(Profile *)profile
                                           toggleFullScreen:(BOOL *)togglePtr {
@@ -46257,7 +47925,7 @@ diff --git a/sources/ShellIntegration/iTermShellHistoryController.m b/sources/Sh
 index 3b1cee184846b12e43f1d5e1150242672f630ba9..7bcbd5eb570ba060fe65de4076f25d2b08485f3e 100644
 --- a/sources/ShellIntegration/iTermShellHistoryController.m
 +++ b/sources/ShellIntegration/iTermShellHistoryController.m
-@@ -162,11 +162,26 @@ - (NSString *)pathToDatabase {
+@@ -162,11 +162,26 @@ static NSString *iTermShellIntegrationRemoteHostKey(id<VT100RemoteHostReading> s
  // Note: setting vacuum to YES forces it to use the on-disk sqlite database. This allows you to
  // vacuum a database after changing the setting to in-memory. It doesn't make sense to vacuum RAM,
  // after all.
@@ -46292,7 +47960,7 @@ diff --git a/sources/TerminalView/PTYTextView+ARC.m b/sources/TerminalView/PTYTe
 index ec58a0440bd28bd860af33f8b79ddf706d37fb40..dd310309bbc53d5f6508a97327adfd8e29e7d21a 100644
 --- a/sources/TerminalView/PTYTextView+ARC.m
 +++ b/sources/TerminalView/PTYTextView+ARC.m
-@@ -715,10 +715,39 @@ - (VT100GridCoordRange)coordRangeForMark:(id<VT100ScreenMarkReading>)mark {
+@@ -715,10 +715,39 @@ iTermCommandInfoViewControllerDelegate>
  
  #pragma mark - Mouse Cursor
  
@@ -46336,7 +48004,7 @@ diff --git a/sources/TerminalView/PseudoTerminal+WindowStyle.m b/sources/Termina
 index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d1de7aeed 100644
 --- a/sources/TerminalView/PseudoTerminal+WindowStyle.m
 +++ b/sources/TerminalView/PseudoTerminal+WindowStyle.m
-@@ -538,6 +538,9 @@ - (void)updateWindowForWindowType:(iTermWindowType)windowType {
+@@ -538,6 +538,9 @@ iTermWindowType iTermWindowTypeNormalized(iTermWindowType windowType) {
      // leaves no key window, so the replacement must take over as key or typing goes nowhere and
      // menu items that act on the current window (including Window Style itself) are disabled.
      const BOOL wasKey = self.window.isKeyWindow;
@@ -46346,7 +48014,7 @@ index 3efdfb51e3e21dde672faa1859fb9e9907748cbc..0c776f0fd0d29859e2f2f6221d011e7d
      // The content view moves to the new window, so a view inside it that had focus (the find bar,
      // the composer, a tool) can keep it.
      NSView *previousFocus = [self focusedViewInContentView];
-@@ -551,9 +554,15 @@ - (void)updateWindowForWindowType:(iTermWindowType)windowType {
+@@ -551,9 +554,15 @@ iTermWindowType iTermWindowTypeNormalized(iTermWindowType windowType) {
      }
      const BOOL changed = [self replaceWindowWithWindowOfType:windowType];
      [self.window setFrame:frame display:YES];
@@ -46425,7 +48093,7 @@ index f75074cb4bdb5493c5cebdf2792d8565c0af780c..ffb06f27eb8c4cfeb0b14255020a669c
  // tab-group contiguity invariant and re-push membership to the tab bar.
  - (void)tabsDidReorder;
 diff --git a/sources/TerminalView/PseudoTerminal.m b/sources/TerminalView/PseudoTerminal.m
-index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1c8cd89bb 100644
+index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..0ed0fbf45119bd3913450f0b264aac7918853494 100644
 --- a/sources/TerminalView/PseudoTerminal.m
 +++ b/sources/TerminalView/PseudoTerminal.m
 @@ -149,6 +149,17 @@
@@ -46446,7 +48114,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  // Declared here rather than in PseudoTerminal+Private.h because the generated
  // Swift header cannot be imported from a header that the bridging header pulls in.
  @interface PseudoTerminal () <iTermWindowLocationLockControllerDelegate>
-@@ -291,6 +302,8 @@ - (void)reorderGroupTabs:(NSArray<PTYTab *> *)tabs beforeTabViewItem:(NSTabViewI
+@@ -291,6 +302,8 @@ typedef NS_ENUM(int, iTermShouldHaveTitleSeparator) {
  @end
  
  @implementation PseudoTerminal {
@@ -46455,12 +48123,14 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  
      // Reentrancy guard for -enforceTabGroupContiguityInvariant (it reorders
      // tabs, which can funnel back through reorder plumbing).
-@@ -774,6 +787,12 @@ - (void)finishInitializationWithSmartLayout:(BOOL)smartLayout
+@@ -774,6 +787,14 @@ typedef NS_ENUM(int, iTermShouldHaveTitleSeparator) {
                                                  color:[NSColor windowBackgroundColor]
                                         tabBarDelegate:self
                                               delegate:self] autorelease];
 +    _omniSidebar = [[OmniSidebarViewController alloc] initWithTerminal:self];
 +    _contentView.omniSidebarView = _omniSidebar.view;
++    _contentView.omniTabStripView = _omniSidebar.tabStripView;
++    _contentView.omniStatusBarView = _omniSidebar.statusBarView;
 +    __weak __typeof(self) weakSelfForPaneTitle = self;
 +    _omniSidebar.paneTitleDidChange = ^{
 +        [weakSelfForPaneTitle setWindowTitle];
@@ -46468,7 +48138,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      self.window.contentView = _contentView;
      if (hotkeyWindowType == iTermHotkeyWindowTypeNone) {
          self.window.alphaValue = 1;
-@@ -1085,6 +1104,9 @@ - (void)finishToolbeltInitialization {
+@@ -1085,6 +1106,9 @@ ITERM_WEAKLY_REFERENCEABLE
  
  - (void)dealloc {
      _deallocing = YES;
@@ -46478,7 +48148,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      [_contentView shutdown];
  
      [self closeInstantReplayWindow];
-@@ -2482,6 +2504,13 @@ - (BOOL)willShowTmuxWarningWhenClosingTab:(PTYTab *)aTab {
+@@ -2482,6 +2506,13 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
  }
  
  - (void)closeTab:(PTYTab *)aTab soft:(BOOL)soft {
@@ -46492,7 +48162,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      if (!soft &&
          [self tabIsAttachedTmuxTabWithSessions:aTab]) {
          if ([self numberOfTabsWithTmuxController:aTab.tmuxController] == 1) {
-@@ -2753,6 +2782,15 @@ - (void)colorPresetsDidChange:(NSNotification *)notification {
+@@ -2753,6 +2784,15 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
  
  - (IBAction)closeCurrentTab:(id)sender {
      PTYTab *tab = self.currentTab;
@@ -46508,7 +48178,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      [self closeTabIfConfirmed:tab];
  }
  
-@@ -2776,6 +2814,16 @@ - (IBAction)closeCurrentSession:(id)sender {
+@@ -2776,6 +2816,16 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          if ([aSession closeComposer]) {
              return;
          }
@@ -46525,7 +48195,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
          [self closeSessionWithConfirmation:aSession];
      }
  }
-@@ -3144,6 +3192,12 @@ - (void)setWindowTitle:(NSString *)title subtitle:(NSString *)subtitle {
+@@ -3144,6 +3194,12 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          // title can be nil during loadWindowArrangement
          title = @"";
      }
@@ -46538,7 +48208,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      if (title.length > 256) {
          const NSRange range = [title makeRangeSafe:NSMakeRange(0, 256)];
          title = [[title substringWithRange:range] stringByAppendingString:@"…"];
-@@ -3179,6 +3233,11 @@ - (void)setWindowTitle:(NSString *)title subtitle:(NSString *)subtitle {
+@@ -3179,6 +3235,11 @@ typedef NS_ENUM(NSInteger, iTermCloseSubject) {
          // Localization unneeded
          titleExWindowNumber = [titleExWindowNumber stringByAppendingString:@" 🔔"];
      }
@@ -46550,7 +48220,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      if ((self.desiredTitle && [title isEqualToString:self.desiredTitle]) ||
          [title isEqualToString:self.window.title]) {
          // Title is already up to date.
-@@ -4855,34 +4914,8 @@ - (int)numRunningSessions
+@@ -4855,34 +4916,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (BOOL)windowShouldClose:(NSNotification *)aNotification {
      RLog(@"windowShouldClose %@", self);
@@ -46587,7 +48257,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  }
  
  // If controller is nil, then do all of them.
-@@ -5813,8 +5846,149 @@ - (NSEdgeInsets)tabBarInsetsForCompactWindow {
+@@ -5813,8 +5848,149 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
      return NSEdgeInsetsZero;
  }
  
@@ -46738,7 +48408,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  }
  
  - (BOOL)anyFullScreen {
-@@ -6953,7 +7127,8 @@ - (BOOL)shouldShowPermanentFullScreenTabBar {
+@@ -6953,7 +7129,8 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          return NO;
      }
  
@@ -46748,7 +48418,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
          RLog(@"Not hiding it because of there being only one tab so return NO");
          return NO;
      }
-@@ -7268,6 +7443,11 @@ - (void)resetZoomIfNotLiveResizing {
+@@ -7268,6 +7445,11 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (void)windowWillShowInitial {
@@ -46760,7 +48430,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      [_windowPositioner windowWillShowInitial];
  }
  
-@@ -7473,6 +7653,7 @@ - (void)reallyDisableBlurIfNeeded {
+@@ -7473,6 +7655,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
      RLog(@"Did select tab view %@", tabViewItem);
@@ -46768,7 +48438,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      [_contentView.tabBarControl setFlashing:YES];
  
      if (self.autoCommandHistorySessionGuid) {
-@@ -7588,7 +7769,10 @@ - (void)updateUseMetalInAllTabs {
+@@ -7588,7 +7771,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  }
  
  - (BOOL)proxyIconIsAllowed {
@@ -46780,7 +48450,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  }
  
  - (BOOL)proxyIconShouldBeVisible {
-@@ -8207,6 +8391,7 @@ - (BOOL)useSeparateStatusbarsPerPane {
+@@ -8207,6 +8393,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
  - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
      PtyLog(@"%s(%d):-[PseudoTerminal tabViewDidChangeNumberOfTabViewItems]", __FILE__, __LINE__);
@@ -46788,7 +48458,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
      if (self.swipeIdentifier) {
          [[NSNotificationCenter defaultCenter] postNotificationName:iTermSwipeHandlerCancelSwipe
                                                              object:self.swipeIdentifier];
-@@ -8215,10 +8400,10 @@ - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
+@@ -8215,10 +8402,10 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          [session setIgnoreResizeNotifications:NO];
      }
  
@@ -46801,7 +48471,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
                                   [_contentView.tabView numberOfTabViewItems] == 1 &&
                                   !([_contentView.tabBarControl isHidden] || [self rootTerminalViewShouldLeaveEmptyAreaAtTop]));
      // check window size in case tabs have to be hidden or shown
-@@ -8367,7 +8552,7 @@ - (void)tabViewDidChangeNumberOfTabViewItems:(NSTabView *)tabView {
+@@ -8367,7 +8554,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
  
      [[NSNotificationCenter defaultCenter] postNotificationName: @"iTermNumberOfSessionsDidChange" object: self userInfo: nil];
      [self invalidateRestorableState];
@@ -46810,7 +48480,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
          // Hiding tabbar in fullscreen on 10.14 is extra work because it's a titlebar accessory.
          [self updateTabBarStyle];
      }
-@@ -8706,14 +8891,14 @@ - (PSMTabBarControl *)tabView:(NSTabView *)aTabView
+@@ -8706,14 +8893,14 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                      CGFloat titleBarHeight = 100 - contentHeight;
                      point.y += titleBarHeight;
  
@@ -46827,7 +48497,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
                          point.y -= self.tabBarControl.frame.size.height;
                      }
                      [[term window] setFrameTopLeftPoint:point];
-@@ -8744,7 +8929,7 @@ - (PSMTabBarControl *)tabView:(NSTabView *)aTabView
+@@ -8744,7 +8931,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
                  case WINDOW_TYPE_ACCESSORY:
                  case WINDOW_TYPE_COMPACT:
                  case WINDOW_TYPE_NO_TITLE_BAR:
@@ -46836,7 +48506,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
                          point.y -= self.tabBarControl.frame.size.height;
                          [[term window] setFrameTopLeftPoint:point];
                      }
-@@ -8995,7 +9180,7 @@ - (void)updateTabColors {
+@@ -8995,7 +9182,7 @@ hidingToolbeltShouldResizeWindow:(BOOL)hidingToolbeltShouldResizeWindow
          if ([_contentView.tabView selectedTabViewItem] == tabViewItem) {
              NSColor* newTabColor = [_contentView.tabBarControl tabColorForTabViewItem:tabViewItem];
              if ([_contentView.tabView numberOfTabViewItems] == 1 &&
@@ -46845,7 +48515,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
                  newTabColor) {
                  [self setBackgroundColor:newTabColor];
  
-@@ -12309,6 +12494,15 @@ - (void)fitWindowToTabsExcludingTmuxTabs:(BOOL)excludeTmux
+@@ -12309,6 +12496,15 @@ typedef NS_ENUM(NSUInteger, PseudoTerminalTabSizeExclusion) {
          RLog(@"Toggling full screen, abort");
          return;
      }
@@ -46861,7 +48531,7 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  
      if (NSEqualSizes(NSZeroSize, maxTabSize)) {
          // all tabs are tmux tabs.
-@@ -13260,10 +13454,11 @@ - (BOOL)rootTerminalViewWindowNumberLabelShouldBeVisible {
+@@ -13260,10 +13456,11 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  }
  
  - (NSColor *)rootTerminalViewTabBarBackgroundColorIgnoringTabColor:(BOOL)ignoreTabColor {
@@ -46877,20 +48547,22 @@ index 3b29bcfc53e774e040ae5d4cd0e841da74de3981..dd5f77d05ebde6e9685034282ce8f0e1
  }
  
  - (NSColor *)windowDecorationColor {
-@@ -13836,7 +14031,7 @@ - (BOOL)shouldCompensateForDisappearingTabBarAccessory {
+@@ -13836,7 +14033,9 @@ static BOOL iTermApproximatelyEqualRects(NSRect lhs, NSRect rhs, double epsilon)
  
  // Returns the size of the stuff outside the tabview.
  - (NSSize)windowDecorationSize {
 -    NSSize decorationSize = NSZeroSize;
-+    NSSize decorationSize = NSMakeSize(_contentView.omniSidebarWidth, _contentView.omniContentTopInset);
++    NSSize decorationSize = NSMakeSize(_contentView.omniSidebarWidth,
++                                       _contentView.omniContentTopInset + _contentView.omniTabStripHeight +
++                                       _contentView.omniStatusBarHeight);
  
      if (!_contentView.tabBarControl.flashing &&
          [self tabBarShouldBeVisibleWithAdditionalTabs:tabViewItemsBeingAdded]) {
 diff --git a/sources/TerminalView/iTermLayoutCalculator.h b/sources/TerminalView/iTermLayoutCalculator.h
-index 928af26612d211d5ce9c7d7790cfb9bd72b87ac6..71341f5946a9459d892d9ad6d77b53ff859dd961 100644
+index 928af26612d211d5ce9c7d7790cfb9bd72b87ac6..c4af989124be7a4eef3e150237a075f8f7e367b8 100644
 --- a/sources/TerminalView/iTermLayoutCalculator.h
 +++ b/sources/TerminalView/iTermLayoutCalculator.h
-@@ -60,6 +60,12 @@ typedef struct {
+@@ -60,6 +60,15 @@ typedef struct {
  
      /// Whether to draw window title in place of tab bar
      BOOL drawWindowTitleInPlaceOfTabBar;
@@ -46900,33 +48572,39 @@ index 928af26612d211d5ce9c7d7790cfb9bd72b87ac6..71341f5946a9459d892d9ad6d77b53ff
 +
 +    /// OmniTerm: space reserved above the tab view, right of the sidebar
 +    CGFloat omniContentTopInset;
++
++    /// OmniTerm: space reserved below the tab view, across the window (the status bar)
++    CGFloat omniContentBottomInset;
  } iTermLayoutInputs;
  
  /// Output frame rects from layout calculation.
 diff --git a/sources/TerminalView/iTermLayoutCalculator.m b/sources/TerminalView/iTermLayoutCalculator.m
-index 2055b2ee0f254bc5775950555e7e441c0c19e9c9..612fbade9e1eef61c34bf51e8a70048e3561dca6 100644
+index 2055b2ee0f254bc5775950555e7e441c0c19e9c9..b5101e31545cef72096c886d7d1af5464274eaba 100644
 --- a/sources/TerminalView/iTermLayoutCalculator.m
 +++ b/sources/TerminalView/iTermLayoutCalculator.m
-@@ -33,6 +33,26 @@ @implementation iTermLayoutCalculator
+@@ -33,6 +33,29 @@ const int kLayoutTabPositionRight = 3;
  #pragma mark - Main Entry Point
  
  + (iTermLayoutOutputs)calculateLayoutWithInputs:(iTermLayoutInputs)inputs {
-+    if (inputs.omniSidebarWidth > 0 || inputs.omniContentTopInset > 0) {
-+        // OmniTerm: lay out everything else in the area right of the sidebar
-+        // and below the inset.
++    if (inputs.omniSidebarWidth > 0 || inputs.omniContentTopInset > 0 || inputs.omniContentBottomInset > 0) {
++        // OmniTerm: lay out everything else in the area right of the sidebar,
++        // below the top inset and above the bottom one.
 +        const CGFloat sidebarWidth = inputs.omniSidebarWidth;
 +        const CGFloat topInset = inputs.omniContentTopInset;
++        const CGFloat bottomInset = inputs.omniContentBottomInset;
 +        inputs.omniSidebarWidth = 0;
 +        inputs.omniContentTopInset = 0;
++        inputs.omniContentBottomInset = 0;
 +        inputs.contentViewWidth -= sidebarWidth;
-+        inputs.contentViewHeight -= topInset;
++        inputs.contentViewHeight -= topInset + bottomInset;
 +        iTermLayoutOutputs outputs = [self calculateLayoutWithInputs:inputs];
 +        outputs.decorationHeightTop += topInset;
++        outputs.decorationHeightBottom += bottomInset;
 +        CGRect *frames[] = { &outputs.tabViewFrame, &outputs.statusBarFrame,
 +                             &outputs.toolbeltFrame, &outputs.tabBarFrame };
 +        for (size_t i = 0; i < sizeof(frames) / sizeof(*frames); i++) {
 +            if (!CGRectEqualToRect(*frames[i], CGRectZero)) {
-+                *frames[i] = CGRectOffset(*frames[i], sidebarWidth, 0);
++                *frames[i] = CGRectOffset(*frames[i], sidebarWidth, bottomInset);
 +            }
 +        }
 +        return outputs;
@@ -46935,10 +48613,10 @@ index 2055b2ee0f254bc5775950555e7e441c0c19e9c9..612fbade9e1eef61c34bf51e8a70048e
          return [self calculateLayoutWithHiddenTabBarInputs:inputs];
      }
 diff --git a/sources/TerminalView/iTermRootTerminalView.h b/sources/TerminalView/iTermRootTerminalView.h
-index 91d581a7525e34ad67408cc2c05fcc59a228ca8f..75f0d74b0212763bf13432a9820a99715a215aec 100644
+index 91d581a7525e34ad67408cc2c05fcc59a228ca8f..d85fe0ad307fc3f5f2f41c51a3c41201ffea8a61 100644
 --- a/sources/TerminalView/iTermRootTerminalView.h
 +++ b/sources/TerminalView/iTermRootTerminalView.h
-@@ -118,6 +118,15 @@ extern const NSInteger iTermRootTerminalViewWindowNumberLabelWidth;
+@@ -118,6 +118,22 @@ extern const NSInteger iTermRootTerminalViewWindowNumberLabelWidth;
  
  @property(nonatomic, readonly) BOOL scrollbarShouldBeVisible;
  
@@ -46950,15 +48628,22 @@ index 91d581a7525e34ad67408cc2c05fcc59a228ca8f..75f0d74b0212763bf13432a9820a9971
 +@property(nonatomic, readonly) BOOL omniHidesTabBar;
 +// OmniTerm: space above the tab view, right of the sidebar, for a pane header.
 +@property(nonatomic) CGFloat omniContentTopInset;
++// OmniTerm: the tab strip above the content (right of the sidebar, above the
++// pane header) and the status bar across the bottom of the window. Each takes
++// its view's height while it is set and not hidden.
++@property(nonatomic, strong) NSView *omniTabStripView;
++@property(nonatomic, strong) NSView *omniStatusBarView;
++@property(nonatomic, readonly) CGFloat omniTabStripHeight;
++@property(nonatomic, readonly) CGFloat omniStatusBarHeight;
 +
  @property(nonatomic, readonly) BOOL tabBarShouldBeVisible;
  @property(nonatomic, readonly) BOOL tabBarShouldBeVisibleEvenWhenOnLoan;
  
 diff --git a/sources/TerminalView/iTermRootTerminalView.m b/sources/TerminalView/iTermRootTerminalView.m
-index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2494247e1 100644
+index e325adabcb21c93cbbb1fffbd27fba0974e07634..cd9421a934b957ce97640923c69e07ab2bfaaefb 100644
 --- a/sources/TerminalView/iTermRootTerminalView.m
 +++ b/sources/TerminalView/iTermRootTerminalView.m
-@@ -818,6 +818,7 @@ - (void)viewDidMoveToWindow {
+@@ -818,6 +818,7 @@ typedef struct {
      if (!self.window) {
          return;
      }
@@ -46966,7 +48651,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      [self didChangeCompactness];
      for (int i = 0; i < self.numberOfWindowButtons; i++) {
          NSButton *button = _standardButtons[@(self.windowButtonTypes[i])];
-@@ -1049,49 +1050,12 @@ - (void)updateTitleAndBorderViews {
+@@ -1049,49 +1050,12 @@ typedef struct {
      [self updateTextColors];
  }
  
@@ -47022,7 +48707,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
  }
  
  // Returns the window's outer corner radius (concentric with the system mask).
-@@ -1110,6 +1074,18 @@ - (CGFloat)resolvedWindowBorderCornerRadius {
+@@ -1110,6 +1074,18 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      return MAX(0, cached.doubleValue);
  }
  
@@ -47041,7 +48726,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
  - (void)updateBorderViews {
      NSWindow *window = self.window;
  
-@@ -1142,7 +1118,7 @@ - (void)updateBorderViews {
+@@ -1142,7 +1118,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      // stroke the heavy border as an inner rectangle inset from the real window
      // edge. layoutSubviews positions every other subview explicitly, so do the
      // same here and keep the border flush with the window bounds.
@@ -47050,7 +48735,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      // Draw the stroke entirely inside the window so it has a uniform width on
      // edges and corners and does not depend on the system mask clipping its
      // outer half (which left the curved corners thinner than the straight
-@@ -1150,14 +1126,15 @@ - (void)updateBorderViews {
+@@ -1150,14 +1126,15 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      // inset by half the border width, so its corner radius is the window's
      // outer radius minus that inset to keep the outer edge concentric with the
      // window corner.
@@ -47070,7 +48755,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      _windowBorderView.borderColor = [self resolvedWindowBorderColor];
  }
  
-@@ -1292,6 +1269,9 @@ - (void)updateWindowNameBesideTabs {
+@@ -1292,6 +1269,9 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
  }
  
  - (void)setWindowTitleLabelToString:(NSString *)title subtitle:(NSString *)subtitle icon:(NSImage *)icon {
@@ -47080,7 +48765,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      id<PSMPUAFontProvider> puaFontProvider = [self.delegate rootTerminalViewPUAFontProvider];
      _windowTitleLabel.puaFontProvider = puaFontProvider;
  
-@@ -1309,7 +1289,7 @@ - (void)setWindowTitleLabelToString:(NSString *)title subtitle:(NSString *)subti
+@@ -1309,7 +1289,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
          leftAlignTitleBarMinimalTahoe = [iTermAdvancedSettingsModel leftAlignTitleBarMinimalTahoe];
      }
      iTermWindowTitleLabelInputs *inputs =
@@ -47089,7 +48774,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
                                                    subtitle:subtitle
                                                        icon:icon
                                                   textColor:_windowTitleLabel.textColor
-@@ -1327,7 +1307,7 @@ - (void)setWindowTitleLabelToString:(NSString *)title subtitle:(NSString *)subti
+@@ -1327,7 +1307,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      }
      _lastRenderedWindowTitleLabelInputs = inputs;
  
@@ -47098,7 +48783,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
       ^NSTextAlignment(NSTextField * _Nonnull scratch) {
           BOOL leftAligned = NO;
           [self frameForWindowTitleLabel:scratch
-@@ -1558,6 +1538,7 @@ - (void)updateToolbeltFrameForWindow:(NSWindow *)thisWindow {
+@@ -1558,6 +1538,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
  }
  
  - (void)shutdown {
@@ -47106,7 +48791,7 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      [_toolbelt shutdown];
      _toolbelt = nil;
      _delegate = nil;
-@@ -1584,7 +1565,27 @@ - (BOOL)tabBarShouldBeVisibleEvenWhenOnLoan {
+@@ -1584,7 +1565,51 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      }
  }
  
@@ -47116,6 +48801,30 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
 +    if (omniSidebarView) {
 +        [self addSubview:omniSidebarView positioned:NSWindowBelow relativeTo:_windowBorderView];
 +    }
++}
++
++- (void)setOmniTabStripView:(NSView *)view {
++    [_omniTabStripView removeFromSuperview];
++    _omniTabStripView = view;
++    if (view) {
++        [self addSubview:view positioned:NSWindowBelow relativeTo:_windowBorderView];
++    }
++}
++
++- (void)setOmniStatusBarView:(NSView *)view {
++    [_omniStatusBarView removeFromSuperview];
++    _omniStatusBarView = view;
++    if (view) {
++        [self addSubview:view positioned:NSWindowBelow relativeTo:_windowBorderView];
++    }
++}
++
++- (CGFloat)omniTabStripHeight {
++    return (_omniTabStripView && !_omniTabStripView.hidden) ? NSHeight(_omniTabStripView.frame) : 0;
++}
++
++- (CGFloat)omniStatusBarHeight {
++    return (_omniStatusBarView && !_omniStatusBarView.hidden) ? NSHeight(_omniStatusBarView.frame) : 0;
 +}
 +
 +- (CGFloat)omniSidebarWidth {
@@ -47134,17 +48843,18 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      if (([_delegate anyFullScreen] || [_delegate enteringLionFullscreen]) &&
          ![iTermPreferences boolForKey:kPreferenceKeyShowFullscreenTabBar]) {
          DLog(@"Tabbar should not be visible because in full screen");
-@@ -1736,6 +1737,9 @@ - (iTermLayoutInputs)layoutInputsForWindow:(NSWindow *)thisWindow {
+@@ -1736,6 +1761,10 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      // Title in tab bar
      inputs.drawWindowTitleInPlaceOfTabBar = [self.delegate rootTerminalViewShouldDrawWindowTitleInPlaceOfTabBar];
  
 +    inputs.omniSidebarWidth = self.omniSidebarWidth;
-+    inputs.omniContentTopInset = self.omniContentTopInset;
++    inputs.omniContentTopInset = self.omniContentTopInset + self.omniTabStripHeight;
++    inputs.omniContentBottomInset = self.omniStatusBarHeight;
 +
      return inputs;
  }
  
-@@ -2045,7 +2049,7 @@ - (void)layoutSubviews {
+@@ -2045,7 +2074,7 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      self.tabBarControl.smartTruncation = [iTermAdvancedSettingsModel tabTitlesUseSmartTruncation];
  
      _backgroundImage.frame = self.bounds;
@@ -47153,13 +48863,24 @@ index e325adabcb21c93cbbb1fffbd27fba0974e07634..2395316c8709af5431bcc8af428df3a2
      [self layoutWindowPaneDecorations];
  
      // The tab view frame (calculated below) is based on the toolbelt's width. If the toolbelt is
-@@ -2066,6 +2070,10 @@ - (void)layoutSubviews {
+@@ -2066,6 +2095,21 @@ static NSColor *iTermWindowBorderColorFromSetting(NSString *setting) {
      if (showToolbeltInline) {
          [self updateToolbeltFrameForWindow:thisWindow];
      }
++    const CGFloat omniStatusHeight = self.omniStatusBarHeight;
++    const CGFloat omniStripHeight = self.omniTabStripHeight;
++    const CGFloat omniContentTop = NSMaxY(self.tabView.frame) + _omniContentTopInset;
 +    if (_omniSidebarView) {
-+        _omniSidebarView.frame = NSMakeRect(0, 0, NSWidth(_omniSidebarView.frame),
-+                                            NSMaxY(self.tabView.frame) + _omniContentTopInset);
++        _omniSidebarView.frame = NSMakeRect(0, omniStatusHeight, NSWidth(_omniSidebarView.frame),
++                                            omniContentTop + omniStripHeight - omniStatusHeight);
++    }
++    if (_omniTabStripView) {
++        const CGFloat x = self.omniSidebarWidth;
++        _omniTabStripView.frame = NSMakeRect(x, omniContentTop, MAX(0, NSWidth(self.bounds) - x),
++                                             NSHeight(_omniTabStripView.frame));
++    }
++    if (_omniStatusBarView) {
++        _omniStatusBarView.frame = NSMakeRect(0, 0, NSWidth(self.bounds), NSHeight(_omniStatusBarView.frame));
 +    }
  
      DLog(@"repositionWidgets - redraw view");
@@ -47168,7 +48889,7 @@ diff --git a/sources/TerminalView/iTermWindowImpl.m b/sources/TerminalView/iTerm
 index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b1e2f39ef 100644
 --- a/sources/TerminalView/iTermWindowImpl.m
 +++ b/sources/TerminalView/iTermWindowImpl.m
-@@ -370,8 +370,25 @@ - (void)setLayoutDone {
+@@ -370,8 +370,25 @@ ITERM_WEAKLY_REFERENCEABLE
      _layoutDone = YES;
  }
  
@@ -47194,7 +48915,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b
      if (!_layoutDone) {
          RLog(@"try to call windowWillShowInitial");
          [self setLayoutDone];
-@@ -384,6 +401,9 @@ - (void)makeKeyAndOrderFront:(nullable id)sender {
+@@ -384,6 +401,9 @@ ITERM_WEAKLY_REFERENCEABLE
      DLog(@"%@ - calling makeKeyAndOrderFont, which triggers a window resize", NSStringFromClass([self class]));
      DLog(@"The current window frame is %fx%f", [self frame].size.width, [self frame].size.height);
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
@@ -47204,7 +48925,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
      self.it_becomingKey = YES;
      [super makeKeyAndOrderFront:sender];
-@@ -400,12 +420,18 @@ - (BOOL)canBecomeMainWindow {
+@@ -400,12 +420,18 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderWindow:(NSWindowOrderingMode)place relativeTo:(NSInteger)otherWin {
@@ -47223,7 +48944,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
      DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
-@@ -413,6 +439,9 @@ - (void)orderFrontRegardless {
+@@ -413,6 +439,9 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderFront:(nullable id)sender {
@@ -47233,7 +48954,7 @@ index 04e2de82d72c6c0e627aa5739264b56c1d8cedd2..00832a4a8bc439daa6c5a165504e702b
      DLog(@"Invalidate cached occlusion: %@ %p", NSStringFromSelector(_cmd), self);
      DLog(@"%@\n%@", NSStringFromSelector(_cmd), [NSThread callStackSymbols]);
      [[iTermWindowOcclusionChangeMonitor sharedInstance] invalidateCachedOcclusion];
-@@ -420,6 +449,9 @@ - (void)orderFront:(nullable id)sender {
+@@ -420,6 +449,9 @@ ITERM_WEAKLY_REFERENCEABLE
  }
  
  - (void)orderBack:(nullable id)sender {
@@ -47284,7 +49005,7 @@ diff --git a/sources/iTermController/iTermController.m b/sources/iTermController
 index fcee462da8768f15d6e759a234a355cd273d6c99..7016f968d48abf4fa30dd859fb18384c437f5427 100644
 --- a/sources/iTermController/iTermController.m
 +++ b/sources/iTermController/iTermController.m
-@@ -138,12 +138,6 @@ - (instancetype)init {
+@@ -138,12 +138,6 @@ static iTermController *gSharedInstance;
      self = [super init];
  
      if (self) {
