@@ -84,6 +84,29 @@ class ProjectsTest(unittest.TestCase):
         found = [row[0] for row in db.execute("SELECT workspace FROM s WHERE " + condition, bindings)]
         self.assertEqual(found, ["/w/acme/web", "/w/acme/web/@head/x"])
 
+    def test_a_checkout_symlinked_into_another_project_makes_them_one(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = PROJECTS.os.path.realpath(folder)
+            inner = folder + "/acme/.dev/components/app"
+            outer = folder + "/acme/app"
+            PROJECTS.os.makedirs(inner)
+            PROJECTS.os.makedirs(outer)
+            PROJECTS.os.symlink(inner, outer + "/@head")
+            listed = [{"id": inner, "root": inner, "name": "core", "layout": "plain",
+                       "checkouts": [{"name": "core", "path": inner}]},
+                      {"id": outer, "root": outer, "name": "core", "layout": "forge",
+                       "checkouts": [{"name": "@head", "path": outer + "/@head"}]}]
+            resolved = {"/elsewhere/spike": inner}
+            projects = PROJECTS.Projects(cache=None, runner=lambda arguments, stdin: {
+                "schema": 1, "projects": listed, "resolved": {p: resolved.get(p) for p in (stdin or "").split()}})
+            self.assertEqual([p["root"] for p in projects.list_projects({})["projects"]], [outer])
+            sessions = [{"workspace": inner + "/app"}, {"workspace": outer + "/@head"}, {"workspace": "/elsewhere/spike"}]
+            projects.annotate(sessions)
+            projects._refresh(list_again=False)
+            projects.annotate(sessions)
+            self.assertEqual([s["project"]["root"] for s in sessions], [outer, outer, outer])
+            self.assertEqual(projects._known(inner)["root"], outer)  # the folded project's old id still answers
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,58 @@ def find_forge(environ=None):
     return python, os.path.realpath(launcher)
 
 
+def _survivor_rank(project):
+    # The project that reaches the other through a symlinked checkout is the person's working copy: a
+    # forge layout with checkouts beats the plain folder it points into, and a visible path a hidden one.
+    root = project["root"]
+    return (project.get("layout") != "forge", -len(project.get("checkouts") or []), "/." in root, len(root), root)
+
+
+def merge_symlinked(projects):
+    """Folds projects that are one folder reached two ways (a checkout symlinked into another project's
+    root, or two roots resolving to the same place) into one. The survivor keeps the others' paths, so
+    their sessions land on it, and lists their roots under `aliases`; `_known` still answers to them."""
+    real = {id(p): os.path.realpath(p["root"]) for p in projects}
+    parent = {id(p): id(p) for p in projects}
+
+    def find(key):
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    for one in projects:
+        bases = set(one.get("_bases") or [one["root"]]) | {real[id(one)]}
+        for other in projects:
+            if other is not one and real[id(other)] in bases:
+                parent[find(id(other))] = find(id(one))
+    groups = {}
+    for project in projects:
+        groups.setdefault(find(id(project)), []).append(project)
+    merged = []
+    for project in projects:
+        group = groups.get(find(id(project)))
+        if not group:
+            continue  # already emitted with its group
+        groups[find(id(project))] = None
+        if len(group) == 1:
+            merged.append(project)
+            continue
+        group.sort(key=_survivor_rank)
+        survivor = dict(group[0])
+        others = group[1:]
+        bases = set(survivor.get("_bases") or [survivor["root"]])
+        for other in others:
+            bases |= set(other.get("_bases") or [other["root"]]) | {real[id(other)]}
+        survivor["_bases"] = sorted(bases)
+        survivor["aliases"] = sorted({a for other in others
+                                      for a in [other["root"], other.get("id")] + list(other.get("aliases") or [])
+                                      if isinstance(a, str) and a != survivor["root"]}
+                                     | set(survivor.get("aliases") or []))
+        merged.append(survivor)
+    return merged
+
+
 CACHE = "~/Library/Application Support/OmniTerm/forge-projects.json"
 
 
@@ -103,7 +155,8 @@ class Projects:
                 data = json.load(handle)
             projects = data.get("projects")
             if isinstance(projects, list):
-                self._projects = [p for p in projects if isinstance(p, dict) and isinstance(p.get("root"), str)]
+                self._projects = merge_symlinked(
+                    [p for p in projects if isinstance(p, dict) and isinstance(p.get("root"), str)])
             resolved = data.get("resolved")
             if isinstance(resolved, dict):
                 self._resolved = {k: v for k, v in resolved.items()
@@ -164,6 +217,7 @@ class Projects:
                     bases = [project["root"]] + [c.get("path") for c in project.get("checkouts") or []
                                                  if isinstance(c, dict) and isinstance(c.get("path"), str)]
                     project["_bases"] = sorted({os.path.realpath(b) for b in bases} | set(bases))
+                projects = merge_symlinked(projects)
                 with self._lock:
                     self._projects = projects
                     self._listed_at = self._clock()
@@ -222,7 +276,8 @@ class Projects:
         self._kick(wait=self._projects is None)
         with self._lock:
             for project in self._projects or []:
-                if project.get("id") == identifier or project.get("root") == identifier:
+                if project.get("id") == identifier or project.get("root") == identifier \
+                        or identifier in (project.get("aliases") or ()):
                     return project
         raise ValueError("unknown project")
 
@@ -260,7 +315,8 @@ class Projects:
         project = self._known(identifier)
         bases = project.get("_bases") or [project["root"]]
         with self._lock:
-            exact = [path for path, root in self._resolved.items() if root == project["root"]][:200]
+            roots = {project["root"], *(project.get("aliases") or ())}
+            exact = [path for path, root in self._resolved.items() if root in roots][:200]
         parts, bindings = [], []
         for base in bases[:50]:
             prefix = base.rstrip("/") + "/"
@@ -294,7 +350,7 @@ class Projects:
         self._kick()
         with self._lock:
             projects = list(self._projects or [])
-            by_root = {p["root"]: p for p in projects}
+            by_root = {root: p for p in projects for root in [*(p.get("aliases") or ()), p["root"]]}
             now = self._clock()
             for session in sessions:
                 workspace = session.get("workspace")
