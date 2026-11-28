@@ -1,3 +1,4 @@
+import datetime
 import importlib.util
 import json
 import tempfile
@@ -285,6 +286,42 @@ class StoreTests(unittest.TestCase):
         self.clock.now += BLOCKS.SKIP_HOLD_SECONDS + 1  # the second look waits twice as long
         self.assertEqual(self.store.list({})["blocks"], [])
 
+    def test_a_released_goal_stays_quiet_through_its_loop_until_the_person_speaks(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.store.home = home
+            transcript = write_transcript(home, [reply({"type": "text", "text": "Blocked on option 3"})])
+            block = self.store.record(claude("Stop", 1000, transcript_path=transcript))["block"]
+            self.clock.now = 1100
+            released = self.store.skip({"block_id": block["block_id"], "reason": "only the owner's choice is left",
+                                        "release": True})["block"]
+            self.assertEqual(released["state"], "released")
+            # Its /loop wakes it every ten minutes for days: never looked at again.
+            for _ in range(20):
+                self.clock.now += 600
+                self.store.record(claude("UserPromptSubmit", self.clock.now))
+                self.store.record(claude("Stop", self.clock.now + 30, transcript_path=transcript))
+            self.clock.now += 86400
+            self.assertEqual(self.store.list({"state": "open"})["blocks"], [])
+            self.assertEqual(self.documents["block:claude:" + SESSION]["block_id"], block["block_id"])
+            # The person typing ends the release.
+            stamp = datetime.datetime.fromtimestamp(self.clock.now - 5, datetime.timezone.utc).isoformat()
+            with open(transcript, "a") as handle:
+                handle.write(json.dumps({**person("ok, ran it"), "origin": {"kind": "human"}, "timestamp": stamp}) + "\n")
+            reopened = self.store.record(claude("Stop", self.clock.now, transcript_path=transcript))["block"]
+            self.assertEqual(reopened["state"], "open")
+            self.assertNotEqual(reopened["block_id"], block["block_id"])
+            # So does a new goal.
+            again = self.store.skip({"block_id": reopened["block_id"], "reason": "owner's call", "release": True})["block"]
+            self.assertEqual(again["state"], "released")
+            fresh = self.store.record(claude("Stop", self.clock.now + 10, transcript_path=transcript,
+                                             goal={**GOAL, "objective": "Ship the import page"}))["block"]
+            self.assertEqual(fresh["state"], "open")
+
+    def test_release_needs_an_active_goal(self):
+        block = self.store.record(claude("Stop", 1000, goal=None))["block"]
+        result = self.store.skip({"block_id": block["block_id"], "reason": "done", "release": True})["block"]
+        self.assertEqual(result["state"], "skipped")
+
     def test_skip_closes_the_block(self):
         block = self.open_idle()
         self.store.skip({"block_id": block["block_id"], "reason": "finished report"})
@@ -315,6 +352,27 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                                         "message": "yes", "reason": "x"})
             self.assertFalse(denied["ok"])
             self.assertEqual(denied["code"], "block_protected")
+
+
+    def test_a_release_tells_the_session_once_why_and_to_stop_its_loop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            knowledge = KNOWLEDGE.KnowledgeStore(home=Path(directory), roots=[], semantics=False)
+            response = knowledge.request({"op": "record_block", "event": claude("Stop", 1000, last_assistant_message="Blocked")})
+            block_id = response["block"]["block_id"]
+            knowledge.blocks.clock = lambda: 1100
+            with mock.patch.object(knowledge, "send_session_message",
+                                   return_value={"receipt": {"state": "sent"}}) as send:
+                released = knowledge.request({"op": "skip_block", "block_id": block_id, "release": True,
+                                              "reason": "Only the owner's backup choice is left"})
+                self.assertTrue(released["ok"], released)
+                knowledge.request({"op": "record_block", "event": claude("Stop", 1700)})
+            send.assert_called_once()
+            message = send.call_args.args[0]["message"]
+            self.assertIn("Only the owner's backup choice is left", message)
+            self.assertIn("CronDelete", message)
+            self.assertEqual(send.call_args.args[0]["sender_name"], KNOWLEDGE.UNBLOCKER_SENDER)
+            stored = knowledge.request({"op": "list_blocked", "state": "all"})["blocks"][0]
+            self.assertEqual((stored["state"], stored["release_message"]), ("released", "sent"))
 
 
 class HookTests(unittest.TestCase):

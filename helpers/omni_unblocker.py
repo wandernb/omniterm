@@ -79,6 +79,12 @@ the person right now?
    on the keep-blocked list and no route around it serves the goal; or you
    cannot tell. Never pick a new direction,
    add scope, accept a memo or approve a proposal.
+   RELEASE (skip_block with release true) when the goal is done, or only the
+   person can move it (their decision, a hands-on check, a kept step) and no
+   other goal work is left: a /goal or /loop would otherwise wake it again and
+   again for nothing. OmniTerm then tells the session once to stop its loop
+   and summarize for the person. Never release a session that waits on its
+   own running job, or one you cannot judge.
 
 2. kind permission with held true: a permission or question dialog is waiting
    inside a hook for you. Call answer_block with decision allow when the action
@@ -104,7 +110,8 @@ Call get_block once, then exactly one of answer_block or skip_block. If
 answer_block fails with block_stale, the session is already working: stop
 there, without skip_block. When you
 skip because the person must decide something, also call notify_user once with
-severity attention, naming the project and the decision. End with one line:
+severity attention, naming the project and the decision (after a release, add
+that /goal clear in that session ends its goal). End with one line:
 what you did and why."""
 
 TOOLS = ("get_block", "answer_block", "skip_block", "notify_user")
@@ -342,6 +349,10 @@ def outcome_of(after, result):
         return "allowed", decision.get("reason") or "Allowed the held dialog"
     if state == "skipped":
         return "skipped", block.get("skip_reason") or ""
+    if state == "released":
+        sent = after.get("block", {}).get("release_message") or "not sent"
+        return "released", f"Released the goal; the session was asked to stop its loop and summarize ({sent}). " + \
+            (block.get("skip_reason") or "")
     if result.get("is_error") or not result:
         return "error", str(result.get("result") or result.get("error") or "The provider call failed")
     return "no_action", str(result.get("result") or "")
@@ -484,7 +495,7 @@ def run_pass(request, home=None, environ=None, run=subprocess.run, clock=time.ti
                "seconds": clock() - started})
         summary["handled"] += 1
         summary["outcomes"].append({"block_id": block["block_id"], "outcome": outcome})
-        if outcome in ("answered", "allowed", "skipped"):
+        if outcome in ("answered", "allowed", "skipped", "released"):
             attempts.pop(block["block_id"], None)
         elif unreachable and outcome == "error":
             # Not the block's fault: try it again after a pause.

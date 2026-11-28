@@ -9,6 +9,8 @@ into something answerable. Anything this module does not recognise is
 treated as protected.
 """
 
+import datetime
+import hashlib
 import json
 import os
 import re
@@ -581,6 +583,55 @@ def goal_active(block):
     return isinstance(goal, dict) and goal.get("state") == "active"
 
 
+def goal_key(goal):
+    """Which goal a block works toward, so a release holds for that goal only."""
+    if not isinstance(goal, dict):
+        return ""
+    text = f"{goal.get('command') or ''}\n{goal.get('objective') or ''}"
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def person_spoke_since(path, since, home=None, max_bytes=1048576):
+    """Whether the person typed into a Claude session after `since` (epoch
+    seconds). Claude Code marks what the person types origin.kind "human"; a
+    loop's prompt, goal-check feedback and relayed messages are not."""
+    if not isinstance(path, str) or not path:
+        return False
+    root = (Path(home) if home else Path.home()) / ".claude/projects"
+    try:
+        candidate = Path(path).resolve()
+        if root.resolve() not in candidate.parents or not candidate.is_file():
+            return False
+        with open(candidate, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - max_bytes))
+            data = handle.read()
+    except OSError:
+        return False
+    for line in reversed(data.decode("utf-8", "replace").splitlines()):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get("type") != "user":
+            continue
+        origin = entry.get("origin")
+        if not isinstance(origin, dict) or origin.get("kind") != "human":
+            continue
+        try:
+            at = datetime.datetime.fromisoformat(str(entry.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        return at > since
+    return False
+
+
+RELEASE_NOTE = """OmniTerm is releasing this goal: it cannot move on without the owner, so nobody will push it further.
+Why: {reason}
+
+Stop working toward it now. Cancel any /loop or scheduled wake-up you set for it (CronList, then CronDelete; or ScheduleWakeup with stop), and when a goal check fires again with nothing changed, answer in one line without doing anything. Reply once, for the owner: what is done, what is blocked and why, and the exact command or decision that would unblock it. Then end your turn. The owner ends a /goal with /goal clear."""
+
+
 def permission_output(decision, tool_input=None):
     """The PermissionRequest hook's reply to an allow, or None to show the dialog."""
     if not isinstance(decision, dict) or decision.get("behavior") != "allow":
@@ -600,6 +651,8 @@ class BlockStore:
         self.clock = clock or time.time
         # Pre-approval works only while the PreToolUse hook is installed.
         self.grants_enabled = True
+        # Where Claude transcripts live; the person's own prompts end a release.
+        self.home = None
 
     def record(self, event):
         if not isinstance(event, dict):
@@ -655,6 +708,19 @@ class BlockStore:
             block = {**block, "updated": ts}
             self.write(key, block)
             return {"block": block, "escalate": False}
+        released = block.get("released") if isinstance(block.get("released"), dict) else None
+        if released and name == "stop" and kind == IDLE:
+            goal = event.get("goal") if isinstance(event.get("goal"), dict) else None
+            if block.get("provider", session.split(":")[0]) != "claude":
+                goal = goal or (None if event.get("goal_end") else block.get("goal"))
+            path = clean_text(event.get("transcript_path"), 1024) or block.get("transcript_path", "")
+            if goal_key(goal) == released.get("goal") and not person_spoke_since(path, released.get("at", 0), self.home):
+                # Released for this goal: its loop and goal checks end turns with
+                # nothing for anyone until the person speaks or the goal changes.
+                block = {**block, "state": "released", "updated": ts}
+                self.write(key, block)
+                return {"block": block, "escalate": False}
+            block = {key_: value for key_, value in block.items() if key_ != "released"}
         # Every Stop is a new turn: a /goal hook or a queued message may have
         # continued the session without a UserPromptSubmit.
         # A /goal or /loop hook that keeps the session going ends a turn every
@@ -738,7 +804,7 @@ class BlockStore:
                 len(answers) < ANSWERS_PER_HOUR and block.get("auto_unblock") is not False)
         return {key: block.get(key) for key in ("block_id", "session_id", "provider", "kind", "state", "cwd",
                                                 "prompt", "created", "updated", "skip_reason", "goal",
-                                                "request", "decision", "hold_until")} | {
+                                                "request", "decision", "hold_until", "release_message")} | {
             "age_seconds": round(now - block.get("created", now)),
             "auto_unblock": block.get("auto_unblock") is not False,
             "held": self.held(block),
@@ -947,6 +1013,10 @@ class BlockStore:
             raise BlockError("This block is no longer open", "block_closed")
         updated = {**block, "state": "skipped", "updated": self.clock(), "skip_reason": reason,
                    "skipped_at": self.clock()}
+        if arguments.get("release") is True and block.get("kind") in ANSWERABLE_KINDS and goal_active(block):
+            # Nothing anyone but the person can do moves this goal: end the wait
+            # for good rather than looking at it again every loop tick.
+            updated.update(state="released", released={"goal": goal_key(block.get("goal")), "at": self.clock()})
         self.write(KEY_PREFIX + block["session_id"], updated)
         return {"block": self.public(updated)}
 

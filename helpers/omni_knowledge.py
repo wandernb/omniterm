@@ -3704,6 +3704,7 @@ class KnowledgeStore:
                                                (prefix, upper)).fetchall()
                 return [(row["key"], json.loads(row["value"])) for row in rows]
             self._blocks = module.BlockStore(self._document_value, self._document, scan)
+            self._blocks.home = self.home
         return self._blocks
 
     def record_block(self, arguments):
@@ -3814,7 +3815,8 @@ class KnowledgeStore:
     # The Unblocker page's audit trail: one record per thing the listener did,
     # failures included. Kept 14 days, newest first.
     AUDIT_PREFIX = "unblock-audit:"
-    AUDIT_OUTCOMES = frozenset(("answered", "allowed", "skipped", "no_action", "error", "granted_call", "retired", "policy"))
+    AUDIT_OUTCOMES = frozenset(("answered", "allowed", "skipped", "released", "no_action", "error", "granted_call",
+                                "retired", "policy"))
 
     def _audit(self, entry):
         now = time.time()
@@ -3891,6 +3893,22 @@ class KnowledgeStore:
     def skip_block(self, arguments):
         result = self.blocks.skip(arguments)
         self.connection.commit()
+        block = result["block"]
+        if block.get("state") == "released":
+            # Once per goal: the store keeps later turns of it released, so this never repeats.
+            note = self._blocks_module.RELEASE_NOTE.format(reason=block.get("skip_reason") or "")
+            try:
+                receipt = self.send_session_message({"session_id": block["session_id"], "request_id": block["block_id"],
+                                                     "message": note, "sender_name": UNBLOCKER_SENDER},
+                                                    unblocker=True)["receipt"]
+            except (KnowledgeError, ValueError) as error:
+                receipt = {"state": "rejected", "detail": str(error)[:300]}
+            stored = self.blocks.read(self._blocks_module.KEY_PREFIX + block["session_id"])
+            if isinstance(stored, dict) and stored.get("block_id") == block["block_id"]:
+                self._document(self._blocks_module.KEY_PREFIX + block["session_id"],
+                               {**stored, "release_message": receipt.get("state")})
+                self.connection.commit()
+            result = {**result, "receipt": receipt}
         return result
 
     def get_session_message(self, arguments):

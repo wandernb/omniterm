@@ -45499,10 +45499,10 @@ index 0000000000000000000000000000000000000000..a728f25ff229d3f55ae7a0cc310f928c
 +}
 diff --git a/sources/OmniTerm/OmniUnblockerPane.swift b/sources/OmniTerm/OmniUnblockerPane.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..c2a623cf5f2d4343054ffecdf1827c9b3853212c
+index 0000000000000000000000000000000000000000..e845eed2c9df7e41aaaaaaf4083a1c27b1aa51da
 --- /dev/null
 +++ b/sources/OmniTerm/OmniUnblockerPane.swift
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,536 @@
 +import AppKit
 +import Foundation
 +
@@ -45515,6 +45515,7 @@ index 0000000000000000000000000000000000000000..c2a623cf5f2d4343054ffecdf1827c9b
 +        case "answered": return "Answered"
 +        case "allowed": return "Allowed a dialog"
 +        case "skipped": return "Left for you"
++        case "released": return "Released for you"
 +        case "error": return "Failed"
 +        case "granted_call": return "Pre-approved call ran"
 +        case "retired": return "Set up"
@@ -45567,7 +45568,7 @@ index 0000000000000000000000000000000000000000..c2a623cf5f2d4343054ffecdf1827c9b
 +        switch outcome {
 +        case "answered": return .arrowshapeTurnUpLeft
 +        case "allowed", "granted_call": return .checkmarkCircle
-+        case "skipped": return .personCropCircle
++        case "skipped", "released": return .personCropCircle
 +        case "error": return .exclamationmarkTriangle
 +        default: return .circle
 +        }
@@ -45576,7 +45577,7 @@ index 0000000000000000000000000000000000000000..c2a623cf5f2d4343054ffecdf1827c9b
 +    static func color(_ outcome: String) -> NSColor? {
 +        switch outcome {
 +        case "answered", "allowed", "granted_call": return OmniTheme.running
-+        case "skipped": return OmniTheme.waiting
++        case "skipped", "released": return OmniTheme.waiting
 +        case "error": return OmniTheme.failed
 +        default: return nil
 +        }

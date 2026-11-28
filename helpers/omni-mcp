@@ -401,8 +401,13 @@ KNOWLEDGE_TOOLS = [
           "reason": {"type": "string", "minLength": 1, "maxLength": 300}},
          ["block_id", "reason"], idempotent=True),
     tool("skip_block", "Skip a blocked session",
-         "Leave an open block for the person and record why. It stays visible in omni blocked --all.",
-         {"block_id": BLOCK_ID, "reason": {"type": "string", "minLength": 1, "maxLength": 300}},
+         "Leave an open block for the person and record why. It stays visible in omni blocked --all. "
+         "release true, for a goal session that cannot move without the person (the goal is done, or only their "
+         "decision or hands-on check is left), also ends the wait for that goal: OmniTerm tells the session once to "
+         "stop its loop and goal work and summarize for the person, and does not look at that goal again until the "
+         "person types or the goal changes. Never release a session waiting on its own running job.",
+         {"block_id": BLOCK_ID, "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+          "release": {"type": "boolean", "default": False}},
          ["block_id", "reason"], idempotent=True),
     tool("code_graph", "Query the code graph",
          "Answer code-structure questions from OmniTerm's self-maintaining graph of every project's source files "
