@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -709,6 +710,94 @@ def stop_output(payload, home=None):
     reason = clean_text(marker.get("reason"), 300)
     return {"continue": False,
             "stopReason": f"OmniTerm ended this goal: {reason} Type a message to resume it, or /goal clear."}
+
+
+# Terminals whose AppleScript can type into the session that runs on a tty.
+TYPING_HOSTS = {"/iTerm.app/": "com.googlecode.iterm2", "/OmniTerm.app/": "com.omniterm.app"}
+TYPE_SCRIPT = """on run argv
+  set wanted to item 1 of argv
+  tell application id "BUNDLE"
+    repeat with w in windows
+      repeat with t in tabs of w
+        repeat with s in sessions of t
+          if tty of s is wanted then
+            tell s to write text (item 2 of argv)
+            return "typed"
+          end if
+        end repeat
+      end repeat
+    end repeat
+  end tell
+  return "missing"
+end run"""
+
+
+def _claude_process(raw, home=None):
+    """The live Claude process of a session, from Claude Code's own session files."""
+    for path in ((Path(home) if home else Path.home()) / ".claude/sessions").glob("*.json"):
+        try:
+            entry = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(entry, dict) and entry.get("sessionId") == raw and isinstance(entry.get("pid"), int):
+            try:
+                os.kill(entry["pid"], 0)
+            except OSError:
+                continue
+            return entry["pid"], path
+    return None, None
+
+
+def _ps(pid, field):
+    try:
+        return subprocess.run(["/bin/ps", "-o", f"{field}=", "-p", str(pid)], capture_output=True, text=True,
+                              timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def type_goal_clear(session, home=None, wait=90, sleep=time.sleep):
+    """Type /goal clear into a released Claude session's terminal: Claude Code
+    clears a goal only from typed input, never from a relayed message. Runs only
+    once the session is idle, through the terminal's own AppleScript, and only
+    for terminals that have one. Returns what happened."""
+    raw = session.split(":", 1)[1] if session.startswith("claude:") else ""
+    pid, record = _claude_process(raw, home)
+    if not pid:
+        return "no_process"
+    for _ in range(max(1, wait // 3)):
+        try:
+            status = json.loads(record.read_text()).get("status")
+        except (OSError, ValueError):
+            status = None
+        if status == "idle":
+            break
+        sleep(3)
+    else:
+        return "busy"
+    tty = _ps(pid, "tty")
+    if not tty or tty.startswith("?"):
+        return "no_tty"
+    bundle, parent = None, pid
+    for _ in range(12):
+        parent = _ps(parent, "ppid")
+        if not parent.isdigit() or parent in ("0", "1"):
+            break
+        command = _ps(parent, "comm")
+        bundle = next((value for marker, value in TYPING_HOSTS.items() if marker in command), None)
+        if bundle:
+            break
+    if not bundle:
+        return "no_terminal"
+    try:
+        # The id is compiled in: a terminal's own words (sessions, tty, write text)
+        # resolve only against an application named in the script itself.
+        result = subprocess.run(["/usr/bin/osascript", "-e", TYPE_SCRIPT.replace("BUNDLE", bundle),
+                                 "/dev/" + tty, "/goal clear"],
+                                capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return "failed"
+    return result.stdout.strip() or "failed"
 
 
 RELEASE_NOTE = """OmniTerm is releasing this goal: it cannot move on without the owner, so nobody will push it further.
@@ -1451,3 +1540,9 @@ def hooks_status(home=None):
     except (OSError, ValueError):
         pass
     return status
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:2] == ["type-goal-clear"] and len(sys.argv) == 3:
+        print(type_goal_clear(sys.argv[2]))

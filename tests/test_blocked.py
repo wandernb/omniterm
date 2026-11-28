@@ -425,7 +425,12 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                 released = knowledge.request({"op": "skip_block", "block_id": block_id, "release": True,
                                               "reason": "Only the owner's backup choice is left"})
                 self.assertTrue(released["ok"], released)
-                knowledge.request({"op": "record_block", "event": claude("Stop", 1700)})
+                with mock.patch.object(KNOWLEDGE.subprocess, "Popen") as typing:
+                    knowledge.request({"op": "record_block", "event": claude("Stop", 1700)})
+                    knowledge.request({"op": "record_block", "event": claude("Stop", 1800)})
+            # Its next turn ends with the goal still set: type /goal clear once, not every Stop.
+            typing.assert_called_once()
+            self.assertEqual(typing.call_args.args[0][-2:], ["type-goal-clear", "claude:" + SESSION])
             send.assert_called_once()
             message = send.call_args.args[0]["message"]
             self.assertIn("Only the owner's backup choice is left", message)

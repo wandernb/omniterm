@@ -23,6 +23,7 @@ import socket
 import sqlite3
 import stat
 import struct
+import sys
 import subprocess
 import time
 import uuid
@@ -3722,7 +3723,30 @@ class KnowledgeStore:
                          "detail": "A pre-approved call was refused again by auto mode: "
                                    f"{denial.get('tool_input') or denial.get('tool_name')}"})
         block = result["block"]
+        if block and block.get("state") == "released" and event.get("event") == "stop":
+            self._clear_released_goal(block)
         return {"block": self.blocks.public(block) if block else None, "escalate": result["escalate"]}
+
+    def _clear_released_goal(self, block):
+        """A released Claude goal still ends turns: type /goal clear into its
+        terminal, the only way Claude Code clears one. Twice at most, ten minutes apart."""
+        if block.get("provider") != "claude":
+            return
+        tried = block.get("goal_clear") if isinstance(block.get("goal_clear"), dict) else {}
+        now = time.time()
+        if tried.get("count", 0) >= 2 or now - tried.get("at", 0) < 600:
+            return
+        key = self._blocks_module.KEY_PREFIX + block["session_id"]
+        self._document(key, {**block, "goal_clear": {"count": tried.get("count", 0) + 1, "at": now}})
+        self.connection.commit()
+        try:
+            subprocess.Popen([sys.executable, str(Path(self._blocks_module.__file__)), "type-goal-clear",
+                              block["session_id"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            return
+        self._audit({"outcome": "released", "session_id": block["session_id"], "cwd": block.get("cwd"),
+                     "detail": "Typing /goal clear into the session's terminal once it is idle"})
 
     def _refresh_grants_enabled(self):
         self.blocks  # loads the module
