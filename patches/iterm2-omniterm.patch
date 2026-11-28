@@ -9935,10 +9935,10 @@ index 0000000000000000000000000000000000000000..8200fffa59494314d34a33c3013325c0
 +}
 diff --git a/ModernTests/OmniWindowTabsTests.swift b/ModernTests/OmniWindowTabsTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..61253b4a9355217daa009703784b80066317c391
+index 0000000000000000000000000000000000000000..40bcc21c57a468fbb94571ed04cecfb8bd3e1989
 --- /dev/null
 +++ b/ModernTests/OmniWindowTabsTests.swift
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,408 @@
 +//
 +//  OmniWindowTabsTests.swift
 +//  ModernTests
@@ -10307,6 +10307,23 @@ index 0000000000000000000000000000000000000000..61253b4a9355217daa009703784b8006
 +        XCTAssertEqual(handed, [1])
 +        XCTAssertEqual(strip.insertionIndex(atWindowPoint: NSPoint(x: 0, y: y)), 0)
 +        XCTAssertEqual(strip.insertionIndex(atWindowPoint: NSPoint(x: 399, y: y)), 2)
++    }
++
++    // OmniTerm windows move by their background, and the window server takes
++    // a drag over any view that allows it before the strip sees it: a tab
++    // would drag the window instead of reordering.
++    func testNothingInTheStripLetsADragMoveTheWindow() {
++        let (strip, _) = strip([1, 2], selected: 1)
++        var views: [NSView] = [strip]
++        var index = 0
++        while index < views.count {
++            views.append(contentsOf: views[index].subviews)
++            index += 1
++        }
++        XCTAssertGreaterThan(views.count, 1)
++        for view in views {
++            XCTAssertFalse(view.mouseDownCanMoveWindow, "\(type(of: view)) would move the window")
++        }
 +    }
 +
 +    func testADropOnAGroupsContentFindsThatGroup() {
@@ -39123,10 +39140,10 @@ index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a9addee589dd50e42cd7c80c8b5a78c74b7d4d26
+index 0000000000000000000000000000000000000000..575373eb773a489426e640180161b6f7d0f15084
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,6680 @@
+@@ -0,0 +1,6686 @@
 +import AppKit
 +import Foundation
 +import os
@@ -39694,10 +39711,9 @@ index 0000000000000000000000000000000000000000..a9addee589dd50e42cd7c80c8b5a78c7
 +        sessionSearchField.delegate = self
 +        updateSearchFieldForMode()
 +        root.addSubview(sessionSearchField)
-+        // As in Sublime, no line parts the sidebar from the tabs and the
-+        // content; their colours do.
++        // A line parts the sidebar from the content, but not from the tabs:
++        // sidebar, title bar and tab strip are one surface, as in Sublime.
 +        separator.boxType = .separator
-+        separator.isHidden = true
 +        root.addSubview(separator)
 +
 +        newTerminalButton.bezelStyle = .inline
@@ -39842,7 +39858,7 @@ index 0000000000000000000000000000000000000000..a9addee589dd50e42cd7c80c8b5a78c7
 +
 +    private func layout(_ size: NSSize) {
 +        scrollView.frame = NSRect(x: 0, y: 0, width: max(0, size.width - 1), height: size.height)
-+        separator.frame = NSRect(x: max(0, size.width - 1), y: 0, width: 1, height: size.height)
++        layoutContentEdge(size)
 +        (view as? OmniSidebarView)?.resizeHandle.frame = NSRect(x: max(0, size.width - 5), y: 0, width: 5,
 +                                                                height: size.height)
 +        // The rows start under the title bar and its hairline.
@@ -45396,7 +45412,14 @@ index 0000000000000000000000000000000000000000..a9addee589dd50e42cd7c80c8b5a78c7
 +
 +    // MARK: Strip
 +
++    // The line beside the content starts under the tab strip.
++    fileprivate func layoutContentEdge(_ size: NSSize) {
++        let top = titleBarOverlap + (tabsHidden ? 0 : OmniWindowTabStrip.height)
++        separator.frame = NSRect(x: max(0, size.width - 1), y: top, width: 1, height: max(0, size.height - top))
++    }
++
 +    fileprivate func refreshTabStrip() {
++        layoutContentEdge(view.bounds.size)
 +        let wasHidden = tabStripView.isHidden
 +        let stripsWereHidden = groupsView.stripsHidden
 +        groupsView.stripsHidden = tabsHidden
@@ -46140,10 +46163,10 @@ index 0000000000000000000000000000000000000000..76afba9d31bac0de6483883730fa0301
 +}
 diff --git a/sources/OmniTerm/OmniTheme.swift b/sources/OmniTerm/OmniTheme.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..23c906b15520633149c8ddd2237fbad0059cb4c0
+index 0000000000000000000000000000000000000000..fcbb33a11335cf9d897de3b9de76be35b1715313
 --- /dev/null
 +++ b/sources/OmniTerm/OmniTheme.swift
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,375 @@
 +//
 +//  OmniTheme.swift
 +//  iTerm2SharedARC
@@ -46191,14 +46214,19 @@ index 0000000000000000000000000000000000000000..23c906b15520633149c8ddd2237fbad0
 +    // MARK: - Window tabs and status bar
 +
 +    // As in Sublime, the title bar, the side bar and the tab strip are one
-+    // colour: the sidebar's material. Unselected tabs are open on it, with
-+    // a line under them; the selected tab takes the colour of what it shows.
++    // colour: the sidebar's material. Unselected tabs are solid, a shade
++    // off it, with a line under them; the selected tab takes the colour of
++    // what it shows.
 +    static let tabStripBackground: NSColor = wellBackground
-+    static let tabInactiveBackground: NSColor = .clear
++    static let tabInactiveBackground = NSColor(name: nil) { appearance in
++        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
++            ? NSColor.white.withAlphaComponent(0.035)
++            : NSColor.black.withAlphaComponent(0.03)
++    }
 +    static let tabHoverBackground = NSColor(name: nil) { appearance in
 +        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-+            ? NSColor.white.withAlphaComponent(0.05)
-+            : NSColor.black.withAlphaComponent(0.04)
++            ? NSColor.white.withAlphaComponent(0.08)
++            : NSColor.black.withAlphaComponent(0.06)
 +    }
 +    static let tabBottomBorder = NSColor(name: nil) { appearance in
 +        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -48349,10 +48377,10 @@ index 0000000000000000000000000000000000000000..e845eed2c9df7e41aaaaaaf4083a1c27
 +}
 diff --git a/sources/OmniTerm/OmniWindowGroupsView.swift b/sources/OmniTerm/OmniWindowGroupsView.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e77241983407
+index 0000000000000000000000000000000000000000..fac17b738147622466fd4d95fc91479a842a46eb
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowGroupsView.swift
-@@ -0,0 +1,261 @@
+@@ -0,0 +1,333 @@
 +//
 +//  OmniWindowGroupsView.swift
 +//  iTerm2SharedARC
@@ -48371,6 +48399,9 @@ index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e772
 +    // Where a group without focus shows its content.
 +    private(set) var containers: [NSView] = []
 +    private var emptyLabels: [NSTextField] = []
++    // One stretch of the sidebar's material per row of strips, across the
++    // gaps between groups: a divider parts the contents, not the tabs.
++    private var bands: [OmniStripBand] = []
 +
 +    var groupLayout = OmniGroupLayout.single {
 +        didSet {
@@ -48514,6 +48545,7 @@ index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e772
 +
 +    override func layout() {
 +        super.layout()
++        layoutBands()
 +        for index in strips.indices {
 +            let cell = cell(index)
 +            strips[index].frame = NSRect(x: cell.minX, y: cell.maxY - OmniWindowTabStrip.height,
@@ -48525,6 +48557,30 @@ index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e772
 +            let content = contentRect(index)
 +            label.frame = NSRect(x: content.minX, y: content.midY - label.frame.height / 2,
 +                                 width: content.width, height: label.frame.height)
++        }
++    }
++
++    private func layoutBands() {
++        var rows: [CGFloat: NSRect] = [:]
++        if !stripsHidden {
++            for index in strips.indices {
++                let cell = cell(index)
++                let strip = NSRect(x: cell.minX, y: cell.maxY - OmniWindowTabStrip.height,
++                                   width: cell.width, height: OmniWindowTabStrip.height)
++                rows[strip.minY] = rows[strip.minY].map { $0.union(strip) } ?? strip
++            }
++        }
++        let frames = rows.keys.sorted().compactMap { rows[$0] }
++        while bands.count < frames.count {
++            let band = OmniStripBand(frame: .zero)
++            addSubview(band, positioned: .below, relativeTo: strips.first)
++            bands.append(band)
++        }
++        while bands.count > frames.count {
++            bands.removeLast().removeFromSuperview()
++        }
++        for (band, frame) in zip(bands, frames) {
++            band.frame = frame
 +        }
 +    }
 +
@@ -48608,6 +48664,50 @@ index 0000000000000000000000000000000000000000..078f24f54e23a5c0bd6c5bfddf06e772
 +
 +    required init?(coder: NSCoder) {
 +        it_fatalError("init(coder:) has not been implemented")
++    }
++
++    override func hitTest(_ point: NSPoint) -> NSView? {
++        return nil
++    }
++}
++
++// The material under a row of strips, with the line the strips draw under
++// their tabs carried across the gaps between them.
++final class OmniStripBand: NSView {
++    private let material = OmniChromeMaterial()
++    private let line = OmniStripBandLine()
++
++    override var mouseDownCanMoveWindow: Bool { false }
++
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        for view in [material, line] as [NSView] {
++            addSubview(view)
++        }
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) has not been implemented")
++    }
++
++    override func layout() {
++        super.layout()
++        material.frame = bounds
++        line.frame = NSRect(x: 0, y: 0, width: bounds.width, height: 1)
++    }
++
++    override func setFrameSize(_ newSize: NSSize) {
++        super.setFrameSize(newSize)
++        needsLayout = true
++    }
++}
++
++private final class OmniStripBandLine: NSView {
++    override var mouseDownCanMoveWindow: Bool { false }
++
++    override func draw(_ dirtyRect: NSRect) {
++        OmniTheme.tabBottomBorder.setFill()
++        bounds.fill()
 +    }
 +
 +    override func hitTest(_ point: NSPoint) -> NSView? {
@@ -49097,10 +49197,10 @@ index 0000000000000000000000000000000000000000..cd85cf40cd0b609c48bc6d2c84068582
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabStrip.swift b/sources/OmniTerm/OmniWindowTabStrip.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adff12019fd
+index 0000000000000000000000000000000000000000..7b10be17facba07af418d046c469b7916c627944
 --- /dev/null
 +++ b/sources/OmniTerm/OmniWindowTabStrip.swift
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,497 @@
 +//
 +//  OmniWindowTabStrip.swift
 +//  iTerm2SharedARC
@@ -49155,7 +49255,7 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +
 +    // The strip shows the sidebar's material, as Sublime's tabs sit on its
 +    // side bar's colour; the tabs are drawn on a view above it.
-+    private let material = NSVisualEffectView()
++    private let material = OmniChromeMaterial()
 +    private let canvas = OmniTabStripCanvas()
 +
 +    override var needsDisplay: Bool {
@@ -49208,7 +49308,6 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +    override init(frame frameRect: NSRect) {
 +        super.init(frame: frameRect)
 +        autoresizingMask = [.width, .minYMargin]
-+        OmniTheme.configureSidebar(material)
 +        for view in [material, canvas] as [NSView] {
 +            view.frame = bounds
 +            view.autoresizingMask = [.width, .height]
@@ -49299,11 +49398,6 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +
 +    fileprivate func drawStrip(_ dirtyRect: NSRect) {
 +        layoutTabs()
-+        // The line under the other tabs, between them and the content; the
-+        // selected tab covers its part and opens onto the content.
-+        OmniTheme.tabBottomBorder.setFill()
-+        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
-+
 +        NSGraphicsContext.saveGraphicsState()
 +        NSRect(x: 0, y: 0, width: bounds.width - Self.newTabWidth + 4, height: bounds.height).clip()
 +        var selectedPair: (OmniTabStripItem, NSRect)?
@@ -49314,10 +49408,16 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +            }
 +            drawTab(item, in: frame.rect)
 +        }
++        // The line under the other tabs, between them and the content; the
++        // selected tab covers its part and opens onto the content.
++        OmniTheme.tabBottomBorder.setFill()
++        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
 +        if let (item, rect) = selectedPair {
 +            drawTab(item, in: rect)
 +        }
 +        NSGraphicsContext.restoreGraphicsState()
++        OmniTheme.tabBottomBorder.setFill()
++        NSRect(x: bounds.width - Self.newTabWidth + 4, y: bounds.maxY - 1, width: Self.newTabWidth, height: 1).fill()
 +        drawNewTabButton()
 +    }
 +
@@ -49333,6 +49433,14 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +        }
 +        let closed = path.copy() as! NSBezierPath
 +        closed.close()
++        // A tab is solid: it hides the edge of the one it overlaps, then
++        // takes its tint over the strip's material.
++        if let context = NSGraphicsContext.current {
++            let operation = context.compositingOperation
++            context.compositingOperation = .clear
++            closed.fill()
++            context.compositingOperation = operation
++        }
 +        fill.setFill()
 +        closed.fill()
 +        (item.selected ? OmniTheme.cardBorder : OmniTheme.tabBottomBorder).setStroke()
@@ -49564,6 +49672,7 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +// Where the strip's tabs are drawn, over its material.
 +private final class OmniTabStripCanvas: NSView {
 +    override var isFlipped: Bool { true }
++    override var mouseDownCanMoveWindow: Bool { false }
 +
 +    override func draw(_ dirtyRect: NSRect) {
 +        (superview as? OmniWindowTabStrip)?.drawStrip(dirtyRect)
@@ -49571,6 +49680,22 @@ index 0000000000000000000000000000000000000000..0bbbf7cd70cbbe34cb867d4a617f6adf
 +
 +    override func hitTest(_ point: NSPoint) -> NSView? {
 +        return nil
++    }
++}
++
++// The sidebar's material behind the tab strips. Windows here move by their
++// background, and a material would hand a drag on a strip to the window:
++// tabs drag instead.
++final class OmniChromeMaterial: NSVisualEffectView {
++    override var mouseDownCanMoveWindow: Bool { false }
++
++    override init(frame frameRect: NSRect) {
++        super.init(frame: frameRect)
++        OmniTheme.configureSidebar(self)
++    }
++
++    required init?(coder: NSCoder) {
++        it_fatalError("init(coder:) has not been implemented")
 +    }
 +}
 diff --git a/sources/OmniTerm/OmniWindowTabs.swift b/sources/OmniTerm/OmniWindowTabs.swift

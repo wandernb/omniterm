@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Unselected tabs are solid, a shade off the bar, so where two tabs overlap the front one hides the other's edge.
+- A line now separates the content from the sidebar, starting under the tab bar. Between split groups, the divider stops at the content: the tab bars run unbroken above it.
+
+### Fixed
+
+- Dragging a tab to reorder it, or onto the other side of a split, works again. In 0.13.0 the drag moved the window instead.
+
 ## [0.13.0] - 2026-11-28
 
 ### Changed
