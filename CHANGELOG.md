@@ -18,7 +18,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Fixed
 
-- Typing in the Unblocker's policy and in Settings' fields works again. The page refreshed every two seconds and took the keyboard away; it now waits while you type, and Return and the arrow keys stay in the field.
+- Typing in a Markdown editor (the Unblocker's policy, an agent's prompts) keeps the cursor where you type; every key used to send it to the end of the text. Typing in the Unblocker's policy and in Settings' fields works again. The page refreshed every two seconds and took the keyboard away; it now waits while you type, and Return and the arrow keys stay in the field.
 - An agent run or resumed session starting no longer moves the window to it. It opens in the background and shows in the sidebar; the page you are on stays put, also when OmniTerm relaunches and picks its running agents back up.
 - Command-N opens New Agent instead of an arbitrary terminal tab. New Tab and the sidebar's + still open a terminal.
 - The Omni Unblocker reaches every waiting goal session again. A few old sessions it had already checked used up every pass, so newer ones were never looked at. Waiting-session lists now keep the newest when they are trimmed.

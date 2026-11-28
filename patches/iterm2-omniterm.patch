@@ -1446,10 +1446,10 @@ index 0000000000000000000000000000000000000000..fb71a73b9f6213ad205d417f3f2d94eb
 +}
 diff --git a/ModernTests/OmniMarkdownEditorTests.swift b/ModernTests/OmniMarkdownEditorTests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5e225d906
+index 0000000000000000000000000000000000000000..5f126837e7b58674771eab0f55eedf70859046d8
 --- /dev/null
 +++ b/ModernTests/OmniMarkdownEditorTests.swift
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,347 @@
 +//
 +//  OmniMarkdownEditorTests.swift
 +//  ModernTests
@@ -1644,6 +1644,33 @@ index 0000000000000000000000000000000000000000..d7eb675c51f8cb99e8cf285b8f9272b5
 +        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
 +                                windowNumber: window.windowNumber, context: nil, characters: character,
 +                                charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode)!
++    }
++
++    // Typing in the middle of the text keeps the insertion point where the
++    // person types: restyling after each key must not send it to the end.
++    func testTypingInTheMiddleKeepsTheInsertionPoint() throws {
++        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled],
++                              backing: .buffered, defer: false)
++        window.isReleasedWhenClosed = false
++        self.window = window
++        let editor = OmniMarkdownEditor()
++        editor.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
++        window.contentView?.addSubview(editor)
++        editor.text = "# Policy\n\nKeep **goal** sessions moving."
++        window.makeFirstResponder(editor.textView)
++        editor.textView.setSelectedRange(NSRange(location: 2, length: 0))
++        for (index, character) in ["M", "y", " "].enumerated() {
++            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
++                                                       windowNumber: window.windowNumber, context: nil, characters: character,
++                                                       charactersIgnoringModifiers: character, isARepeat: false, keyCode: 0))
++            editor.textView.keyDown(with: event)
++            XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 3 + index, length: 0), "after \(character)")
++        }
++        XCTAssertEqual(editor.text, "# My Policy\n\nKeep **goal** sessions moving.")
++        editor.textView.setSelectedRange(NSRange(location: 22, length: 0))
++        editor.textView.insertText("ing", replacementRange: NSRange(location: NSNotFound, length: 0))
++        XCTAssertEqual(editor.textView.selectedRange(), NSRange(location: 25, length: 0))
++        editor.textView.undoManager?.removeAllActions()
 +    }
 +
 +    func testCommandBWrapsTheSelectionOnlyWhileFocused() {
@@ -7373,10 +7400,10 @@ index 0000000000000000000000000000000000000000..4db76c1f48d4c44e00c2c63c79c56a97
 +}
 diff --git a/ModernTests/OmniSidebarUITests.swift b/ModernTests/OmniSidebarUITests.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..7882148e293ef1fd004c7da40d40e0f018cab76e
+index 0000000000000000000000000000000000000000..511583920a17adc79bc41dedbac24c9df6de76f5
 --- /dev/null
 +++ b/ModernTests/OmniSidebarUITests.swift
-@@ -0,0 +1,2355 @@
+@@ -0,0 +1,2362 @@
 +//
 +//  OmniSidebarUITests.swift
 +//  ModernTests
@@ -8015,6 +8042,13 @@ index 0000000000000000000000000000000000000000..7882148e293ef1fd004c7da40d40e0f0
 +        pane.show(tab: .general)
 +        let editable: (NSTextField) -> Bool = { $0.isEditable && !($0 is NSSearchField) && !$0.isHiddenOrHasHiddenAncestor }
 +        wait("a field shows") { Self.find(NSTextField.self, in: pane, where: editable) != nil }
++        // Let the page's first load finish: it rebuilds the page once.
++        let loads = { self.fake.requests("get_settings").count }
++        var seen = -1
++        while seen != loads() {
++            seen = loads()
++            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
++        }
 +        let field = try XCTUnwrap(Self.find(NSTextField.self, in: pane, where: editable))
 +        XCTAssertTrue(window.makeFirstResponder(field))
 +        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
@@ -18996,10 +19030,10 @@ index 0000000000000000000000000000000000000000..1d6c0eeb0f46cb007052ec260f5f3ff7
 +}
 diff --git a/sources/OmniTerm/OmniMarkdownEditor.swift b/sources/OmniTerm/OmniMarkdownEditor.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d03fa430a0
+index 0000000000000000000000000000000000000000..2e82125bbe334a5a259c3a5163609736cb0b716f
 --- /dev/null
 +++ b/sources/OmniTerm/OmniMarkdownEditor.swift
-@@ -0,0 +1,1963 @@
+@@ -0,0 +1,1974 @@
 +import AppKit
 +import Foundation
 +
@@ -20480,14 +20514,25 @@ index 0000000000000000000000000000000000000000..269a319debbbb7ec696bbd66ded003d0
 +        styling = false
 +    }
 +
++    // Restyles the whole text after a typed change. The restyle is not
++    // reported as an edit of the whole text: that made the text view treat
++    // every keystroke as replacing everything and move the insertion point
++    // to the end. The layout is invalidated directly instead.
 +    override func processEditing() {
-+        if !styling, editedMask.contains(.editedCharacters) {
++        let restyle = !styling && editedMask.contains(.editedCharacters)
++        if restyle {
 +            styling = true
 +            OmniMarkdownStyler.apply(to: backing, fontSize: fontSize)
-+            edited(.editedAttributes, range: NSRange(location: 0, length: backing.length), changeInLength: 0)
 +            styling = false
 +        }
 +        super.processEditing()
++        if restyle {
++            let whole = NSRange(location: 0, length: backing.length)
++            for manager in layoutManagers {
++                manager.invalidateLayout(forCharacterRange: whole, actualCharacterRange: nil)
++                manager.invalidateDisplay(forCharacterRange: whole)
++            }
++        }
 +    }
 +}
 +
