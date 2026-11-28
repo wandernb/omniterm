@@ -14,7 +14,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - The Memory graph's controls sit in three tidy rows that adapt to the window: the view switch and highlight field, the filters, then the link legend.
 - Memory Search shows how to search, examples and your recent searches before you type, suggests what to try when nothing matches, and searches as you type.
 - Page tabs (a project's, Settings') scroll sideways when they do not fit, and the chosen tab's bold label no longer shifts the others.
-- The sidebar's top group has room above Dashboard and below Settings, and its trees read more clearly: deeper indentation, bold folders with how many items they hold, and faint guides from each folder to its items.
+- The sidebar's top group has room above Dashboard and below Settings, and its trees read more clearly: each project is one line with a short time (21h, 2w, 3mo) on the right, folders are bold with how many items they hold, levels are indented further, and faint guides join each folder to its items.
 
 ### Fixed
 

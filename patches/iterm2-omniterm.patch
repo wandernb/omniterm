@@ -37507,10 +37507,10 @@ index 0000000000000000000000000000000000000000..00938bd13b4feadaa66dab946c75a1c3
 +}
 diff --git a/sources/OmniTerm/OmniSidebarModel.swift b/sources/OmniTerm/OmniSidebarModel.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f540437919a292b7
+index 0000000000000000000000000000000000000000..d8c39f4e01a98105e87711ba1866cc6d4dd0a002
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarModel.swift
-@@ -0,0 +1,701 @@
+@@ -0,0 +1,712 @@
 +import AppKit
 +import Foundation
 +
@@ -38132,6 +38132,17 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +        return formatter.string(from: Date(timeIntervalSince1970: timestamp))
 +    }
 +
++    // As short as a sidebar's trailing column allows: "now", "5m", "3h",
++    // "2d", "3w", "4mo", "2y".
++    static func compactAge(_ timestamp: Double?, now: Date = Date()) -> String {
++        guard let timestamp, timestamp > 0 else { return "" }
++        let days = max(0, now.timeIntervalSince1970 - timestamp) / 86400
++        if days < 14 { return age(timestamp, now: now) }
++        if days < 60 { return "\(Int(days / 7))w" }
++        if days < 365 { return "\(Int(days / 30))mo" }
++        return "\(Int(days / 365))y"
++    }
++
 +    // "14:05", or "24/11/2026, 14:05" on another day.
 +    static func dateText(_ timestamp: Double) -> String {
 +        let date = Date(timeIntervalSince1970: timestamp)
@@ -38214,10 +38225,10 @@ index 0000000000000000000000000000000000000000..a25b7c7ee36648228b8f3532f5404379
 +}
 diff --git a/sources/OmniTerm/OmniSidebarViewController.swift b/sources/OmniTerm/OmniSidebarViewController.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdcd037942d
+index 0000000000000000000000000000000000000000..5b9ed1ff4913b107d679bc2576f1959e3c18517b
 --- /dev/null
 +++ b/sources/OmniTerm/OmniSidebarViewController.swift
-@@ -0,0 +1,5101 @@
+@@ -0,0 +1,5114 @@
 +import AppKit
 +import Foundation
 +import os
@@ -40449,7 +40460,7 @@ index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdc
 +                    guard let project = byRoot[root] else { return nil }
 +                    let title = projectLayout.name(root) ?? OmniProjectsModel.name(project)
 +                    let updated = (project["updated"] as? NSNumber)?.doubleValue
-+                    let row = item(.project, key: root, title: title, detail: OmniSessionText.age(updated),
++                    let row = item(.project, key: root, title: title, detail: OmniSessionText.compactAge(updated),
 +                                   route: .project(root))
 +                    row.groupPath = projectLayout.folders[root] ?? ""
 +                    (row.icon, row.iconColor) = projectLayout.appearance(root)
@@ -42208,7 +42219,8 @@ index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdc
 +        if item.kind == .modeSwitch {
 +            return Self.modeSwitchRowHeight
 +        }
-+        return item.kind == .section ? 26 : (item.detail.isEmpty ? 28 : 38)
++        // A project's detail (when it was last worked on) sits on its title's line.
++        return item.kind == .section ? 26 : (item.detail.isEmpty || item.kind == .project ? 28 : 38)
 +    }
 +
 +    // Every row a person can select shows the pointer over it.
@@ -42256,12 +42268,14 @@ index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdc
 +        let identifier = NSUserInterfaceItemIdentifier("OmniSidebarCell")
 +        let cell = outlineView.makeView(withIdentifier: identifier, owner: self) as? OmniSidebarCell ?? OmniSidebarCell()
 +        cell.identifier = identifier
++        cell.detailTrailing = false
 +        switch item.kind {
 +        case .agent, .run, .recentRun:
 +            let icon = item.icon ?? .symbol(OmniAgentIcon.defaultSymbol)
 +            cell.configure(title: item.title, detail: item.detail, icon: icon,
 +                           iconColor: OmniAgentColor.color(item.iconColor), status: item.color, pulses: item.pulses)
 +        case .project:
++            cell.detailTrailing = true
 +            cell.configure(title: item.title, detail: item.detail, icon: item.icon ?? .symbol(SFSymbol.shippingbox.rawValue),
 +                           iconColor: OmniAgentColor.color(item.iconColor), status: nil, pulses: false)
 +        case .memoryResult:
@@ -42763,6 +42777,9 @@ index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdc
 +    private let emojiLabel = NSTextField(labelWithString: "")
 +    // Rows with an icon show their status dot at the trailing edge.
 +    private var dotTrailing = false
++    // One line: the detail (a short time) muted at the trailing edge, as on a
++    // project row, instead of a second line under the title.
++    var detailTrailing = false
 +    private var problemWork: DispatchWorkItem?
 +    private var shownDetail = ""
 +    let badge = OmniSidebarBadge()
@@ -42928,9 +42945,16 @@ index 0000000000000000000000000000000000000000..c672408c462ef104569ac564ed369fdc
 +        let countWidth: CGFloat = badge.isHidden ? 0 : badge.fittingWidth + 8
 +        let width = max(0, bounds.width - x - 4 - countWidth)
 +        // Cell views are not flipped: y grows upwards.
-+        let titleY = detail.isHidden ? (bounds.height - 17) / 2 : bounds.height - 21
++        let inline = detailTrailing && !detail.isHidden
++        detail.alignment = inline ? .right : .natural
++        let titleY = detail.isHidden || inline ? (bounds.height - 17) / 2 : bounds.height - 21
 +        title.frame = NSRect(x: x, y: titleY, width: detail.isHidden ? max(0, width - dotRoom) : width, height: 17)
 +        detail.frame = NSRect(x: x, y: 4, width: max(0, width - dotRoom), height: 14)
++        if inline {
++            let detailWidth = min(ceil(detail.fittingSize.width) + 2, 64)
++            detail.frame = NSRect(x: bounds.width - 4 - countWidth - detailWidth, y: titleY + 1.5, width: detailWidth, height: 14)
++            title.frame.size.width = max(0, detail.frame.minX - 8 - x)
++        }
 +        let iconY = titleY + 0.5
 +        if isTopRow {
 +            let slot = OmniTheme.Sidebar.iconSlot
